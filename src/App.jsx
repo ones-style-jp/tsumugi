@@ -1104,6 +1104,8 @@ const _exTextW = (str, px) => {
 // ★ 2026-10-29: 提供記録の表の文字の大きさ。iPad の Safari(2026年5月の WebKit の修正より前)は、全画面の倍率(zoom)で文字だけ拡大されないため、
 //   表に --tsu-fz(足りない倍率)を付けて文字の大きさに掛ける(付け方は RecordView の _fsFz)。付いていない所(パソコン・ほかの画面)は 1 で今までと同じ大きさ
 const tsuFz = (n) => `calc(${n}px * var(--tsu-fz, 1))`;
+// ★ 2026-10-29: 指で操作する端末(スマホ・タブレット)か。名前の選択を開いたときに検索欄へ自動で入らない(キーボードが出て画面が動く・固まるのを防ぐ)ために使う
+const tsuTouchDev = () => { try { return (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || (navigator.maxTouchPoints || 0) > 1 || tsuViewW() < 768; } catch { return false; } };
 const _exFitFs = (str, cap = 15, min = 8, avail = 70) => {
   const t = String(str || ''); if (!t) return cap;
   // 安全のため 1px の余裕を見る
@@ -12399,13 +12401,13 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
           </button>
           {patDropOpen && (
             <>
-              <div style={{position:'fixed',inset:0,zIndex:9998}} onClick={()=>setPatDropOpen(false)}/>
+              <div data-tsu-nolock="1" style={{position:'fixed',inset:0,zIndex:9998}} onClick={()=>setPatDropOpen(false)}/>{/* ★ 2026-10-29: 透明の幕は後ろの画面を止めない(サービス提供記録の名前の選択と同じ直し) */}
               <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,background:'white',border:'1px solid #e2e8f0',borderRadius:12,boxShadow:'0 8px 32px rgba(0,0,0,0.15)',zIndex:9999,minWidth:260,maxHeight:380,display:'flex',flexDirection:'column'}}>
                 <div style={{padding:'8px 8px 4px'}}>
                   <div style={{display:'flex',alignItems:'center',gap:6,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px'}}>
                     <Search size={14} color="#94a3b8"/>
-                    <input autoFocus type="text" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
-                      placeholder="氏名・フリガナで検索..." style={{border:'none',background:'transparent',outline:'none',fontSize:13,fontWeight:'bold',flex:1,width:0}}/>
+                    <input autoFocus={!tsuTouchDev()} type="text" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
+                      placeholder="氏名・フリガナで検索..." style={{border:'none',background:'transparent',outline:'none',fontSize:tsuTouchDev() ? 16 : 13,fontWeight:'bold',flex:1,width:0}}/>
                     {patSearch && <button onClick={()=>setPatSearch('')} style={{color:'#64748b',lineHeight:1}}><X size={13}/></button>}
                   </div>
                 </div>
@@ -17438,7 +17440,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                       </button>
                       {periodMenuOpen && (
                         <>
-                          <div onClick={()=>setPeriodMenuOpen(false)} style={{position:'fixed',inset:0,zIndex:59}} />
+                          <div data-tsu-nolock="1" onClick={()=>setPeriodMenuOpen(false)} style={{position:'fixed',inset:0,zIndex:59}} />{/* ★ 2026-10-29: 外側を押したら閉じる透明の幕は後ろの画面を止めない(名前の選択と同じ直し) */}
                           <div style={{position:'fixed',top:periodMenuOpen.top||60,left:periodMenuOpen.left||8,zIndex:60,background:'white',border:'1px solid #c4dba0',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,0.18)',padding:6,width:190,maxHeight:'70vh',overflowY:'auto'}}>
                             {_groups.map(([gl, opts]) => (
                               <div key={gl}>
@@ -34631,8 +34633,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 <div style={{padding:'8px 8px 4px'}}>
                   <div style={{display:'flex',alignItems:'center',gap:6,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px'}}>
                     <Search size={14} color="#94a3b8"/>
-                    <input autoFocus type="text" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
-                      placeholder="氏名で検索..." style={{border:'none',background:'transparent',outline:'none',fontSize:13,fontWeight:'bold',flex:1,width:0}}/>
+                    <input autoFocus={!tsuTouchDev()} type="text" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
+                      placeholder="氏名で検索..." style={{border:'none',background:'transparent',outline:'none',fontSize:tsuTouchDev() ? 16 : 13,fontWeight:'bold',flex:1,width:0}}/>
                     {patSearch && <button onClick={()=>setPatSearch('')} style={{color:'#64748b',lineHeight:1}}><X size={13}/></button>}
                   </div>
                 </div>
@@ -34655,7 +34657,10 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 </div>
               </div>
             )}
-            {patDropOpen && <div style={{position:'fixed',inset:0,zIndex:9998}} onClick={()=>setPatDropOpen(false)}/>}
+            {/* ★ 2026-10-29(ユーザー報告「スマホ・タブレットの縦で、下まで行って名前を押すと一瞬出てすぐ消え、画面が固まる」): 外側を押したら閉じるための透明の幕。
+                 小窓ではないので、後ろの画面を止める仕組み(tsuInstallAutoBackLock)の対象にしない(data-tsu-nolock)。止めるとスマホでは上の帯が固定されなくなり、
+                 下まで送っていると帯と一覧が画面の外へ消えていた。開いたときに検索欄へ自動で入らない(キーボードで画面が動く)のは指で操作する端末だけ */}
+            {patDropOpen && <div data-tsu-nolock="1" style={{position:'fixed',inset:0,zIndex:9998}} onClick={()=>setPatDropOpen(false)}/>}
           </div>
           <input type="month" value={curMonth} onChange={e=>setCurMonth(e.target.value)} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700"/>
         </div>
@@ -51987,8 +51992,9 @@ function KeikakuPatientSelect({ patients, pid, onChange }) {
     if (!open) return;
     const h = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', h); document.addEventListener('touchstart', h);
-    const t = setTimeout(() => { try { if (inRef.current) inRef.current.focus(); } catch {} }, 30);
-    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); clearTimeout(t); };
+    // ★ 2026-10-29(ユーザー「計画書などの名前の選択も同じことが起きているかも」): 指で操作する端末では検索欄へ自動で入らない(キーボードが出て画面が動き、一覧が押しにくくなる)
+    const t = tsuTouchDev() ? null : setTimeout(() => { try { if (inRef.current) inRef.current.focus(); } catch {} }, 30);
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); if (t) clearTimeout(t); };
   }, [open]);
   const nq = _kpNorm(q);
   const hits = list.filter(p => !nq || _kpNorm(p.name).includes(nq) || _kpNorm(p.kana).includes(nq));
