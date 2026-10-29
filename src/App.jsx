@@ -20348,7 +20348,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
             {editStore.error && <div style={{background:'#fef2f2',color:'#dc2626',padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:'bold',marginBottom:12}}>{editStore.error}</div>}
             {[
               {k:'name',label:'店舗名 (正式) *',ph:'ひかりデイサービス○○店'},
-              {k:'short_name',label:'短縮名',ph:'本所店'},
+              {k:'short_name',label:'短縮名',ph:'○○店'},
               {k:'org_name',label:'法人名',ph:'株式会社ワンズスタイル'},
             ].map(fld=>(
               <div key={fld.k} style={{marginBottom:12}}>
@@ -20402,7 +20402,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               </div>
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>短縮名 (オプション)</label>
-                <input value={storeForm.short_name} onChange={e=>setStoreForm(f=>({...f,short_name:e.target.value}))} placeholder="本所店" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                <input value={storeForm.short_name} onChange={e=>setStoreForm(f=>({...f,short_name:e.target.value}))} placeholder="○○店" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
               </div>
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>法人名</label>
@@ -26794,6 +26794,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   // ★ 2026-10-02: 連絡帳を出力した時刻(送迎表の赤丸判定に使う)も提供記録入力では触らず引き継ぐ
                   ...((existing?.cbPrintedAt_AM ?? p.cbPrintedAt_AM) ? { cbPrintedAt_AM: existing?.cbPrintedAt_AM ?? p.cbPrintedAt_AM } : {}),
                   ...((existing?.cbPrintedAt_PM ?? p.cbPrintedAt_PM) ? { cbPrintedAt_PM: existing?.cbPrintedAt_PM ?? p.cbPrintedAt_PM } : {}),
+                  // ★ 2026-10-29(不具合修正): 連絡帳の「送り時間反映」の印も引き継ぐ(ここに書いていなかったため、提供記録を保存すると印が消えていた)
+                  ...((existing?.renrakuDropAt ?? p.renrakuDropAt) != null ? { renrakuDropAt: existing?.renrakuDropAt ?? p.renrakuDropAt } : {}),
                   // ★ 担当者: スタッフ切替で選んでいるアクティブ記録者を保存
                   //   未選択の場合は 既存値を維持 (それ以外のフォールバックは使わない)
                   recorder: getRecorderName() || existing?.recorder || '',
