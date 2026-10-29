@@ -1428,6 +1428,9 @@ const getPlannedExercisesForDate = (patient, dateISO) => {
   const sorted = hist.slice().sort((a, b) => norm(a.from).localeCompare(norm(b.from)));
   let chosen = sorted[0];
   for (const h of sorted) { if (norm(h.from) <= d) chosen = h; }
+  // ★ 2026-10-29(西馬込店の報告「利用者マスタのサービス提供内容で基準値を入れたのに、提供記録入力に出ない・直しても変わらない」): いちばん新しい期間は、
+  //   利用者マスタの今の値を使う(「いつから適用」でキャンセルしたり自動保存のままだと控え(履歴)が古いまま残り、そちらが出ていた)。前の期間は控えのまま
+  if (chosen === sorted[sorted.length - 1] && patient.plannedExercises && typeof patient.plannedExercises === 'object') return patient.plannedExercises;
   return (chosen && chosen.values) || patient.plannedExercises || {};
 };
 // ★ 指定日時点で有効な「個別運動の規定値リスト([{itemId,defaultValue}])」を返す。
@@ -1442,6 +1445,8 @@ const getIndividualExercisesForDate = (patient, dateISO) => {
   const sorted = hist.slice().sort((a, b) => norm(a.from).localeCompare(norm(b.from)));
   let chosen = sorted[0];
   for (const h of sorted) { if (norm(h.from) <= d) chosen = h; }
+  // ★ 2026-10-29: いちばん新しい期間は利用者マスタの今の値(上の getPlannedExercisesForDate と同じ・控えに空の基準値が残っていても今の値が出る)
+  if (chosen === sorted[sorted.length - 1] && Array.isArray(patient.individualExercises)) return cur;
   return (chosen && Array.isArray(chosen.values)) ? chosen.values : cur;
 };
 // ★ 2026-10-13(西馬込店の報告): 個別運動の既定スロットを「有効な形」にそろえる共通関数。
@@ -1461,7 +1466,13 @@ const tsuIndSlotDefaults = (patient, ss) => {
 // ★ 提供記録のスロットで「—(なし)」を明示的に選んだ印。既定がある利用者でも「—」に戻せるようにする(空文字は「未選択=既定を使う」の意味なので区別する)
 const IND_NONE = '__none__';
 // 記録のスロット値 {itemId,value} と利用者の既定から、実際に選ばれている運動の id を返す('' = なし)
-const tsuIndEffId = (cur, patient, slotId, ss) => { const c = cur && cur.itemId; if (c === IND_NONE) return ''; if (c) return c; return tsuIndSlotDefaults(patient, ss)[slotId] || ''; };
+// ★ 2026-10-29(西馬込店の報告「サービス提供内容で個別運動の既定を登録しているのに、提供記録入力では違う運動が入っている」): 値の欄を押しただけ(値なし)で
+//   その時点の既定が記録に書き込まれ、あとで既定を変えても前の運動のまま残っていた。値が入っていないスロットは今の既定に合わせる。
+//   値が入っているもの・自分で選び直したもの(picked)・既定のないスロットは、記録の運動のまま
+const tsuIndEffId = (cur, patient, slotId, ss) => { const c = cur && cur.itemId; if (c === IND_NONE) return '';
+  const _hasV = !!cur && cur.value != null && String(cur.value).trim() !== '';
+  if (c && (_hasV || cur.picked)) return c;
+  const d = tsuIndSlotDefaults(patient, ss)[slotId] || ''; return d || c || ''; };
 // 有効なアドオンのラベル配列 (チップ表示用)
 const activeAddonLabels = (addonsObj) => ADDONS.filter(a => addonsObj?.[a.key]).map(a => a.label);
 // record から年を取り出す (無ければ null)
@@ -26692,8 +26703,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       const _cur = (_rec && _rec.exercises && typeof _rec.exercises[keypad.field] === 'object') ? _rec.exercises[keypad.field] : { itemId:'', value:'' };
       // ★ 個別運動の単位(1〜2単位)を選択中の種目から取得して付与
       const _indItems = (appData.systemSettings?.individualExerciseItems || appSettings.individualExerciseItems || []);
-      const _indItm = _indItems.find(x => x.id === (_cur && _cur.itemId));
-      updateExercise(keypad.recordId, keypad.field, { ...(_cur||{}), value: applyExUnits(formatted, _indItm) });
+      // ★ 2026-10-29: どの運動の値かは、記録に書いてある運動ではなく「今の運動」(値なしのスロットは今の既定・tsuIndEffId)で決める
+      const _kpMaster = _rec ? (appData.patients || []).find(pt => pt.id === (_rec.patientId || _rec.id)) : null;
+      const _kpEid = tsuIndEffId(_cur, _kpMaster, keypad.field, appData.systemSettings) || (_cur && _cur.itemId) || '';
+      const _indItm = _indItems.find(x => x.id === _kpEid);
+      updateExercise(keypad.recordId, keypad.field, { ...(_cur||{}), ...(_kpEid && _kpEid !== IND_NONE ? { itemId: _kpEid } : {}), value: applyExUnits(formatted, _indItm) });
     } else if (_exItm) {
       // ★ 運動メニュー(1〜2単位)の単位を付与
       updateExercise(keypad.recordId, keypad.field, applyExUnits(formatted, _exItm));
@@ -27795,18 +27809,18 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       const _ak = `${p.id}-${item.id}`;
                       return (
                         <div key={item.id} data-testid={`m-ind-${item.id}-${p.id}`} className={`rounded-lg border py-1 px-1 flex flex-col items-center min-w-0 ${activeCell===_ak ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-emerald-300 bg-emerald-50/50'}`}>
-                          <select value={_effId} disabled={dis} aria-label={`${item.name}の種目`} onChange={e=>updateExercise(p.id, item.id, {..._cur, itemId: e.target.value})}
+                          <select value={_effId} disabled={dis} aria-label={`${item.name}の種目`} onChange={e=>updateExercise(p.id, item.id, {..._cur, itemId: e.target.value, picked: !!e.target.value})}
                             className="w-full text-center font-bold text-emerald-800 bg-transparent outline-none truncate disabled:opacity-60 appearance-none" style={{textAlignLast:'center',WebkitAppearance:'none',backgroundImage:'none',padding:0,height:22,lineHeight:1}}>
                             <option value="">{item.name}</option>
                             {_enItems.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
                           </select>
                           {!_keypadOn ? (
                             <input type="text" inputMode="text" disabled={dis || !_sel} placeholder={_sel ? (_ph || '—') : '種目を選ぶ'} key={`mki-${p.id}-${item.id}-${_cur.value||''}`} defaultValue={_cur.value || ''}
-                              onBlur={(e)=>{ if (_circleBlocked(p.id, item.id, e.target.value)) { e.target.value=''; updateExercise(p.id, item.id, {..._cur, itemId: _cur.itemId||_effId, value: ''}); return; } updateExercise(p.id, item.id, {..._cur, itemId: _cur.itemId||_effId, value: applyExUnits(e.target.value, _sel)}); }}
+                              onBlur={(e)=>{ if (_circleBlocked(p.id, item.id, e.target.value)) { e.target.value=''; updateExercise(p.id, item.id, {..._cur, itemId: _effId||_cur.itemId, value: ''}); return; } updateExercise(p.id, item.id, {..._cur, itemId: _effId||_cur.itemId, value: applyExUnits(e.target.value, _sel)}); }}
                               className="w-full text-center text-sm font-bold text-blue-700 outline-none border border-slate-200 rounded mt-0.5 bg-white disabled:opacity-40 placeholder:text-slate-500 placeholder:font-bold" style={{height:30}} />
                           ) : (
                             <button type="button" disabled={dis || !_sel} data-testid={`m-ind-btn-${item.id}-${p.id}`}
-                              onClick={()=>{ if (!_cur.itemId && _effId) updateExercise(p.id, item.id, {..._cur, itemId: _effId}); openKeypad(p.id, item.id, _cur.value || '', isAbsent); setActiveCell(_ak); }}
+                              onClick={()=>{ if (_effId && _cur.itemId !== _effId) updateExercise(p.id, item.id, {..._cur, itemId: _effId}); openKeypad(p.id, item.id, _cur.value || '', isAbsent); setActiveCell(_ak); }}
                               className="w-full text-sm font-bold text-blue-700 disabled:opacity-60" style={{minHeight:26}}>
                               <span style={{display:'block',width:'100%',overflow:'hidden',textAlign:'center'}}>{/* ★ 2026-10-22(ユーザー指示): 「10秒×3セット」などを折り返さず1行に(入らないときは文字を小さく) */}<AutoFitText text={_disp || (_sel ? (_ph || '＋') : '種目を選ぶ')} max={14} min={8} bold color={_disp ? undefined : '#64748b'}/></span>
                             </button>
@@ -28140,7 +28154,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       return (
                         <td key={item.id} data-ind-cell className={`px-1 py-0 align-middle border border-emerald-200 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
                           <select value={effItemId} disabled={isAbsent || isReadOnly || isPause}
-                            onChange={e=>updateExercise(p.id, item.id, {...cur, itemId: e.target.value || (tsuIndSlotDefaults(targetPatient, appData.systemSettings)[item.id] ? IND_NONE : '')})}
+                            onChange={e=>updateExercise(p.id, item.id, {...cur, itemId: e.target.value || (tsuIndSlotDefaults(targetPatient, appData.systemSettings)[item.id] ? IND_NONE : ''), picked: !!e.target.value})}
                             className="w-full px-0.5 mb-0 font-bold bg-white border border-emerald-300 rounded outline-none focus:border-emerald-500 disabled:opacity-50 appearance-none"
                             style={{WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none',textAlignLast:'center',fontSize:tsuFz(_indNameFs),height:19,boxSizing:'border-box',lineHeight:1}}>
                             <option value="">—</option>
@@ -28148,9 +28162,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           </select>
                           {/* ★ 他の運動メニューと同様: 規定値(個別運動デフォルト)を薄グレーのプレースホルダーで背景表示。 タップでテンキーを開く */}
                           <input type="text" readOnly={_keypadOn} value={cur.value || ''} disabled={isAbsent || isReadOnly || isPause || !selItem}
-                            onClick={()=>{ if(!_keypadOn) return; if(isAbsent||isReadOnly||isPause||!selItem) return; if(!cur.itemId && effItemId) updateExercise(p.id, item.id, {...cur, itemId: effItemId}); openKeypad(p.id, item.id, cur.value||'', isAbsent); setActiveCell(`${p.id}-${item.id}`); }}
-                            onChange={_keypadOn ? undefined : (e)=>updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: e.target.value})}
-                            onBlur={_keypadOn ? undefined : (e)=>{ if (_circleBlocked(p.id, item.id, e.target.value)) { updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: ''}); return; } updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: applyExUnits(e.target.value, selItem)}); }}
+                            onClick={()=>{ if(!_keypadOn) return; if(isAbsent||isReadOnly||isPause||!selItem) return; if(effItemId && cur.itemId !== effItemId) updateExercise(p.id, item.id, {...cur, itemId: effItemId}); openKeypad(p.id, item.id, cur.value||'', isAbsent); setActiveCell(`${p.id}-${item.id}`); }}
+                            onChange={_keypadOn ? undefined : (e)=>updateExercise(p.id, item.id, {...cur, itemId: effItemId||cur.itemId, value: e.target.value})}
+                            onBlur={_keypadOn ? undefined : (e)=>{ if (_circleBlocked(p.id, item.id, e.target.value)) { updateExercise(p.id, item.id, {...cur, itemId: effItemId||cur.itemId, value: ''}); return; } updateExercise(p.id, item.id, {...cur, itemId: effItemId||cur.itemId, value: applyExUnits(e.target.value, selItem)}); }}
                             placeholder={_indPh}
                             style={{fontSize:tsuFz(_indValFs),padding:'0 1px',height:31,boxSizing:'border-box',letterSpacing:'-0.3px',fontWeight: _indIsCircle ? 900 : 'bold', WebkitTextStroke: _indIsCircle ? '1.1px currentColor' : undefined, lineHeight:1, cursor: selItem?'pointer':'default'}}
                             className={`w-full text-center border rounded bg-white outline-none disabled:opacity-40 placeholder-slate-500 ${activeCell===`${p.id}-${item.id}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-emerald-300 focus:border-emerald-500'}`}/>
@@ -28558,7 +28572,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         const _act = keypad.isOpen && keypad.recordId === p.id && keypad.field === item.id;
                         return (
                           <button key={item.id} type="button" disabled={dis || !_sel} data-testid={`zoom-ind-${item.id}`}
-                            onClick={()=>{ if(!_cur.itemId && _effId) updateExercise(p.id, item.id, {..._cur, itemId: _effId}); openKeypad(p.id, item.id, _cur.value||'', isAbsent, true); setActiveCell(`${p.id}-${item.id}`); }}
+                            onClick={()=>{ if(_effId && _cur.itemId !== _effId) updateExercise(p.id, item.id, {..._cur, itemId: _effId}); openKeypad(p.id, item.id, _cur.value||'', isAbsent, true); setActiveCell(`${p.id}-${item.id}`); }}
                             className={`rounded-2xl border-2 p-3 flex flex-col items-center gap-1 disabled:opacity-40 active:scale-95 ${_act?'border-amber-500 ring-2 ring-amber-300 bg-yellow-50':'border-emerald-500 bg-emerald-50/40'}`}>
                             <span style={{fontSize:11,fontWeight:'bold',color:'#047857'}}>{item.name}</span>
                             <span style={{fontSize:15,fontWeight:'bold',color:'#1e293b',textAlign:'center',lineHeight:1.3}}>{_sel ? _sel.name : '未選択'}</span>
@@ -30337,7 +30351,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       const exVals = latest.exercises || {};
                       const allIndItems = appData.systemSettings?.individualExerciseItems || [];
                       // 個別運動スロット {itemId,value} の場合、選択された運動メニューを返す
-                      const slotSel = (rec, it) => { const v = rec?.exercises?.[it.id]; return (v && typeof v==='object' && v.itemId) ? allIndItems.find(x=>x.id===v.itemId) : null; };
+                      const slotSel = (rec, it) => { const v = rec?.exercises?.[it.id]; if (!(v && typeof v==='object' && v.itemId)) return null; const _eid = tsuIndEffId(v, selectedPatient, it.id, appData.systemSettings); return _eid ? allIndItems.find(x=>x.id===_eid) : null; }; // ★ 2026-10-29: 提供記録入力と同じ決め方(値なしのスロットは今の既定)
                       // ◯=その月の設定数値 / 数値=そのまま / ×・ー・空=表示しない / 個別運動オブジェクトは value
                       const resolveEx = (rec, it) => {
                         let v = rec?.exercises?.[it.id];
@@ -31285,7 +31299,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               let nm = '';
               for (const r of validRecs) {
                 const v = r.exercises?.[ex.id];
-                if (v && typeof v === 'object' && v.itemId && v.itemId !== IND_NONE) { nm = pick(v.itemId); if (nm) break; }
+                if (v && typeof v === 'object' && v.itemId && v.itemId !== IND_NONE) { nm = pick(tsuIndEffId(v, selectedPatient, ex.id, appData.systemSettings) || v.itemId); if (nm) break; } // ★ 2026-10-29: 値なしのスロットは今の既定(tsuIndEffId)
               }
               // 無ければ利用者マスタのスロット既定 (個別運動①=屋外歩行訓練 等)
               if (!nm) nm = pick(tsuIndSlotDefaults(selectedPatient, appData.systemSettings)[ex.id] || '');
@@ -34697,7 +34711,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           const N = Math.max(_minN, ...bands.map(b => b.length)); // 列数
           // ★ 2026-10-22(ユーザー要望): 個別運動の見出しは運動の名前。その日の記録の運動 → 無ければ今の設定 → 無ければ枠の名前(個別運動①)
           const _indAll = appData.systemSettings?.individualExerciseItems || []; const _indDef = tsuIndSlotDefaults(sp, appData.systemSettings);
-          const _indNameOf = (it, rec) => { if (it.type !== 'individual') return it.name; const c = rec && rec.exercises && rec.exercises[it.id]; const cid = (c && typeof c === 'object' && c.itemId && c.itemId !== IND_NONE) ? c.itemId : (c && typeof c === 'object' && c.itemId === IND_NONE ? '' : (_indDef[it.id] || '')); const sel = cid ? _indAll.find(ii => ii.id === cid) : null; return sel ? sel.name : it.name; };
+          const _indNameOf = (it, rec) => { if (it.type !== 'individual') return it.name; const c = rec && rec.exercises && rec.exercises[it.id]; const cid = (c && typeof c === 'object') ? tsuIndEffId(c, sp, it.id, appData.systemSettings) : (_indDef[it.id] || ''); /* ★ 2026-10-29: 提供記録入力と同じ決め方(値なしのスロットは今の既定) */ const sel = cid ? _indAll.find(ii => ii.id === cid) : null; return sel ? sel.name : it.name; };
           // 1段目は 状態/気分/体温/開始/終了/再検/記録者/個別 を列をまたいで置く(再検が残り)
           const SP1 = (() => { const st = 1, ki = _kOnR ? 1 : 0, tp = 1, st1 = 1, en = _showEnT ? 1 : 0, rec = 1, kin = 1; const used = st + ki + tp + st1 + en + rec + kin; return { st, ki, tp, st1, en, rec, kin, re: Math.max(1, N - used) }; })();
           const _bikouText = pi === 0 ? computeServiceChangeBikou(sp, tY, tM, appData) : '';
@@ -42294,10 +42308,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     setLocalPatient(updated);
     if (dirtyRef) dirtyRef.current = true;
   };
+  // ★ 2026-10-29(ユーザー報告「個別運動のチェックを押して、また押しても外れない」): 続けて2回呼ぶと、2回目が1回目の変更を消していた
+  //   (個別運動のチェックを外すと「メニューから外す」「既定のスロットから外す」を続けて呼ぶ)。いまの内容に重ねる(関数形の set)
   const updateLP = (field, value) => {
     if (!localPatient) return;
-    const updated = { ...localPatient, [field]: value };
-    setLocalPatient(updated);
+    setLocalPatient(prev => (prev ? { ...prev, [field]: value } : prev));
     if (dirtyRef) dirtyRef.current = true;
   };
   // ★ 状態・休止など「押した時点で即クラウド保存したい」変更用。 localPatient を appData へ反映し manual保存で即push。
