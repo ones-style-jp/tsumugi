@@ -22419,14 +22419,18 @@ export default function App() {
   useEffect(() => {
     const id = setTimeout(() => {
       // ★ 2026-10-08: スマホ幅は何もしない(サイドバーは重ねて出すだけで並びは変わらない。消して描き直すと上の方が空白で残ることがあった)
-      if (tsuViewW() < 768) return;
+      // ★ 2026-10-29(ユーザー報告「iPad でサイドバーから項目を選ぶと、画面がビクッとずれて戻る」): 重ねて出す幅(1024px 未満・iPad の縦)も並びは変わらないので何もしない
+      //   (選ぶとメニューが閉じ、ここで本文を消して描き直し・大きさを1px変える描き直しをしていた)
+      if (tsuViewW() < 1024) return;
       const el = document.getElementById('appMainArea');
       if (!el) return;
+      const sc = contentRef.current; const st = sc ? [sc.scrollTop, sc.scrollLeft] : null;
       const prev = el.style.display;
       el.style.display = 'none';
       void el.offsetHeight; // 強制 reflow
       el.style.display = prev || '';
-      tsuForceRepaint(); // ★ 2026-10-11: 大きさを一瞬変えて画面全体を描き直させる(iPad の見出しがぼやける・白く残る対策)
+      if (sc && st) { sc.scrollTop = st[0]; sc.scrollLeft = st[1]; }
+      // ★ 2026-10-29: 大きさを一瞬変える描き直し(tsuForceRepaint)はやめた(ずれて戻って見えるため。見出しのかすみは index.html の帯で止めた・白く残る対策はログイン後/復帰後/回転後に残す)
     }, 330); // サイドバーの transition(300ms)完了後
     return () => clearTimeout(id);
   }, [isSidebarOpen]);
@@ -22527,7 +22531,9 @@ export default function App() {
       tsuForceRepaint();
     } catch {} }, 450);
     return () => clearTimeout(id);
-  }, [currentView, _zoomMode, _repaintTick]);
+    // ★ 2026-10-29(ユーザー報告「iPad で項目を選ぶと、画面がビクッとずれて戻る」): 画面の切り替え(currentView)では描き直さない。
+    //   縮小表示(zoom)は 10/22 から使っていないので、切り替えのたびの描き直しは要らない。回転・全画面を閉じたとき(_repaintTick)だけ
+  }, [_zoomMode, _repaintTick]);
   // ★ 2026-10-09(ユーザー報告: iPad でログインしたら、見出しとサイドバーの上の方が白いまま。縦にして横に戻すと直る):
   //   担当者の選択画面や「最新のデータを取得しています…」(画面全体を覆う白い幕)から本画面に切り替わったとき、iPad の Safari が
   //   幕の下だった所を描き直さないことがある。回転と同じように、本画面が出た(幕が消えた)あとにアプリ全体(サイドバー含む)を一瞬消して描き直させる。
