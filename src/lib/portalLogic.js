@@ -6,6 +6,11 @@
 //   返り値 null = 書き込まない(対象なし・変更なし・既反映)。
 // =========================================================
 
+// ★ 2026-10-29(ユーザー「電話・住所・メール・既往歴などは、消しても後で戻ることがある→直して」): 利用者の基本情報の文字の項目も、
+//   項目ごとに「新しく直した方」を残す(空にしたときも)。supabase.js の PATIENT_FIELDLEVEL(送るときのまとめ)と App.jsx の _PT_FL(直した項目に時刻を刻む)で共通に使う。
+//   ここ(ご家族・ケアマネの保存)でも、直した項目に時刻を刻む(刻まないと事業所の端末の古い時刻に負けて、ご家族の直しが戻る)
+export const PATIENT_TEXT_FL = ['phone','phoneMobile','email','zipCode','address','prefecture','city','addressLine','building','kiou','ryui','doctor','medicalInstitution','medicalContact','hihokenNum','kana','kanaLast','kanaFirst','gender','birthDate'];
+
 export function portalMergePatientFromFamily(cloud, patientId, patientPatch, extra) {
     const currentData = cloud;
     if (!currentData) return null; // 店舗行が無い → 何もしない
@@ -95,6 +100,9 @@ export function portalMergePatientFromFamily(cloud, patientId, patientPatch, ext
       let _cmTs = _pfTs;
       { const _cmKeys = ['cmName','cmOffice','cmPhone','cmFax'].filter(k => filteredPatch[k] !== undefined);
         if (_cmKeys.length) { _cmTs = { ...(p._fieldTs || {}), ...(_cmTs || {}) }; const _tnow = Date.now(); _cmKeys.forEach(k => { _cmTs[k] = _tnow; }); } }
+      // ★ 2026-10-29: 基本情報(電話・住所・既往歴など)と介護度も、値が変わった項目だけ時刻を刻む(変わっていない項目は刻まない=事業所で直したばかりの値に勝たない)
+      { const _txKeys = [...PATIENT_TEXT_FL, 'careLevel'].filter(k => filteredPatch[k] !== undefined && JSON.stringify(filteredPatch[k]) !== JSON.stringify(p[k]));
+        if (_txKeys.length) { _cmTs = { ...(p._fieldTs || {}), ...(_cmTs || {}) }; const _tnow = Date.now(); _txKeys.forEach(k => { _cmTs[k] = _tnow; }); } }
       return { ...p, ...filteredPatch, emergencyContacts: mergedContacts2, relatedParties: mergedRelated, docUpdates: mergedDocUpdates, personalFile: mergedPersonalFile, ...(_cmTs ? { _fieldTs: _cmTs } : {}) };
     });
     // ★ ケアマネ事業所/担当者マスタ (systemSettings) も、家族(関係者)登録で増えた分を統合 (重複は追加しない)
@@ -160,7 +168,9 @@ export function portalMergeFaceSheetFromCM(cloud, patientId, faceSheet, meta, _n
         const _ch = Array.isArray(meta.changes) ? meta.changes.filter(c => c && c.label).map(c => ({ label: String(c.label), before: String(c.before ?? '').slice(0, 200), after: String(c.after ?? '').slice(0, 200) })).slice(0, 40) : [];
         const docUpdates = [...log, { id: _duId, at: _now, by: (meta.source === 'family' ? 'family' : 'caremanager'), byName: newFs.updatedBy, items: (Array.isArray(meta.items) && meta.items.length ? meta.items : ['フェイスシート']), ...(_ch.length ? { changes: _ch } : {}), readOffice: false, readCm: true }].slice(-200);
         // ★ F1: フェイスシートの既往歴(kiou)を患者トップにもミラー(計画書/CSV/帳票が参照する source of truth)
-        return { ...p, kiou: (newFs.kiou ?? p.kiou ?? ''), docUpdates, personalFile: { ...pf, faceSheet: newFs, faceSheetHistory: hist } };
+        // ★ 2026-10-29: 既往歴が変わったときは項目時刻も刻む(事業所の端末の古い既往歴で戻らないように・PATIENT_TEXT_FL)
+        const _kiou = (newFs.kiou ?? p.kiou ?? ''); const _kiouTs = (String(_kiou) !== String(p.kiou ?? '')) ? { _fieldTs: { ...(p._fieldTs || {}), kiou: Date.now() } } : {};
+        return { ...p, kiou: _kiou, ..._kiouTs, docUpdates, personalFile: { ...pf, faceSheet: newFs, faceSheetHistory: hist } };
       });
       if (!matched || already) return null;
       return { ...currentData, patients };
