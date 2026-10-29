@@ -1856,10 +1856,11 @@ function FitPairChart({ ptsR, ptsL, unit, height = 120 }) {
 const bmiJudge = (bmi, age) => {
   if (bmi == null || isNaN(bmi)) return null;
   const elder = age != null && age >= 65;
-  if (bmi < 18.5) return { label: '低体重（やせ）', color: '#1d4ed8', bg: '#dbeafe', border: '#93c5fd' };
-  if (bmi < 25) { if (elder && bmi < 21.5) return { label: '普通体重（目標より低め）', color: '#a16207', bg: '#fef9c3', border: '#fde047' }; return { label: '普通体重', color: '#15803d', bg: '#dcfce7', border: '#86efac' }; }
-  if (bmi < 30) return { label: '肥満（1度）', color: '#c2410c', bg: '#ffedd5', border: '#fdba74' };
-  return { label: bmi < 35 ? '肥満（2度）' : bmi < 40 ? '肥満（3度）' : '肥満（4度）', color: '#b91c1c', bg: '#fee2e2', border: '#fca5a5' };
+  // ★ 2026-10-29(ユーザー報告「スマホの体力測定で BMI の判定が右で見切れる」): short はスマホの狭い欄で1行に収める短い名前(正式な名前は表の下の「BMIの基準」)
+  if (bmi < 18.5) return { label: '低体重（やせ）', short: 'やせ', color: '#1d4ed8', bg: '#dbeafe', border: '#93c5fd' };
+  if (bmi < 25) { if (elder && bmi < 21.5) return { label: '普通体重（目標より低め）', short: '低め', color: '#a16207', bg: '#fef9c3', border: '#fde047' }; return { label: '普通体重', short: '普通', color: '#15803d', bg: '#dcfce7', border: '#86efac' }; }
+  if (bmi < 30) return { label: '肥満（1度）', short: '肥満1', color: '#c2410c', bg: '#ffedd5', border: '#fdba74' };
+  return { label: bmi < 35 ? '肥満（2度）' : bmi < 40 ? '肥満（3度）' : '肥満（4度）', short: bmi < 35 ? '肥満2' : bmi < 40 ? '肥満3' : '肥満4', color: '#b91c1c', bg: '#fee2e2', border: '#fca5a5' };
 };
 // ★ 全角で入力された数値を半角へ直す (体力測定・身長体重など数値入力の共通処理)。
 //   全角数字/全角ピリオド/全角マイナス/読点・句点(テンキー誤入力)を半角に寄せ、数値に使う文字だけ残す。
@@ -40926,11 +40927,14 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
 
   // ★ 2026-10-06(ユーザー要望「平均以外に最高と最低も表示して。日付つきで」): 過去の記録(保存済み)の最高・最低と、その測定日
   const _fitDateLbl = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return String(iso || ''); return `${+m[1] === new Date().getFullYear() ? '' : `${m[1]}/`}${+m[2]}/${+m[3]}`; };
+  // ★ 2026-10-29(ユーザー報告「スマホの体力測定で見切れる・2行3行になる」): スマホの狭い欄では、年の違う日付を「25/10/15」と短く(2025/10/15 で欄が押し広げられ、行ごとに枠がずれていた)。
+  //   あわせてスマホは、欄の幅を全部の行で固定(minmax(0,…))・数字の横の単位は出さない(左の項目名にある)・項目名は名前と(単位)の2行
+  const _fitDateLblS = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return String(iso || ''); return `${+m[1] === new Date().getFullYear() ? '' : `${m[1].slice(2)}/`}${+m[2]}/${+m[3]}`; };
   const _extOfVals = (arr) => { let mx = null, mn = null; arr.forEach(x => { if (x.v == null || isNaN(x.v)) return; if (!mx || x.v > mx.v) mx = x; if (!mn || x.v < mn.v) mn = x; }); return { mx, mn }; };
   const extVal = (itemId) => _extOfVals(patRecords.map(r => { const v = r.values?.[itemId]; return { v: (v !== undefined && v !== '' && v !== null && !isNaN(Number(v))) ? Number(v) : null, date: r.date }; }));
   const ExtCell = ({ x, unit, color, children }) => (
     <div className="px-1 sm:px-2 py-2 text-center leading-tight">
-      {x ? <><div className="font-bold" style={{ color }}>{children || x.v}{!children && unit ? <span className="text-xs opacity-70 ml-0.5">{unit}</span> : null}</div><div className="text-[10px] text-slate-400 tabular-nums">{_fitDateLbl(x.date)}</div></> : <span className="text-slate-300">—</span>}
+      {x ? <><div className="font-bold" style={{ color }}>{children || x.v}{!children && unit ? <span className="hidden sm:inline text-xs opacity-70 ml-0.5">{unit}</span> : null}</div><div className="text-[10px] text-slate-400 tabular-nums whitespace-nowrap"><span className="sm:hidden">{_fitDateLblS(x.date)}</span><span className="hidden sm:inline">{_fitDateLbl(x.date)}</span></div></> : <span className="text-slate-300">—</span>}
     </div>);
   const avgVal = (itemId) => {
     const vals = patRecords.map(r => r.values?.[itemId]).filter(v => v !== undefined && v !== '' && !isNaN(Number(v)));
@@ -40947,7 +40951,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
   const _lastBmi = lastRecord ? _bmiOfRec(lastRecord, 0) : null;
   const _avgBmi = (() => { const v = patRecords.map((r, i) => _bmiOfRec(r, i)).filter(x => x != null); return v.length ? (Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10) : null; })();
   const BmiBadge = ({ bmi, small }) => { const j = bmiJudge(bmi, _patAge); if (!j) return <span className="text-slate-300">—</span>;
-    return <span className="inline-flex flex-col items-center leading-tight" data-testid="bmi-badge"><span className={`font-extrabold ${small ? 'text-xs' : 'text-sm'}`} style={{ color: j.color }}>{bmi.toFixed(1)}</span><span className="text-[10px] font-bold rounded px-1.5 mt-0.5 whitespace-nowrap" style={{ color: j.color, background: j.bg, border: `1px solid ${j.border}` }}>{j.label}</span></span>; };
+    return <span className="inline-flex flex-col items-center leading-tight" data-testid="bmi-badge"><span className={`font-extrabold ${small ? 'text-xs' : 'text-sm'}`} style={{ color: j.color }}>{bmi.toFixed(1)}</span><span className="text-[10px] font-bold rounded px-1.5 mt-0.5 whitespace-nowrap" style={{ color: j.color, background: j.bg, border: `1px solid ${j.border}` }} title={j.label}><span className="sm:hidden">{j.short || j.label}</span><span className="hidden sm:inline">{j.label}</span></span></span>; };
 
   // ★ 2026-10-13(店舗要望「別の人を誤って編集すると前のデータが消えて戻せない」): 記録を上書きするとき、直前の値を記録の中(_hist・最大10件)に控える。
   //   「元に戻す」で1つ前の値に戻せる(新しく作った記録は削除で取り消し)。控えは記録と一緒に同期されるので別の端末でも戻せる
@@ -41254,19 +41258,19 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                     className="ml-auto text-[12px] font-bold text-amber-900 bg-white border border-amber-300 rounded-lg px-2.5 py-1 whitespace-nowrap">前回と同じ備考を入れる</button>
                 </div>
               ); })()}
-              <div className="grid bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500" style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
+              <div className="grid bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500" style={{gridTemplateColumns:'minmax(0,1.35fr) minmax(0,1.1fr) minmax(0,1fr) minmax(0,0.9fr) minmax(0,1fr) minmax(0,1fr)'}}>
                 <div className="px-1.5 sm:px-4 py-2">項目</div>
                 <div className="px-1.5 sm:px-4 py-2 text-center">今回入力</div>
                 <div className="px-1.5 sm:px-4 py-2 text-center">前回{lastRecord && <span className="font-normal text-slate-400 ml-1">({_fitDateLbl(lastRecord.date)})</span>}</div>
                 <div className="px-1.5 sm:px-4 py-2 text-center">平均</div>
-                <div className="px-1 sm:px-2 py-2 text-center">最高<span className="font-normal text-slate-400 ml-0.5">(日付)</span></div>
-                <div className="px-1 sm:px-2 py-2 text-center">最低<span className="font-normal text-slate-400 ml-0.5">(日付)</span></div>
+                <div className="px-1 sm:px-2 py-2 text-center">最高<span className="block sm:inline font-normal text-slate-400 sm:ml-0.5 text-[10px] sm:text-xs whitespace-nowrap">(日付)</span></div>
+                <div className="px-1 sm:px-2 py-2 text-center">最低<span className="block sm:inline font-normal text-slate-400 sm:ml-0.5 text-[10px] sm:text-xs whitespace-nowrap">(日付)</span></div>{/* ★ 2026-10-29: スマホは「最高(日 / 付)」と途中で折れていた → (日付) を2行目に */}
               </div>
               {fitnessItems.map(item => {
                 const prev = lastRecord?.values?.[item.id];
                 const avg = avgVal(item.id);
                 return (
-                  <div key={item.id} data-testid={`fit-row-${item.id}`} className={`grid items-center hover:bg-slate-50 ${item.pairGroup ? (item.side === 'L' ? 'border-b border-slate-100 bg-sky-50/40' : 'bg-sky-50/40') : 'border-b border-slate-100'}`} style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
+                  <div key={item.id} data-testid={`fit-row-${item.id}`} className={`grid items-center hover:bg-slate-50 ${item.pairGroup ? (item.side === 'L' ? 'border-b border-slate-100 bg-sky-50/40' : 'bg-sky-50/40') : 'border-b border-slate-100'}`} style={{gridTemplateColumns:'minmax(0,1.35fr) minmax(0,1.1fr) minmax(0,1fr) minmax(0,0.9fr) minmax(0,1fr) minmax(0,1fr)'}}>
                     {/* ★ 2026-10-08: 左右の組は「握力 右」「左」と続けて表示(1つの項目として右・左を入力) */}
                     {item.pairGroup ? (
                       <div className="px-1.5 sm:px-4 py-2 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight flex items-center gap-1.5">
@@ -41275,7 +41279,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                         {!(fitNoteOpen[item.id] || (fitNotes[item.id] ?? '') !== '') && <button type="button" data-testid={`fit-note-btn-${item.id}`} onClick={() => setFitNoteOpen(o => ({ ...o, [item.id]: true }))} className="text-[11px] font-bold text-indigo-600 hover:underline whitespace-nowrap">＋備考</button>}
                       </div>
                     ) : (
-                    <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">{item.name}<span className="text-xs text-slate-400 ml-0.5">（{item.unit}）</span>
+                    <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">{item.name}<span className="block sm:inline text-xs text-slate-400 sm:ml-0.5 whitespace-nowrap">（{item.unit}）</span>
                       {!(fitNoteOpen[item.id] || (fitNotes[item.id] ?? '') !== '') && <button type="button" data-testid={`fit-note-btn-${item.id}`} onClick={() => setFitNoteOpen(o => ({ ...o, [item.id]: true }))} className="block mt-0.5 text-[11px] font-bold text-indigo-600 hover:underline">＋備考</button>}
                     </div>
                     )}
@@ -41301,12 +41305,12 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                           placeholder="—"
                           className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400 text-center bg-slate-50" />
                        ) : (
-                        prev !== undefined && prev !== '' ? <span className="font-bold text-slate-700">{prev}<span className="text-xs text-slate-400 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>
+                        prev !== undefined && prev !== '' ? <span className="font-bold text-slate-700">{prev}<span className="hidden sm:inline text-xs text-slate-400 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>
                        )}
                       {lastRecord?.notes?.[item.id] ? <div data-testid={`fit-prev-note-${item.id}`} className="text-[10px] text-slate-500 leading-tight mt-0.5 break-words">（{lastRecord.notes[item.id]}）</div> : null}
                     </div>
                     <div className="px-1 sm:px-4 py-2 text-center">
-                      {avg !== null ? <span className="font-bold text-green-700">{avg}<span className="text-xs text-green-500 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>}
+                      {avg !== null ? <span className="font-bold text-green-700">{avg}<span className="hidden sm:inline text-xs text-green-500 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>}
                     </div>
                     {(() => { const e = extVal(item.id); return <>
                       <div data-testid={`fit-max-${item.id}`} className="contents"><ExtCell x={e.mx} unit={item.unit} color="#b45309" /></div>
@@ -41332,9 +41336,9 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                   </div>
                 );
               }).flatMap((row, i) => (fitnessItems[i] && fitnessItems[i].id === 'weight') ? [row, (
-                <div key="__bmi" data-testid="bmi-row" className="grid border-b border-slate-100 items-center bg-slate-50/60" style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
-                  <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">BMI<span className="text-[10px] text-slate-400 ml-1 font-normal">（自動計算）</span></div>
-                  <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_curBmi} />{_curBmiPrevH && <div className="text-[9px] text-slate-400 mt-0.5">身長は前回の値</div>}</div>
+                <div key="__bmi" data-testid="bmi-row" className="grid border-b border-slate-100 items-center bg-slate-50/60" style={{gridTemplateColumns:'minmax(0,1.35fr) minmax(0,1.1fr) minmax(0,1fr) minmax(0,0.9fr) minmax(0,1fr) minmax(0,1fr)'}}>{/* ★ 2026-10-29: BMI の行は中身(判定の札)で欄が押し広げられないように(スマホで右が見切れ、パソコンでも見出しと数pxずれていた)。身長などの行は値に合わせて広がるので元のまま */}
+                  <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">BMI<span className="block sm:inline text-[10px] text-slate-400 sm:ml-1 font-normal whitespace-nowrap"><span className="sm:hidden">自動計算</span><span className="hidden sm:inline">（自動計算）</span></span></div>{/* ★ 2026-10-29: スマホは「(自動計算)」が細い欄で1〜2文字ずつ折れていた → BMI の下に1行 */}
+                  <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_curBmi} />{_curBmiPrevH && <div className="text-[9px] text-slate-400 mt-0.5 whitespace-nowrap"><span className="sm:hidden">身長は前回</span><span className="hidden sm:inline">身長は前回の値</span></div>}</div>
                   <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_lastBmi} /></div>
                   <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_avgBmi} /></div>
                   {(() => { const e = _extOfVals(patRecords.map((r, i) => ({ v: _bmiOfRec(r, i), date: r.date }))); return <>
