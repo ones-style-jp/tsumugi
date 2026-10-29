@@ -25,6 +25,52 @@
         } catch (e) {}
       })();
     </script>
+    <!-- ★ 2026-10-29(柴又店のノートパソコン「ログインすると画面がバグっている・再起動してもダメ」=画面の飾り(CSS)が全部外れていた):
+         本番は /assets/ のファイルに「1年間そのまま使ってよい」を付けていて、取りそこねたときの「見つからない(404)」まで1年覚えてしまう
+         (更新の切り替わりの一瞬に当たったとみる)。飾りが当たっていなければファイル名に印(?r=)を付けて取り直し、だめなら1回だけ読み込み直し、
+         それでもだめなら案内を出す。プログラム本体(module)を取りそこねたとき(真っ白)も同じく取り直す -->
+    <script>
+      (function () {
+        var K = 'tsuAssetHeal';
+        var bust = function (u) { return String(u).split('?')[0] + '?r=' + Date.now(); };
+        var jsRetried = false;
+        window.addEventListener('error', function (e) {
+          try {
+            var t = e && e.target;
+            if (!t || t === window || jsRetried) return;
+            if (t.tagName === 'SCRIPT' && t.type === 'module' && /\/assets\//.test(t.src || '')) {
+              jsRetried = true; var s = document.createElement('script'); s.type = 'module'; s.crossOrigin = 'anonymous'; s.src = bust(t.src); document.head.appendChild(s);
+            }
+          } catch (e2) {}
+        }, true);
+        var styled = function () {
+          try { var p = document.createElement('div'); p.className = 'hidden'; document.body.appendChild(p); var ok = getComputedStyle(p).display === 'none'; document.body.removeChild(p); return ok; } catch (e) { return true; }
+        };
+        var notice = function () {
+          try {
+            if (document.getElementById('tsu-asset-notice')) return;
+            var d = document.createElement('div'); d.id = 'tsu-asset-notice';
+            d.setAttribute('style', 'position:fixed;left:0;right:0;top:0;z-index:2147483647;background:#fff7ed;border-bottom:2px solid #f97316;color:#7c2d12;font:bold 16px/1.6 sans-serif;padding:12px 16px;text-align:center');
+            d.innerHTML = '画面の表示に必要なファイルを読み込めませんでした。<button type="button" style="margin-left:12px;padding:6px 14px;border:1px solid #f97316;border-radius:8px;background:#fff;color:#7c2d12;font:inherit;cursor:pointer">読み込み直す</button><div style="font-weight:normal;font-size:14px">直らないときは、キーボードの Ctrl キーを押しながら F5 キーを押してください。</div>';
+            d.querySelector('button').onclick = function () { try { sessionStorage.removeItem(K); } catch (e) {} location.reload(); };
+            document.body.appendChild(d);
+          } catch (e) {}
+        };
+        var heal = function (n) {
+          if (styled()) { try { sessionStorage.removeItem(K); } catch (e) {} return; }
+          if (n < 2) {
+            var links = document.querySelectorAll('link[rel="stylesheet"]');
+            for (var i = 0; i < links.length; i++) { var l = links[i]; if (!/\/assets\//.test(l.href || '') || /[?&]r=/.test(l.href || '')) continue; var nl = document.createElement('link'); nl.rel = 'stylesheet'; nl.crossOrigin = 'anonymous'; nl.href = bust(l.href); document.head.appendChild(nl); }
+            setTimeout(function () { heal(n + 1); }, 2500);
+            return;
+          }
+          var done = 0; try { done = +(sessionStorage.getItem(K) || 0); } catch (e) {}
+          if (done < 1) { try { sessionStorage.setItem(K, String(done + 1)); } catch (e) {} location.reload(); return; }
+          notice();
+        };
+        window.addEventListener('load', function () { setTimeout(function () { heal(0); }, 200); });
+      })();
+    </script>
     <!-- ★ 2026-10-27(ユーザー報告「iPad でログインすると上部が曇っている・ずっと直っていない」): 本当の原因は、iPadOS 26 以降のホーム画面のアプリで、
          OS が画面の上端(状態表示の下 約40pt)にぼかしを掛けること(Liquid Glass の scroll edge effect)。描き直しの工夫(10/09〜10/22 の8回)では消えなかった。
          WebKit は「上端の中央・上から4pxの所に、幅が画面の9割以上・高さ10pxより大きい・不透明な背景色の fixed の箱」があると、ぼかさずその色で塗る
