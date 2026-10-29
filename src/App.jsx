@@ -24447,11 +24447,7 @@ export default function App() {
       )}
       {/* ★ 稼働中バンドルの版数表示(2026-09-06): 「今すぐ更新が効いているか」をスクショで確認できるようにする。
           ビルド時に焼き込んだ update-notes.json の version(=この端末で実際に動いているコードの版)を表示 */}
-      {staffSession && (
-        <div style={{position:'fixed',bottom:2,left:6,zIndex:40,fontSize:9,color:'#94a3b8',pointerEvents:'none',fontFamily:'monospace'}}>
-          アプリ版: {__builtUpdateNotes?.version || '-'}
-        </div>
-      )}
+      {/* ★ 2026-10-29(ユーザー「スマホで左下のアプリ版がずっとあるのは邪魔・iPad も」): 画面の左下に出し続けるのはやめ、サイドバー(メニュー)のいちばん下に出す(data-testid=side-app-ver) */}
       {/* ★ トーストを Portal で body 直下にレンダリング → 全画面表示時も確実に見える */}
       {/* ★ 災害速報バナー(2026-09-19): 解除するまで最前面。ハザードマップ(国土地理院)・緊急連絡・安否確認へ */}
       {visibleAlerts.length > 0 && staffSession?.storeId && ReactDOM.createPortal(
@@ -24900,6 +24896,8 @@ export default function App() {
                 <button onClick={()=>setStaffPolicyView('office')} className="w-full mt-1 flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors">
                   利用規約・同意ポリシー
                 </button>
+                {/* ★ 稼働中バンドルの版数(2026-09-06 から画面の左下・2026-10-29 からここ): 「今すぐ更新が効いているか」をスクショで確かめる */}
+                <div data-testid="side-app-ver" className="px-3 pt-2 pb-1 text-[10px] text-slate-400 font-mono select-text">アプリ版: {__builtUpdateNotes?.version || '-'}</div>
               </div>
             </div>
           </div>
@@ -60123,6 +60121,11 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
             </div>
             <div className="text-xs text-slate-500 mt-0.5 truncate">{patient.name} 様 ({patient.kana || ''})</div>
           </div>
+          {/* ★ 2026-10-29(ユーザー「個人ファイルの項目名がダブっていて画面が狭い・左上の行の右が空いていてもったいない」): iPad・PC は選んでいる見出しと説明をここに(中の見出しの段はなくした) */}
+          <div data-testid="pf-cat-head" className="hidden md:block flex-1 min-w-0 border-l border-slate-200 pl-4">
+            <div className="text-base font-bold text-slate-800 truncate">{activeCategory.name}</div>
+            {activeCategory.note && <div className="text-xs text-slate-500 mt-0.5 truncate" title={activeCategory.note}>{activeCategory.note}</div>}
+          </div>
           <button data-testid="pf-close-btn" onClick={onClose} aria-label="閉じる" title="閉じる" className="shrink-0 w-11 h-11 flex items-center justify-center text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-full"><X size={22}/></button>
         </div>
         {/* ゴミ箱 (削除後7日間は復元可能) */}
@@ -60194,10 +60197,8 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
         </nav>
         {/* コンテンツ */}
         <div data-testid="pf-content" className={`flex-1 min-w-0 min-h-0 overflow-auto p-4 md:p-5${isSpTab ? ' flex flex-col' : ''}`}>
-          <div className="mb-3">
-            <div className="text-sm font-bold text-slate-700">{activeCategory.name}</div>
-            {activeCategory.note && <div className="text-[11px] text-slate-500 mt-1">{activeCategory.note}</div>}
-          </div>
+          {/* ★ 2026-10-29: 見出しは iPad・PC では上の行(pf-cat-head)、スマホは上の横のタブに出ているので、ここはスマホの説明だけ */}
+          {activeCategory.note && <div className="md:hidden mb-3 text-[11px] text-slate-500">{activeCategory.note}</div>}
           {/* 基本情報タブ: ケアマネからの書類更新 新着通知 */}
           {isBasicTab && cmDocUpdates.length > 0 && (
             <div className="mb-4 bg-cyan-50 border-2 border-cyan-300 rounded-xl p-4">
@@ -60956,7 +60957,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           )}
           {/* ★ 支援経過表 (カテゴリ「9. 支援経過表」タブ) */}
           {isSpTab && (
-          <div className="bg-white border-2 border-slate-300 rounded-xl p-4 mb-4 mt-4">
+          <div className="bg-white border-2 border-slate-300 rounded-xl p-4 mb-4">{/* ★ 2026-10-29: ファイルの添付を下へ移したので上の間隔(mt-4)はなくした */}
             <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
               <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5"><ClipboardList size={15}/>支援経過表</div>
               <div className="flex gap-2 flex-wrap">
