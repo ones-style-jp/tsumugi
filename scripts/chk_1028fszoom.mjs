@@ -2,7 +2,7 @@
 //   「全画面は10人も15人も全員を1画面に。＋－で倍率を調整」)
 //   iPad 横(1180×820)で 10人・15人:
 //   ①「全画面」で見せ方を聞かずにすぐ全画面 ②最初のコマから倍率が決まっている(あとで大きさが変わらない) ③最後の方の下が画面の下まで(空きが行の半分より小さい)
-//   ④－/＋ で5%ずつ変わり、この端末に覚える(開き直しても同じ)・＋は200%まで(10/29)・「全員」で全員が入る倍率に戻る ⑤保存・連絡帳にアイコンがない ⑥「通常画面」で 150ms 以内に戻る
+//   ④－/＋ で5%ずつ変わり、この端末に覚える(開き直しても同じ)・＋は iPad 180%・大きい画面200%まで(10/29)・「全員」で全員が入る倍率に戻る ⑤保存・連絡帳にアイコンがない ⑥「通常画面」で 150ms 以内に戻る
 //   --stable: 安定版(見せ方の選択あり)では「1画面表示(全員を1画面に)」を選んで ②③⑥(戻る時間は見ない)だけ
 //   実行: node scripts/chk_1028fszoom.mjs [--port 4175] [--stable]
 import { chromium } from 'playwright';
@@ -34,9 +34,9 @@ for (const n of [10, 15]) {
     console.log('  倍率', v0, '→＋', v1, '→＋', v2, '→－', v3); const p = (x) => parseInt(x, 10);
     r[`n${n}_zoomBtns`] = p(v1) - p(v0) >= 1 && p(v1) - p(v0) <= 7 && p(v1) % 5 === 0 && p(v2) - p(v1) === 5 && p(v3) === p(v1) && (await page.getByTestId('fs-zoom-fit').count()) === 1; // ＋/－は5%のきりのいい数へ
     r[`n${n}_remember`] = await page.evaluate(() => !!localStorage.getItem('tsumugiFsZoom'));
-    // ★ 2026-10-29: ＋は200%まで(押し続けて200%で止まる)
+    // ★ 2026-10-29: ＋の上限は画面の大きさで(この iPad の大きさは180%で止まる・大きい画面は chk_1029fszoommax)
     for (let k = 0; k < 40 && !(await page.getByTestId('fs-zoom-plus').isDisabled()); k++) { await page.getByTestId('fs-zoom-plus').click(); await page.waitForTimeout(80); }
-    const vmax = await val(); console.log('  いちばん大きく', vmax); r[`n${n}_max200`] = vmax === '200%' && await page.getByTestId('fs-zoom-plus').isDisabled();
+    const vmax = await val(); console.log('  いちばん大きく', vmax); r[`n${n}_maxByScreen`] = vmax === '180%' && await page.getByTestId('fs-zoom-plus').isDisabled(); // ★ 2026-10-29: iPad(長い辺が1600px未満)は180%まで
     await page.getByTestId('fs-zoom-fit').click(); await page.waitForTimeout(500); const vb = await val(); console.log('  全員に戻す', vb); r[`n${n}_fitBack`] = Math.abs(p(vb) - p(v0)) <= 1 && (await page.getByTestId('fs-zoom-fit').count()) === 0 && (await page.evaluate(() => { const sc = document.querySelector('.record-view-scroll'); return sc.scrollHeight - sc.clientHeight <= 2; }));
     const icons = await page.evaluate(() => { const bar = document.querySelector('[data-testid="rec-fs-bar"]'); return [...bar.querySelectorAll('button')].filter(x => /^(連絡帳|保存)$/.test((x.textContent || '').trim())).map(x => x.querySelectorAll('svg').length); });
     r[`n${n}_noIcons`] = icons.length === 2 && icons.every(c => c === 0);
