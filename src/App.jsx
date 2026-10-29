@@ -11036,6 +11036,14 @@ const tsuDropNoteParts = (nextDateDisplay, at) => { const tm = String(at || '').
 const tsuDropNoteText = (nextDateDisplay, at) => { const pr = tsuDropNoteParts(nextDateDisplay, at); return pr ? `${pr.head} ${pr.time}` : ''; };
 // 連絡帳の「次回お迎え時間」の日付と同じ決め方(手入力の日付 → 自動計算)
 const tsuCbNextDateOf = (record, patient, selectedDate, appData) => { if (!patient) return ''; if (/\d/.test(String((record && record.nextDateOverride) ?? ''))) return String(record.nextDateOverride); try { return String(getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData).date || ''); } catch { return ''; } };
+// ★ 2026-10-29(ユーザー要望「過去の連絡帳は、その日に渡した次回の日付・お迎え時間のままに」): 連絡帳を出力したとき、
+//   その方の次回利用日・お迎え時間・送りの時間を記録に控える(cbIssued・JSON の文字列 {d,t,drop,at})。前の日の連絡帳は、あとで送迎表や
+//   月間を変えても控えのまま出す(この日はこれを渡した、と分かるように)。当日と先の日は今までどおり(渡す前に直して出し直せる)。
+//   控えの無い前の日(出力していない・この直しより前)は今までどおり今の予定から出す
+const tsuCbIssuedOf = (record, selectedDate) => {
+  if (!record || !record.cbIssued || !selectedDate || String(selectedDate).slice(0, 10) >= tsuTodayIso()) return null;
+  try { const o = JSON.parse(record.cbIssued); return (o && typeof o === 'object') ? o : null; } catch { return null; }
+};
 // 連絡帳の連絡事項の欄の大きさで、1人分(全員あて＋個別＋送りの1行)が入るか(使用率 0〜)。RenrakuModal と同じ測り方
 const tsuRenrakuUsage = (htmlAll, htmlPat, dropLine) => {
   try { const el = document.createElement('div'); el.setAttribute('aria-hidden', 'true');
@@ -20361,7 +20369,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
             {editStore.error && <div style={{background:'#fef2f2',color:'#dc2626',padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:'bold',marginBottom:12}}>{editStore.error}</div>}
             {[
               {k:'name',label:'店舗名 (正式) *',ph:'ひかりデイサービス○○店'},
-              {k:'short_name',label:'短縮名',ph:'本所店'},
+              {k:'short_name',label:'短縮名',ph:'○○店'},
               {k:'org_name',label:'法人名',ph:'株式会社ワンズスタイル'},
             ].map(fld=>(
               <div key={fld.k} style={{marginBottom:12}}>
@@ -20415,7 +20423,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               </div>
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>短縮名 (オプション)</label>
-                <input value={storeForm.short_name} onChange={e=>setStoreForm(f=>({...f,short_name:e.target.value}))} placeholder="本所店" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                <input value={storeForm.short_name} onChange={e=>setStoreForm(f=>({...f,short_name:e.target.value}))} placeholder="○○店" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
               </div>
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>法人名</label>
@@ -26825,6 +26833,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   // ★ 2026-10-02: 連絡帳を出力した時刻(送迎表の赤丸判定に使う)も提供記録入力では触らず引き継ぐ
                   ...((existing?.cbPrintedAt_AM ?? p.cbPrintedAt_AM) ? { cbPrintedAt_AM: existing?.cbPrintedAt_AM ?? p.cbPrintedAt_AM } : {}),
                   ...((existing?.cbPrintedAt_PM ?? p.cbPrintedAt_PM) ? { cbPrintedAt_PM: existing?.cbPrintedAt_PM ?? p.cbPrintedAt_PM } : {}),
+                  // ★ 2026-10-29(不具合修正): 連絡帳の「送り時間反映」の印も引き継ぐ(ここに書いていなかったため、提供記録を保存すると印が消えていた)
+                  ...((existing?.renrakuDropAt ?? p.renrakuDropAt) != null ? { renrakuDropAt: existing?.renrakuDropAt ?? p.renrakuDropAt } : {}),
+                  ...((existing?.cbIssued ?? p.cbIssued) != null ? { cbIssued: existing?.cbIssued ?? p.cbIssued } : {}), // ★ 2026-10-29: 連絡帳の控え(tsuCbIssuedOf)
                   // ★ 担当者: スタッフ切替で選んでいるアクティブ記録者を保存
                   //   未選択の場合は 既存値を維持 (それ以外のフォールバックは使わない)
                   recorder: getRecorderName() || existing?.recorder || '',
@@ -35474,6 +35485,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   //   ★ 2026-09-09b: 時刻は「時」「分」の両方に数字が入って初めて入力済み扱い(「8時 分」の片入力は未入力に数える)。
   const _fullTime = (v) => /\d+\s*[:時]\s*\d+/.test(String(v ?? ''));
   const _nextPlanMissing = (r) => {
+    if (tsuCbIssuedOf(r, selectedDate)) return false; // ★ 2026-10-29: 前の日で控えがある方は、出力したときの内容で出す
     const patient = (appData.patients||[]).find(pt => pt.id === r.patientId);
     if (!patient) return false;
     const info = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
@@ -35659,8 +35671,14 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     try {
       const at = syncNow(); const ids = new Set(targets.map(r => String(r.id)));
       const _slotOf = (r) => { if (r.furikaeAmpm === 'AM' || r.furikaeAmpm === 'PM') return r.furikaeAmpm; const _af = (sharedAmpm === 'AM' || sharedAmpm === 'PM') ? sharedAmpm : null; if (_af) return _af; const pt = (appData.patients||[]).find(x => x.id === r.patientId); const dow = new Date(selectedDate).getDay(); const v = pt?.scheduleAmPm?.[dow]; return v === 'PM' ? 'PM' : 'AM'; };
+      // ★ 2026-10-29(ユーザー要望): 出した内容(次回利用日・お迎え時間・送りの時間)も控える(前の日の連絡帳はこの控えで出す・tsuCbIssuedOf)。
+      //   出力に使った用紙(print-content-cb-○)の印から読むので、出したものと同じになる。前と同じ中身なら控えは書き直さない
+      const _issOf = (r) => { try { const el = document.querySelector(`#print-content-cb-${r.patientId} [data-cb-next-d]`); if (!el) return null; return { d: el.getAttribute('data-cb-next-d') || '', t: el.getAttribute('data-cb-next-t') || '', drop: el.getAttribute('data-cb-drop') || '' }; } catch { return null; } };
       let n = 0;
-      const list = (appData.ticketRecords || []).map(r => { if (!r || !ids.has(String(r.id))) return r; const k = `cbPrintedAt_${_slotOf(r)}`; n++; return { ...r, [k]: at, _fieldTs: { ...(r._fieldTs || {}), [k]: at }, _savedAt: at }; });
+      const list = (appData.ticketRecords || []).map(r => { if (!r || !ids.has(String(r.id))) return r; const k = `cbPrintedAt_${_slotOf(r)}`; n++;
+        const iss = _issOf(r); let cur = null; try { cur = r.cbIssued ? JSON.parse(r.cbIssued) : null; } catch {}
+        const _issNew = iss && (!cur || cur.d !== iss.d || cur.t !== iss.t || String(cur.drop || '') !== iss.drop);
+        return { ...r, [k]: at, ...(_issNew ? { cbIssued: JSON.stringify({ ...iss, at }) } : {}), _fieldTs: { ...(r._fieldTs || {}), [k]: at, ...(_issNew ? { cbIssued: at } : {}) }, _savedAt: at }; });
       if (n) onSave({ ...appData, ticketRecords: list }, { silent: true });
     } catch (e) { console.warn('cbPrintedAt stamp failed', e); }
     // ★ 取得後は隠しカードを解放してメモリを戻す
@@ -35720,7 +35738,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       let recs = [...(appData.ticketRecords || [])];
       const idx = recs.findIndex(r => String(r.id) === String(recordId));
       if (idx >= 0) {
-        recs[idx] = { ...recs[idx], ...patch, _savedAt: now };
+        const _clr = tsuCbIssuedOf(recs[idx], selectedDate) ? { cbIssued: '', _fieldTs: { ...(recs[idx]._fieldTs || {}), cbIssued: now } } : {}; // ★ 2026-10-29: 前の日に直したら控えをやめる
+        recs[idx] = { ...recs[idx], ...patch, ..._clr, _savedAt: now };
       } else if (String(recordId).startsWith('auto-')) {
         const pid = Number(String(recordId).slice(5));
         const pat = (appData.patients || []).find(p => p.id === pid);
@@ -35837,7 +35856,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         }
         _changed++;
         const idx = recs.findIndex(r => String(r.id) === String(rid));
-        if (idx >= 0) { recs[idx] = { ...recs[idx], ...patch, _savedAt: now }; }
+        // ★ 2026-10-29: 前の日の連絡帳で次回予定を直したら、控え(cbIssued)をやめて直した内容で出す(出力し直すとまた控える)
+        if (idx >= 0) { const _clr = tsuCbIssuedOf(recs[idx], selectedDate) ? { cbIssued: '', _fieldTs: { ...(recs[idx]._fieldTs || {}), cbIssued: now } } : {}; recs[idx] = { ...recs[idx], ...patch, ..._clr, _savedAt: now }; }
         else if (String(rid).startsWith('auto-')) {
           const pid = Number(String(rid).slice(5));
           const pat = (appData.patients || []).find(p => p.id === pid);
@@ -36165,6 +36185,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
               </div>
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="text-xs text-slate-400 font-bold bg-slate-100 px-3 py-2 rounded-lg mb-4">月/日/時/分 を直接入力できます (例: 6月24日 12時30分)</p>
+                {/* ★ 2026-10-29: 前の日の連絡帳は出力したときの控えで出している。ここで直して保存したら、直した内容で出す */}
+                {displayRecords.some(r => tsuCbIssuedOf(r, selectedDate)) && <p data-testid="cb-issued-modal-note" className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg -mt-2 mb-4">前の日の連絡帳は、出力したときの次回利用日・お迎え時間で表示しています。ここで直して保存した方は、直した内容で表示します。</p>}
                 <div className="space-y-3">
                   {displayRecords.map(r => {
                     const localData = localOverrides[r.id] || { nextDateOverride: "", nextTimeOverride: "" };
@@ -36438,6 +36460,9 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         </div>
         )}
 
+        {/* ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの控えで出していることを画面に書く(印刷には出ない) */}
+        {(() => { const n = displayRecords.filter(r => tsuCbIssuedOf(r, selectedDate)).length; if (!n) return null;
+          return <div data-testid="cb-issued-note" className="mx-1 mb-2 text-base sm:text-[13px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">前の日の連絡帳です。次回利用日・お迎え時間は、この日に出力したときのまま表示しています（{n}名）。</div>; })()}
         {(() => {
           // ★ スマホ(<768px)は重い連絡帳カードを全員分描画するとメモリ不足で落ちる(Safariが「問題が起きた」で再読込)。
           // ★ 2026-10-08(ユーザー要望): スマホでも連絡帳の全体を常に表示する。用紙は画面の幅にぴったり縮小(縦・横とも)、上下はスクロール。
@@ -36613,6 +36638,10 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
           }
       }
   }
+  // ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの控え(次回利用日・お迎え時間・送りの時間)で出す(tsuCbIssuedOf)
+  const _cbIss = _isBlankFace ? null : tsuCbIssuedOf(record, selectedDate);
+  if (_cbIss) { if (typeof _cbIss.d === 'string') nextDateDisplay = _cbIss.d; if (typeof _cbIss.t === 'string') nextTimeDisplay = _cbIss.t; }
+  const _cbDropAt = (record.renrakuDropAt === '1' && !_isBlankFace) ? (_cbIss ? String(_cbIss.drop || '') : getTransportDropAtFor(patient.id, nextDateDisplay, selectedDate, appData)) : '';
 
   const ex = record.exercises || {};
   const dispEx = (val) => (val === "ー" || val === "×" || !val) ? "" : val;
@@ -36733,7 +36762,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
   };
 
   return (
-    <div style={{width:'182mm', minWidth:'182mm', maxWidth:'182mm', height:'257mm', boxSizing:'border-box'}}
+    <div style={{width:'182mm', minWidth:'182mm', maxWidth:'182mm', height:'257mm', boxSizing:'border-box'}} data-cb-next-d={nextDateDisplay} data-cb-next-t={nextTimeDisplay} data-cb-drop={_cbDropAt}
       className="cb-page bg-white border-2 border-black flex flex-col font-sans text-black shadow-xl relative group flex-shrink-0 overflow-hidden">
       <div className="absolute top-1 right-2 text-[9px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">※クリックで設定</div>
 
@@ -36823,7 +36852,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
             const _showAll = renrakuHasText(_all) && _inRange(_all);
             const _showPat = renrakuHasText(_pat) && _inRange(_pat);
             // ★ 2026-10-21(ユーザー要望): 「送り時間反映」を押した日の連絡帳だけ、次回の送りの時間(送迎表)を最後に1行
-            const _dropP = (record && record.renrakuDropAt === '1' && patient && patient.id !== '__blank__') ? tsuDropNoteParts(nextDateDisplay, getTransportDropAtFor(patient.id, nextDateDisplay, selectedDate, appData)) : null;
+            const _dropP = (record && record.renrakuDropAt === '1' && patient && patient.id !== '__blank__') ? tsuDropNoteParts(nextDateDisplay, _cbDropAt) : null;
             return (
             <div className="shrink-0 mb-2">
               <div className="font-bold text-slate-800" style={{fontSize:16,marginBottom:3}}>連絡事項</div>
