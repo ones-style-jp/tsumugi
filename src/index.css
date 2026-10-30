@@ -221,7 +221,7 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
 }
 
 /* ★ 2026-10-08(ユーザー要望: スマホの分析(個人)4段・分析(稼働)3段 → 2段/1段に) */
-.tsu-period-sel, .tsu-o-break, .tsu-o-ops { display: none; }
+.tsu-period-sel, .tsu-o-break, .tsu-o-ops, .tsu-back-short { display: none; }
 @media (max-width: 767px) {
   .tsu-dash-hdr { flex-wrap: wrap !important; justify-content: flex-start !important; align-items: center !important; }
   .tsu-dash-hdr .tsu-period-tabs, .tsu-dash-hdr .tsu-range-dup, .tsu-dash-hdr .tsu-dash-name, .tsu-dash-hdr .tsu-back-txt, .tsu-dash-hdr .tsu-mask-pre { display: none !important; }
@@ -231,6 +231,7 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
   /* 分析(個人): 子要素を見出しの行に並べ直して2段に */
   .tsu-dash-hdr .tsu-ph-contents { display: contents !important; }
   .tsu-dash-hdr .tsu-o-back { order: 1; padding-left: 10px !important; padding-right: 10px !important; }
+  .tsu-dash-hdr .tsu-back-short { display: inline; } /* ★ 2026-10-30: 「←」をなくしたので、スマホは「一覧」の2文字 */
   .tsu-dash-hdr .tsu-o-pt { order: 2; flex: 1 1 0; min-width: 0; }
   .tsu-dash-hdr .tsu-o-period { order: 3; }
   .tsu-dash-hdr .tsu-o-ops { display: inline-flex; align-items: center; order: 4; padding: 0 8px !important; }

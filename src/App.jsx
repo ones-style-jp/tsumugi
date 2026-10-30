@@ -4,7 +4,7 @@ import { createRoot as _tsuCreateRoot } from 'react-dom/client';
 import { 
   Users, CalendarCheck, Activity, ClipboardList, Settings, Search, 
   Printer, CheckCircle2, CloudUpload, Loader2, Plus, Trash2, X, FileText, BarChart3, TrendingUp,
-  ArrowLeft, ArrowRight, Menu, BookOpen, Lock, Unlock, QrCode, MoveUp, MoveDown, GripVertical, AlertTriangle,
+  ArrowRight, Menu, BookOpen, Lock, Unlock, QrCode, MoveUp, MoveDown, GripVertical, AlertTriangle,
   ChevronLeft, ChevronRight, Save, UserPlus, Clock, CalendarOff, CalendarRange, PenTool, History,
   ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2, MessageSquare, Briefcase, Car,
   ArrowUpDown, Maximize2, Undo2, CheckCheck, // ★ 2026-10-22: 上の帯のアイコン(試し)
@@ -2489,7 +2489,7 @@ const _tsumugiOverlayHost = (id) => {
   return host;
 };
 const _tsumugiOverlayBar = (withPrint) => `<div class="tsumugi-ios-bar" style="position:sticky;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:10px 12px;text-align:center;font-family:-apple-system,'Hiragino Sans',sans-serif;z-index:5;box-shadow:0 2px 10px rgba(0,0,0,0.35);">
-    <button type="button" data-act="close" style="font-size:16px;font-weight:bold;padding:10px 18px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">← 閉じる（元の画面に戻る）</button>
+    <button type="button" data-act="close" style="font-size:16px;font-weight:bold;padding:10px 18px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">閉じる（元の画面に戻る）</button>
     ${withPrint ? '<button type="button" data-act="pdf" style="font-size:16px;font-weight:bold;padding:10px 24px;margin-left:10px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">PDFにして印刷・保存</button><div data-act="msg" style="font-size:12px;margin-top:6px;color:#cbd5e1;">ホーム画面のアプリでは、PDFを作って共有メニューの「プリント」から印刷します。</div>' : ''}
   </div>`;
 // HTML文書(用紙)を今の画面に重ねて表示する
@@ -13474,7 +13474,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
 // === スケジュール管理 ===
 // ★ 2026-10-30(ユーザー提案「ホームに、その日みんなに伝える利用者のこと(転倒があった・注射で運動を少なめ など)をメモで共有したい。先の日に見せることも」):
 //   申し送りメモ。カレンダーの予定(scheduleEvents)に kind:'memo' で入れる = 端末どうしは予定と同じ「id ごとにまとめる・消したら墓石」(古い端末でも消し合わない)。
-//   ・表示はその日だけ(ユーザー決定)。続けて見せたいときは「あすにも出す」で次の営業日に写しを作る(copyOf=元の id・fromDate=元の日)。日が過ぎたらホームから消え、カレンダーのその日に残る
+//   ・表示はその日だけ(ユーザー決定)。続けて見せたいときは「複製」で選んだ日に写しを作る(copyOf=元の id・fromDate=元の日)。日が過ぎたらホームから消え、カレンダーのその日に残る
+//     (2026-10-30 ユーザー要望「次の営業日にも出す」→「複製」にして日付を選べるように・「直す」→「編集」・隣に「削除」)
 //   ・利用者を選んだときだけ「支援経過表にも残す」(チェックしたものだけ・ユーザー決定)。書いた日・書いた人で支援経過表に1行足す(spId)。あとでメモを直しても支援経過表の行は変えない
 //   ・カレンダーの予定の一覧・ホームの予定・予定の通知(api/_push_plan.js)からは外す。ご家族・ケアマネの画面には予定ごと渡らない
 const TSU_MEMO_COLOR = '#f97316';
@@ -13507,19 +13508,21 @@ const tsuMemoSave = (appData, onSave, memo) => {
       patChanged = true; ev.spId = spId; ev.spAt = today; }
   }
   onSave({ ...appData, scheduleEvents: prev ? list.map(e => e.id === id ? ev : e) : [...list, ev], ...(patChanged ? { patients } : {}) },
-    { manual: true, message: patChanged ? '✓ 申し送りを保存し、支援経過表にも残しました' : (prev ? '✓ 申し送りを直しました' : '✓ 申し送りを保存しました') });
+    { manual: true, message: patChanged ? '✓ 申し送りを保存し、支援経過表にも残しました' : (prev ? '✓ 申し送りを更新しました' : '✓ 申し送りを保存しました') });
   return ev;
 };
 const tsuMemoDelete = (appData, onSave, id) => {
   const _td = { ...(appData.deletedIds || {}), scheduleEvents: { ...((appData.deletedIds || {}).scheduleEvents || {}), [String(id)]: Date.now() } };
   onSave({ ...appData, scheduleEvents: (appData.scheduleEvents || []).filter(e => e.id !== id), deletedIds: _td }, { manual: true, message: '✓ 申し送りを削除しました' });
 };
-// 次の営業日にも出す(写し)。すでにその日に写しがあれば何もしない
-const tsuMemoCopiedTo = (appData, m, iso) => { const root = m.copyOf || m.id; return tsuMemosOf(appData).some(e => e.id !== m.id && (e.copyOf || e.id) === root && e.date === iso); };
-const tsuMemoCopyNext = (appData, onSave, m) => {
-  const next = tsuNextOpenIso(appData, m.date); if (tsuMemoCopiedTo(appData, m, next)) return;
-  const ev = { id: `memo_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, kind: 'memo', color: TSU_MEMO_COLOR, date: next, title: m.title || '', patientId: m.patientId ?? '', by: m.by || '', at: new Date().toISOString(), copyOf: m.copyOf || m.id, fromDate: m.fromDate || m.date, copiedBy: getActiveRecorderName() || '', _savedAt: syncNow() };
-  onSave({ ...appData, scheduleEvents: [...(appData.scheduleEvents || []), ev] }, { manual: true, message: `✓ ${tsuMemoDayLabel(next, true)}にも出します` });
+// 選んだ日に複製(写し)。元の申し送り・同じ元から作った写しがその日にあれば作らない
+const tsuMemoCopiedTo = (appData, m, iso) => { const root = m.copyOf || m.id; return tsuMemosOf(appData).some(e => (e.copyOf || e.id) === root && e.date === iso); };
+const tsuMemoCopyTo = (appData, onSave, m, iso) => {
+  if (!iso) return false;
+  if (tsuMemoCopiedTo(appData, m, iso)) { alert(`${tsuMemoDayLabel(iso)}には、この申し送りがすでにあります`); return false; }
+  const ev = { id: `memo_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, kind: 'memo', color: TSU_MEMO_COLOR, date: iso, title: m.title || '', patientId: m.patientId ?? '', by: m.by || '', at: new Date().toISOString(), copyOf: m.copyOf || m.id, fromDate: m.fromDate || m.date, copiedBy: getActiveRecorderName() || '', _savedAt: syncNow() };
+  onSave({ ...appData, scheduleEvents: [...(appData.scheduleEvents || []), ev] }, { manual: true, message: `✓ ${tsuMemoDayLabel(iso, true)}に複製しました` });
+  return true;
 };
 // ★ 2026-10-30(ユーザー提案「カレンダーに予定＋タスク。チェックを押せば完了・押さなければずっと残る・日常業務や月末業務も」): タスク(kind:'task')
 //   ・カレンダーの予定と同じ scheduleEvents に入れる(id ごとのまとめ方・墓石)。済みは回(日付)ごとに done[日付]={by,at}、戻すと {off:true,by,at}
@@ -13580,8 +13583,8 @@ function TsuMemoEditor({ appData, onSave, init, onClose }) {
   const _ph = tsuViewW() < 640; const _touch = tsuTouchDev(); const today = tsuTodayIso();
   const prev = init && init.id ? (appData.scheduleEvents || []).find(e => e.id === init.id) : null;
   const [d, setD] = React.useState(() => ({ id: prev ? prev.id : '', date: (prev && prev.date) || (init && init.date) || today, patientId: (prev && prev.patientId) || (init && init.patientId) || '', title: (prev && prev.title) || '', toSupport: false }));
-  const pts = React.useMemo(() => (appData.patients || []).filter(p => p.status !== '退所' && String(p.name || '').trim()).slice().sort((a, b) => String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja')), [appData.patients]);
-  const next = tsuNextOpenIso(appData, today);
+  // ★ 2026-10-30(ユーザー要望「退所した方は名前の選択に出さない」): 利用者マスタの「退所済み」(利用終了日を過ぎた・退所/終了)は出さない。直すときに選んであった方だけは残す
+  const pts = React.useMemo(() => (appData.patients || []).filter(p => String(p.name || '').trim() && (isPatientListable(p) || (prev && prev.patientId !== '' && prev.patientId != null && p.id === prev.patientId))).slice().sort((a, b) => String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja')), [appData.patients]);
   const fs = (_ph || _touch) ? 16 : 14; const hh = _ph ? 44 : _touch ? 40 : 38; // ★ 指で使う端末は16px(iPhone/iPad は16px未満の欄で拡大される)
   const field = { width: '100%', fontSize: fs, minHeight: hh, border: '1px solid #cbd5e1', borderRadius: 10, padding: '6px 10px', background: 'white', color: '#1e293b', boxSizing: 'border-box' };
   const lab = { fontSize: 12, fontWeight: 'bold', color: '#64748b', marginBottom: 4 };
@@ -13592,7 +13595,7 @@ function TsuMemoEditor({ appData, onSave, init, onClose }) {
     <div data-testid="memo-editor" style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: _ph ? 'stretch' : 'center', justifyContent: 'center', padding: _ph ? 0 : 16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: 'white', width: '100%', maxWidth: _ph ? 'none' : 480, borderRadius: _ph ? 0 : 16, boxShadow: '0 20px 50px rgba(0,0,0,0.25)', padding: _ph ? '14px 16px 20px' : 20, display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto', maxHeight: '100%', boxSizing: 'border-box', textAlign: 'left' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ fontSize: 17, fontWeight: 'bold', color: '#9a3412', flex: 1 }}>{prev ? '申し送りを直す' : '申し送りを書く'}</div>
+          <div style={{ fontSize: 17, fontWeight: 'bold', color: '#9a3412', flex: 1 }}>{prev ? '申し送りを編集' : '申し送りを書く'}</div>
           <button type="button" onClick={onClose} aria-label="閉じる" style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'transparent', color: '#64748b', borderRadius: 22, cursor: 'pointer' }}><X size={20} /></button>
         </div>
         <div>
@@ -13613,8 +13616,7 @@ function TsuMemoEditor({ appData, onSave, init, onClose }) {
           <div style={lab}>表示する日</div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <input type="date" data-testid="memo-date" value={d.date} onChange={e => { const v = e.target.value; setD(x => ({ ...x, date: v })); }} style={{ ...field, height: hh, width: 'auto', flex: '1 1 150px' }} />
-            <button type="button" data-testid="memo-date-today" onClick={() => setD(x => ({ ...x, date: today }))} style={chip(d.date === today)}>今日</button>
-            <button type="button" data-testid="memo-date-next" onClick={() => setD(x => ({ ...x, date: next }))} style={chip(d.date === next)}>{next === tsuIsoAdd(today, 1) ? 'あす' : tsuMemoDayLabel(next)}</button>
+            <button type="button" data-testid="memo-date-today" onClick={() => setD(x => ({ ...x, date: today }))} style={chip(d.date === today)}>今日</button>{/* ★ 2026-10-30(ユーザー): 次の営業日のボタンは不要(ほかの日は日付で選ぶ・あとから「複製」) */}
           </div>
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>その日だけホームに出ます。日が過ぎたら、カレンダーのその日に残ります。</div>
         </div>
@@ -13634,14 +13636,44 @@ function TsuMemoEditor({ appData, onSave, init, onClose }) {
     </div>
   );
 }
-// 1件の申し送り(ホーム・カレンダー共通)
+// ★ 2026-10-30(ユーザー要望): 申し送りの「複製」。複製する日を選ぶ(初めは次の営業日・過ぎた日の分は今日)
+function TsuMemoCopyDialog({ appData, onSave, m, onClose }) {
+  useTsuBackLock(true);
+  const _ph = tsuViewW() < 640; const _touch = tsuTouchDev(); const today = tsuTodayIso();
+  const [iso, setIso] = React.useState(() => (String(m.date || '') >= today ? tsuNextOpenIso(appData, m.date) : today));
+  const pt = (m.patientId !== '' && m.patientId != null) ? (appData.patients || []).find(p => p.id === m.patientId) : null;
+  const fs = (_ph || _touch) ? 16 : 14; const hh = _ph ? 44 : _touch ? 40 : 38;
+  const dup = !!iso && tsuMemoCopiedTo(appData, m, iso);
+  const go = () => { if (!iso) { alert('複製する日を選んでください'); return; } if (tsuMemoCopyTo(appData, onSave, m, iso)) onClose(); };
+  return (
+    <div data-testid="memo-copy" style={{ position: 'fixed', inset: 0, zIndex: 95, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'white', width: '100%', maxWidth: 420, borderRadius: 16, boxShadow: '0 20px 50px rgba(0,0,0,0.25)', padding: 20, display: 'flex', flexDirection: 'column', gap: 12, boxSizing: 'border-box', textAlign: 'left' }}>
+        <div style={{ fontSize: 17, fontWeight: 'bold', color: '#9a3412' }}>申し送りを複製</div>
+        <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 12px' }}>
+          <div style={{ fontSize: 12, fontWeight: 'bold', color: '#9a3412', marginBottom: 2 }}>{pt ? `${pt.name} 様` : '全体'}</div>
+          <div style={{ fontSize: 14, color: '#1e293b', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.5, maxHeight: 120, overflowY: 'auto' }}>{m.title}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 'bold', color: '#64748b', marginBottom: 4 }}>複製する日</div>
+          <input type="date" data-testid="memo-copy-date" value={iso} onChange={e => { const v = e.target.value; setIso(v); }} style={{ width: '100%', fontSize: fs, height: hh, border: '1px solid #cbd5e1', borderRadius: 10, padding: '6px 10px', background: 'white', color: '#1e293b', boxSizing: 'border-box' }} />
+          <div data-testid="memo-copy-hint" style={{ fontSize: 12, color: dup ? '#c2410c' : '#64748b', marginTop: 4, fontWeight: dup ? 'bold' : 'normal' }}>{dup ? 'この日には、この申し送りがすでにあります' : `${iso ? tsuMemoDayLabel(iso, true) : '選んだ日'}のホームに同じ内容を出します。支援経過表には足しません。`}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" onClick={onClose} style={{ minHeight: hh, fontSize: fs, fontWeight: 'bold', color: '#475569', background: '#f1f5f9', border: 'none', borderRadius: 10, padding: '0 16px', cursor: 'pointer' }}>やめる</button>
+          <button type="button" data-testid="memo-copy-go" disabled={dup} onClick={go} style={{ minHeight: hh, fontSize: fs, fontWeight: 'bold', color: 'white', background: dup ? '#94a3b8' : '#059669', border: 'none', borderRadius: 10, padding: '0 20px', cursor: dup ? 'default' : 'pointer' }}>複製する</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+// 1件の申し送り(ホーム・カレンダー共通)。ボタンは 複製・編集・削除(2026-10-30 ユーザー要望)
 function TsuMemoRow({ appData, onSave, m, onEdit, showDate }) {
   const _ph = tsuViewW() < 640; const _tp = tsuTouchDev();
+  const [cp, setCp] = React.useState(false);
   const pt = (m.patientId !== '' && m.patientId != null) ? (appData.patients || []).find(p => p.id === m.patientId) : null;
-  const next = tsuNextOpenIso(appData, m.date); const copied = tsuMemoCopiedTo(appData, m, next);
-  const nl = next === tsuIsoAdd(m.date, 1) ? 'あす' : tsuMemoDayLabel(next);
   const btn = { minHeight: _ph ? 44 : _tp ? 40 : 30, fontSize: _ph ? 14 : 12, fontWeight: 'bold', borderRadius: 8, padding: '0 10px', cursor: 'pointer', whiteSpace: 'nowrap' };
   const meta = [m.by || '', m.copyOf && m.fromDate ? `${tsuMemoDayLabel(m.fromDate)}から` : '', m.spId ? '支援経過表に残しました' : ''].filter(Boolean).join('・');
+  const del = () => { if (!window.confirm(`この申し送りを削除しますか？${m.spId ? '\n（支援経過表に残した行はそのまま残ります）' : ''}`)) return; tsuMemoDelete(appData, onSave, m.id); };
   return (
     <div data-testid={`memo-row-${m.id}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: _ph ? 'wrap' : 'nowrap', background: '#fff7ed', border: '1px solid #fed7aa', borderLeft: `4px solid ${TSU_MEMO_COLOR}`, borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
       <div style={{ flex: '1 1 220px', minWidth: 0 }}>
@@ -13653,10 +13685,11 @@ function TsuMemoRow({ appData, onSave, m, onEdit, showDate }) {
         <div data-testid={`memo-text-${m.id}`} style={{ fontSize: _ph ? 16 : 14, color: '#1e293b', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.5 }}>{m.title}</div>
       </div>
       {onSave && <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center', marginLeft: _ph ? 'auto' : 0 }}>
-        <button type="button" data-testid={`memo-next-${m.id}`} disabled={copied} onClick={() => tsuMemoCopyNext(appData, onSave, m)} title="同じ内容を次の営業日にも出します"
-          style={{ ...btn, color: copied ? '#94a3b8' : '#c2410c', background: 'white', border: `1px solid ${copied ? '#e2e8f0' : '#fdba74'}`, cursor: copied ? 'default' : 'pointer' }}>{copied ? `${nl}にも出しています` : `${nl}にも出す`}</button>
-        {onEdit && <button type="button" data-testid={`memo-edit-${m.id}`} onClick={() => onEdit(m)} style={{ ...btn, color: '#334155', background: '#f1f5f9', border: '1px solid #e2e8f0' }}>直す</button>}
+        <button type="button" data-testid={`memo-copy-${m.id}`} onClick={() => setCp(true)} title="同じ内容を、選んだ日にも出します" style={{ ...btn, color: '#047857', background: 'white', border: '1px solid #6ee7b7' }}>複製</button>
+        {onEdit && <button type="button" data-testid={`memo-edit-${m.id}`} onClick={() => onEdit(m)} style={{ ...btn, color: '#334155', background: '#f1f5f9', border: '1px solid #e2e8f0' }}>編集</button>}
+        <button type="button" data-testid={`memo-rdel-${m.id}`} onClick={del} style={{ ...btn, color: '#c2410c', background: 'white', border: '1px solid #fdba74' }}>削除</button>
       </div>}
+      {cp && <TsuMemoCopyDialog appData={appData} onSave={onSave} m={m} onClose={() => setCp(false)} />}
     </div>
   );
 }
@@ -13743,6 +13776,9 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   }, [viewMode]);
   const [dragEvId, setDragEvId] = useState(null); // ドラッグ移動中の予定ID
   const [evDetail, setEvDetail] = useState(null); // ★ 予定クリック時の確認ポップアップ(Googleカレンダー方式・2026-08-21)
+  const [copySrc, setCopySrc] = useState(null); // ★ 2026-10-30: 複製中の予定・タスク {id}(日を押す・札をドラッグして写しを作る)
+  const _copyBarRef = React.useRef(null);
+  React.useEffect(() => { if (!copySrc) return; try { _copyBarRef.current && _copyBarRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch {} const k = (ev) => { if (ev.key === 'Escape') setCopySrc(null); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [copySrc && copySrc.id]);
   // ★ 2026-10-30: 申し送りメモ(kind:'memo')は予定の一覧・繰り返し・移動から外し、保存のときは元のまま戻す(消さない)
   const _memoAll = (appData.scheduleEvents || []).filter(tsuIsMemo);
   const events = (appData.scheduleEvents || []).filter(e => !tsuIsMemo(e));
@@ -13861,6 +13897,22 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const dow = ['日','月','火','水','木','金','土'];
   const openNew = (dstr, kind) => setModal({ date: dstr || selDay, start:'', end:'', title:'', note:'', color: kind === 'task' ? TSU_TASK_COLOR : COLORS[0], ...(kind === 'task' ? { kind: 'task' } : {}) });
   const fmtJp = (dstr) => { const [y,m,dd]=dstr.split('-').map(Number); const w=new Date(y,m-1,dd).getDay(); return `${m}月${dd}日(${dow[w]})`; };
+  // ★ 2026-10-30(ユーザー要望「カレンダーの予定とタスクにも複製。押したらドラッグか、ほかの日を選んで」): 「複製」→ 日を押す(続けて何日でも)・パソコンは札をドラッグして日に置く・日付でも選べる
+  //   写しは1回分(繰り返しは付けない)・タスクの済みは引き継がない・ご家族へのお知らせは配信しない(写しを編集して保存すれば配信)。同じ元の予定がその日にあれば作らない
+  const copyEventTo = (srcId, toDstr) => {
+    const base = events.find(x => x.id === srcId); if (!base || !toDstr) return false;
+    const root = base.copyOf || base.id; const _k = tsuIsTask(base) ? 'タスク' : '予定';
+    if (events.some(x => (x.id === root || x.copyOf === root) && occursOn(x, toDstr))) { alert(`${fmtJp(toDstr)}には、この${_k}がすでにあります`); return false; }
+    const { done, repeat, repeatEvery, repeatUntil, monthlyNthWeeks, ...rest } = base; void done; void repeat; void repeatEvery; void repeatUntil; void monthlyNthWeeks;
+    const ev = { ...rest, id: `ev_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, date: toDstr, copyOf: root, notify: false, _savedAt: syncNow() };
+    save([...events, ev], `✓ ${fmtJp(toDstr)}に${_k}を複製しました`);
+    return true;
+  };
+  const startCopy = (e) => { setEvDetail(null); setCopySrc({ id: e._occ ? e._baseId : e.id }); };
+  const _cpTap = (ds) => { if (!copySrc) return; copyEventTo(copySrc.id, ds); setSelDay(ds); };
+  const _dropOn = (ds) => { if (dragEvId === '__copy__') _cpTap(ds); else { const be = events.find(x => x.id === dragEvId); if (be) moveEvent(be, ds); } setDragEvId(null); };
+  const [copyDate, setCopyDate] = useState('');
+  const _schTouch = tsuTouchDev();
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
       {/* ★ 2026-10-08(ユーザー要望: スマホで「スケジュール」とボタンが2段): スマホは見出しの右にボタンを詰めて1行に(CSS tsu-sch-*) */}
@@ -13881,6 +13933,20 @@ function ScheduleView({ appData, onSave, navigateTo }) {
           {/* カレンダー + 選択日 */}
           <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr)',gap:_schPhone?8:16}}>
             <div data-testid="sch-cal-card" style={_schPhone ? {background:'white',borderBottom:'1px solid #e2e8f0',padding:'8px 0 0'} : {background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',padding:16}}>
+              {copySrc && (() => { const be = events.find(x => x.id === copySrc.id); if (!be) return null; const _tk = tsuIsTask(be); const _rep = be.repeat && be.repeat !== 'none'; const _bh = _schPhone ? 44 : _schTouch ? 40 : 34; return (
+                <div ref={_copyBarRef} data-testid="sch-copy-bar" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',background:'#ecfdf5',border:'1px solid #6ee7b7',borderRadius:10,padding:'8px 10px',margin:_schPhone?'0 8px 8px':'0 0 12px',scrollMarginTop:80}}>
+                  <div style={{flex:'1 1 240px',minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:'bold',color:'#065f46',overflowWrap:'anywhere'}}>「{be.title || (_tk ? 'タスク' : '予定')}」を複製しています</div>
+                    <div style={{fontSize:12,color:'#047857'}}>{_schTouch ? '複製する日を押してください（続けて何日でも押せます）' : '複製する日を押すか、右の札を日にドラッグしてください（続けて何日でも）'}{_rep ? '。写しは1回分です（繰り返しは付けません）' : ''}</div>
+                  </div>
+                  {!_schTouch && <span data-testid="sch-copy-drag" draggable onDragStart={ev=>{ try { ev.dataTransfer.setData('text/plain', 'copy'); ev.dataTransfer.effectAllowed = 'copy'; } catch {} setDragEvId('__copy__'); }} onDragEnd={()=>setDragEvId(null)} title="日にドラッグすると、その日に複製します"
+                    style={{cursor:'grab',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:12,fontWeight:'bold',borderRadius:6,padding:'6px 10px',...(_tk ? {background:'white',color:'#047857',border:`1px solid ${TSU_TASK_COLOR}`} : {background:be.color||'#6366f1',color:'white'}),boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}>{_tk ? '□' : ''}{be.start ? `${be.start} ` : ''}{be.title}</span>}
+                  <span style={{display:'flex',gap:6,alignItems:'center'}}>
+                    <input type="date" data-testid="sch-copy-date" value={copyDate} onChange={ev=>{ const v = ev.target.value; setCopyDate(v); }} aria-label="複製する日" style={{height:_bh,fontSize:(_schPhone||_schTouch)?16:13,border:'1px solid #a7f3d0',borderRadius:8,padding:'0 8px',background:'white',color:'#1e293b',boxSizing:'border-box',maxWidth:170}}/>
+                    <button type="button" data-testid="sch-copy-date-go" disabled={!copyDate} onClick={()=>{ if (copyDate && copyEventTo(copySrc.id, copyDate)) { setSelDay(copyDate); setCurMonth(copyDate.slice(0,7)); } }} style={{height:_bh,whiteSpace:'nowrap',background:copyDate?'#059669':'#a7f3d0',color:'white',border:'none',borderRadius:8,padding:'0 12px',fontWeight:'bold',fontSize:13,cursor:copyDate?'pointer':'default'}}>この日に複製</button>
+                    <button type="button" data-testid="sch-copy-end" onClick={()=>{ setCopySrc(null); setCopyDate(''); }} style={{height:_bh,whiteSpace:'nowrap',background:'white',color:'#065f46',border:'1px solid #6ee7b7',borderRadius:8,padding:'0 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>終わる</button>
+                  </span>
+                </div>); })()}
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:_schPhone?6:12,gap:8,flexWrap:'wrap',padding:_schPhone?'0 8px':0}}>
                 <div style={{display:'flex',gap:3,background:'#f1f5f9',borderRadius:10,padding:3}}>
                   {[['month','月'],['week','週']].map(([v,l])=>(
@@ -13915,12 +13981,12 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                   const closed = isClosedDate(dstr);
                   const bg = isSel ? '#eef2ff' : (holi ? '#fef2f2' : (closed ? '#f8fafc' : 'white'));
                   return (
-                    <div key={dstr} data-testid={isToday?'sch-today':undefined} data-ds={dstr} data-sel={isSel?'1':undefined} onClick={()=>setSelDay(dstr)}
+                    <div key={dstr} data-testid={isToday?'sch-today':undefined} data-ds={dstr} data-sel={isSel?'1':undefined} onClick={()=>{ if (copySrc) _cpTap(dstr); else setSelDay(dstr); }}
                       onDragOver={dragEvId?ev=>ev.preventDefault():undefined}
-                      onDrop={dragEvId?()=>{ const be=events.find(x=>x.id===dragEvId); if(be) moveEvent(be,dstr); setDragEvId(null); }:undefined}
+                      onDrop={dragEvId?(ev)=>{ ev.preventDefault(); _dropOn(dstr); }:undefined}
                       style={_schPhone
                         ? {minHeight:88,minWidth:0,opacity:d.other?0.55:1,textAlign:'left',background:bg,borderRight:i%7===6?'none':'1px solid #eef0f4',borderBottom:'1px solid #eef0f4',boxShadow:isSel?'inset 0 0 0 2px #818cf8':'none',padding:'2px 1px',cursor:'pointer',display:'flex',flexDirection:'column',gap:1,overflow:'hidden'}
-                        : {minHeight:96,opacity:d.other?0.62:1,textAlign:'left',background:bg,border:`1px solid ${isSel?'#818cf8':(dragEvId?'#c7d2fe':'#e2e8f0')}`,borderRadius:8,padding:'3px 4px',cursor:'pointer',display:'flex',flexDirection:'column',gap:2,overflow:'hidden'}}>
+                        : {minHeight:96,opacity:d.other?0.62:1,textAlign:'left',background:bg,border:`1px solid ${isSel?'#818cf8':(copySrc?'#6ee7b7':(dragEvId?'#c7d2fe':'#e2e8f0'))}`,borderRadius:8,padding:'3px 4px',cursor:copySrc?'copy':'pointer',display:'flex',flexDirection:'column',gap:2,overflow:'hidden'}}>
                       <div style={{display:'flex',alignItems:'center',justifyContent:_schPhone?'flex-start':'space-between',gap:_schPhone?2:0}}>{/* ★ 2026-10-20: スマホは印を日にちのすぐ右に(右端だと隣の日付にくっついて見えた) */}
                         <span style={{fontSize:12,fontWeight:'bold',width:20,height:20,lineHeight:'20px',textAlign:'center',borderRadius:'50%',background:isToday?'#6366f1':'transparent',color:isToday?'white':(holi?'#ef4444':(i%7===0?'#ef4444':i%7===6?'#3b82f6':'#334155')),flexShrink:0}}>{d.other&&!_schPhone?`${parseInt(dstr.slice(5,7))}/${d.d}`:d.d}</span>
                         <div style={{display:'flex',alignItems:'center',gap:1}}>
@@ -13932,7 +13998,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                       {holi && holidayName(dstr) && <span style={{fontSize:8,fontWeight:'bold',color:'#ef4444',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{holidayName(dstr)}</span>}
                       {(() => { const _mo = memosOf(dstr); return _mo.length > 0 ? <span data-testid={`sch-memo-chip-${dstr}`} title={`申し送り ${_mo.length}件`} style={{fontSize:_schPhone?8:9,fontWeight:'bold',color:'#c2410c',background:'#fff7ed',border:'1px solid #fed7aa',borderRadius:4,padding:'0 3px',alignSelf:'flex-start',whiteSpace:'nowrap',lineHeight:1.4,maxWidth:'100%',overflow:'hidden'}}>{_schPhone ? `申${_mo.length}` : `申し送り ${_mo.length}`}</span> : null; })()}
                       {evs.slice(0,4).map(e=>{ const drg = !e._occ && (!e.repeat||e.repeat==='none'); return (
-                        <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?ev=>{setDragEvId(e.id);}:undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation(); setEvDetail(e);}}
+                        <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?ev=>{setDragEvId(e.id);}:undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation(); if (copySrc) { _cpTap(dstr); return; } setEvDetail(e);}}
                           title={`${e.title}${patName(e)?'／'+patName(e):''}`}
                           style={{fontSize:10,fontWeight:'bold',color:tsuIsTask(e)?TSU_TASK_COLOR:'white',background:tsuIsTask(e)?'white':(e.color||'#6366f1'),...(tsuIsTask(e)?{border:`1px solid ${TSU_TASK_COLOR}`,textDecoration:tsuTaskDoneOn(e,dstr)?'line-through':'none',opacity:tsuTaskDoneOn(e,dstr)?0.6:1}:{}),borderRadius:_schPhone?3:4,padding:_schPhone?'1px 2px':'1px 4px',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',overflowWrap:'anywhere',lineHeight:1.25,maxWidth:'100%',cursor:drg?'grab':'pointer'}}>{tsuIsTask(e) ? (tsuTaskDoneOn(e, dstr) ? '✓' : '□') : null}{_schPhone
                             ? <>{e.start ? <span style={{whiteSpace:'nowrap'}}>{String(e.start).replace(/^0(\d)/,'$1')} </span> : null}{e.title}{patName(e)?`／${patName(e)}`:''}</>
@@ -13951,7 +14017,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                 const cols = _schPhone ? `28px repeat(7,minmax(0,1fr))` : `40px repeat(7,minmax(0,1fr))`;
                 const toTop = (t) => { const a=String(t).split(':'); const mins=(Number(a[0])||0)*60+(Number(a[1])||0); return Math.max(0,(mins-HStart*60)/60*hourH); };
                 const durH = (e) => { if(!e.start) return hourH*0.5; const s=e.start.split(':'),en=(e.end||'').split(':'); const sm=(Number(s[0])||0)*60+(Number(s[1])||0); const em=en.length>=2?(Number(en[0])||0)*60+(Number(en[1])||0):sm+30; return Math.max(28,(Math.max(20,em-sm))/60*hourH); };
-                const dropCell = (ds) => dragEvId ? { onDragOver:ev=>ev.preventDefault(), onDrop:()=>{ const be=events.find(x=>x.id===dragEvId); if(be) moveEvent(be,ds); setDragEvId(null); } } : {};
+                const dropCell = (ds) => dragEvId ? { onDragOver:ev=>ev.preventDefault(), onDrop:(ev)=>{ ev.preventDefault(); _dropOn(ds); } } : {};
                 return (
                   <div>
                     {/* ★ 2026-09-27 ユーザー要望: スクロールしても日付の行が固定されるように(横スクロールの入れ物を外し、日付＋終日の行を sticky に) */}
@@ -13959,7 +14025,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                     <div style={{display:'grid',gridTemplateColumns:cols}}>
                       <div/>
                       {wd.map((ds,i)=>{ const dd=ds.split('-').map(Number)[2]; const isT=ds===todayStr; const holi=isHolidayDate(ds); const closed=isClosedDate(ds); const bdays=birthdaysOn(ds); const exps=expiriesOn(ds); return (
-                        <div key={ds} onClick={()=>setSelDay(ds)} style={{textAlign:'center',padding:'2px 2px 0',cursor:'pointer',borderBottom:'2px solid '+(ds===selDay?'#6366f1':'#e2e8f0'),background:isT?'#eef2ff':'transparent'}}>
+                        <div key={ds} {...dropCell(ds)} onClick={()=>{ if (copySrc) _cpTap(ds); else setSelDay(ds); }} style={{textAlign:'center',padding:'2px 2px 0',cursor:copySrc?'copy':'pointer',borderBottom:'2px solid '+(ds===selDay?'#6366f1':'#e2e8f0'),background:isT?'#eef2ff':'transparent'}}>
                           <div style={{fontSize:11,fontWeight:'bold',color:(i===0||holi)?'#ef4444':i===6?'#3b82f6':'#64748b'}}>{dow[i]}</div>
                           <div style={{fontSize:15,fontWeight:'bold',color:isT?'#4338ca':'#1e293b'}}>{dd}</div>
                           <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:2,minHeight:12}}>
@@ -13972,8 +14038,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                     <div style={{display:'grid',gridTemplateColumns:cols,borderBottom:'1px solid #e2e8f0'}}>
                       <div style={{fontSize:8,color:'#64748b',textAlign:'right',padding:'3px 4px'}}>終日</div>
                       {wd.map(ds=>{ const alld=evOf(ds).filter(e=>!e.start); return (
-                        <div key={ds} onClick={()=>openNew(ds)} {...dropCell(ds)} style={{minHeight:14,padding:'1px 2px',borderLeft:'1px solid #e2e8f0',cursor:'pointer',display:'flex',flexDirection:'column',gap:2}}>
-                          {alld.map(e=>{ const drg=!e._occ&&(!e.repeat||e.repeat==='none'); return <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?()=>setDragEvId(e.id):undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation();setEvDetail(e);}} title={e.title} style={{fontSize:9.5,fontWeight:'bold',color:'white',background:e.color||'#6366f1',borderRadius:3,padding:'2px 4px',whiteSpace:'normal',overflowWrap:'anywhere',lineHeight:1.3,cursor:drg?'grab':'pointer'}}>{e.repeat&&e.repeat!=='none'?'[繰]':''}{e.title}{patName(e)?`／${patName(e)}`:''}</div>; })}
+                        <div key={ds} onClick={()=>{ if (copySrc) _cpTap(ds); else openNew(ds); }} {...dropCell(ds)} style={{minHeight:14,padding:'1px 2px',borderLeft:'1px solid #e2e8f0',cursor:'pointer',display:'flex',flexDirection:'column',gap:2}}>
+                          {alld.map(e=>{ const drg=!e._occ&&(!e.repeat||e.repeat==='none'); return <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?()=>setDragEvId(e.id):undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation(); if (copySrc) { _cpTap(ds); return; } setEvDetail(e);}} title={e.title} style={{fontSize:9.5,fontWeight:'bold',color:'white',background:e.color||'#6366f1',borderRadius:3,padding:'2px 4px',whiteSpace:'normal',overflowWrap:'anywhere',lineHeight:1.3,cursor:drg?'grab':'pointer'}}>{e.repeat&&e.repeat!=='none'?'[繰]':''}{e.title}{patName(e)?`／${patName(e)}`:''}</div>; })}
                         </div>); })}
                     </div>
                     </div>
@@ -13982,13 +14048,13 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                         {Array.from({length:HEnd-HStart},(_,h)=>(<div key={h} style={{position:'absolute',top:h*hourH-6,right:_schPhone?2:3,fontSize:9,color:'#64748b',fontWeight:'bold'}}>{_schPhone?`${HStart+h}時`:`${HStart+h}:00`}</div>))}
                       </div>
                       {wd.map(ds=>{ const timed=evOf(ds).filter(e=>e.start); const closed=isClosedDate(ds); return (
-                        <div key={ds} {...dropCell(ds)} onClick={(ev)=>{ const rect=ev.currentTarget.getBoundingClientRect(); const y=ev.clientY-rect.top; let mins=HStart*60+Math.round((y/hourH*60)/15)*15; mins=Math.max(HStart*60,Math.min(HEnd*60-15,mins)); const hh=String(Math.floor(mins/60)).padStart(2,'0'),mm=String(mins%60).padStart(2,'0'); setModal({date:ds,start:`${hh}:${mm}`,end:addMin(`${hh}:${mm}`,60),title:'',note:'',color:COLORS[0]}); }}
+                        <div key={ds} {...dropCell(ds)} onClick={(ev)=>{ if (copySrc) { _cpTap(ds); return; } const rect=ev.currentTarget.getBoundingClientRect(); const y=ev.clientY-rect.top; let mins=HStart*60+Math.round((y/hourH*60)/15)*15; mins=Math.max(HStart*60,Math.min(HEnd*60-15,mins)); const hh=String(Math.floor(mins/60)).padStart(2,'0'),mm=String(mins%60).padStart(2,'0'); setModal({date:ds,start:`${hh}:${mm}`,end:addMin(`${hh}:${mm}`,60),title:'',note:'',color:COLORS[0]}); }}
                           style={{position:'relative',height:gridH,borderLeft:'1px solid #e2e8f0',cursor:'pointer',background:closed?'#f8fafc':(isHolidayDate(ds)?'#fef2f2':'white')}}>
                           {/* ★ 時間の区切り線(2026-09-27 ユーザー要望: 時間と日付の区切りが分かるように) */}
                           {Array.from({length:HEnd-HStart},(_,h)=>(<div key={'hl'+h} style={{position:'absolute',left:0,right:0,top:h*hourH,borderTop:'1px solid #e2e8f0',pointerEvents:'none'}}/>))}
                           {Array.from({length:HEnd-HStart},(_,h)=>(<div key={h} style={{position:'absolute',top:h*hourH,left:0,right:0,borderTop:'1px solid #f1f5f9'}}/>))}
                           {timed.map(e=>{ const drg=!e._occ&&(!e.repeat||e.repeat==='none'); return (
-                            <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?()=>setDragEvId(e.id):undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation();setEvDetail(e);}} title={`${timeLabel(e)} ${e.title}`}
+                            <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?()=>setDragEvId(e.id):undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation(); if (copySrc) { _cpTap(ds); return; } setEvDetail(e);}} title={`${timeLabel(e)} ${e.title}`}
                               style={{position:'absolute',top:toTop(e.start),left:_schPhone?1:2,right:_schPhone?1:2,height:durH(e),background:e.color||'#6366f1',color:'white',borderRadius:4,padding:_schPhone?'1px 2px':'1px 4px',fontSize:9,fontWeight:'bold',overflow:'hidden',cursor:drg?'grab':'pointer',boxShadow:'0 1px 2px rgba(0,0,0,0.25)'}}>
                               {_schPhone ? <>
                                 {/* ★ 2026-10-20: スマホは列が細いので、時刻の下に件名・利用者名を折り返して出す */}
@@ -14012,11 +14078,11 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                 <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>{fmtJp(selDay)} の予定</div>
                 <div style={{display:'flex',gap:6}}>
                 <button type="button" data-testid="sch-task-add" onClick={()=>openNew(selDay, 'task')} style={{whiteSpace:'nowrap',background:'white',color:'#047857',border:`1px solid ${TSU_TASK_COLOR}`,borderRadius:8,padding:_schPhone?'10px 12px':'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>＋ タスク</button>
-                <button onClick={()=>openNew(selDay)} style={{whiteSpace:'nowrap',background:'#6366f1',color:'white',border:'none',borderRadius:8,padding:_schPhone?'10px 12px':'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>追加</button>
+                <button type="button" data-testid="sch-event-add" onClick={()=>openNew(selDay)} style={{whiteSpace:'nowrap',background:'#6366f1',color:'white',border:'none',borderRadius:8,padding:_schPhone?'10px 12px':'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>＋ 予定</button>{/* ★ 2026-10-30(ユーザー要望): 「追加」→「＋ 予定」(隣の「＋ タスク」とそろえる) */}
                 </div>
               </div>
               {selEvents.length===0 ? (
-                <div style={{fontSize:13,color:'#64748b',padding:'12px 0'}}>この日の予定はありません。「追加」から登録できます。</div>
+                <div style={{fontSize:13,color:'#64748b',padding:'12px 0'}}>この日の予定はありません。「＋ 予定」「＋ タスク」から登録できます。</div>
               ) : (
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
                   {selEvents.map(e=>{ const _tk = tsuIsTask(e); const _bid = e._occ ? e._baseId : e.id; const _dn = _tk && tsuTaskDoneOn(e, selDay); const _dI = _tk && e.done && e.done[selDay]; return (
@@ -14034,6 +14100,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                       </div>
                       {e.patientId && <button onClick={()=>_goMeeting(e.patientId)} title="個人ファイルの担当者会議記録を開く"
                         style={{background:'#2563eb',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'white',cursor:'pointer',whiteSpace:'nowrap'}}>担当者会議を記録</button>}
+                      <button type="button" data-testid={`sch-copy-${_bid}`} onClick={()=>startCopy(e)} title="ほかの日に同じ予定を作ります" style={{whiteSpace:'nowrap',background:'white',border:'1px solid #6ee7b7',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'#047857',cursor:'pointer'}}>複製</button>
                       <button onClick={()=>editEvent(e)} style={{whiteSpace:'nowrap',background:'#e2e8f0',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'#334155',cursor:'pointer'}}>編集</button>
                       <button onClick={()=>delEvent(e)} style={{whiteSpace:'nowrap',background:'#fee2e2',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'#b91c1c',cursor:'pointer'}}>削除</button>
                     </div>); })}
@@ -14078,6 +14145,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                 style={{background:'#2563eb',border:'none',color:'white',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer',marginRight:'auto'}}>担当者会議を記録</button>}
               {!e.patientId && <span style={{marginRight:'auto'}}/>}
               {tsuIsTask(e) && (() => { const _dn = tsuTaskDoneOn(e, e.date); return <button type="button" data-testid="sch-evd-task-toggle" onClick={()=>{ tsuTaskToggle(appData, onSave, { id: e._occ ? e._baseId : e.id }, e.date, !_dn); setEvDetail(null); }} style={{whiteSpace:'nowrap',background:_dn?'white':TSU_TASK_COLOR,border:`1px solid ${TSU_TASK_COLOR}`,color:_dn?'#047857':'white',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>{_dn ? '済んでいないに戻す' : '済みにする'}</button>; })()}
+              <button type="button" data-testid="sch-evd-copy" onClick={()=>startCopy(e)} title="ほかの日に同じ予定を作ります" style={{whiteSpace:'nowrap',background:'white',border:'1px solid #6ee7b7',color:'#047857',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>複製</button>
               <button onClick={()=>{ delEvent(e); setEvDetail(null); }} style={{whiteSpace:'nowrap',background:'#fef2f2',border:'1px solid #fecaca',color:'#dc2626',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>削除</button>
               <button onClick={()=>{ setEvDetail(null); editEvent(e); }} style={{whiteSpace:'nowrap',background:'#4f46e5',border:'none',color:'white',borderRadius:10,padding:'11px 22px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>編集</button>
               <button onClick={()=>setEvDetail(null)} style={{whiteSpace:'nowrap',background:'#f1f5f9',border:'none',color:'#475569',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>閉じる</button>
@@ -16079,7 +16147,7 @@ function FamilyView() {
           )}
           <button onClick={()=>{ setAdminPreview(null); setLoginForm({username:'',password:'',error:'',showPw:false}); }}
             style={{display:'block',width:'100%',padding:'11px',marginTop:16,background:'transparent',color:'#64748b',border:'1px solid #cbd5e1',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>
-            ← ログイン画面に戻る
+            ログイン画面に戻る
           </button>
         </div>
       </div>
@@ -16972,7 +17040,7 @@ function FamilyView() {
                     style={{width:'100%',padding:'13px',background: (signupForm.agreedTerms && signupForm.agreedPrivacy && !signupForm.checking && !signupForm.submitting)?'#7daa3d':'#cbd5e1',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:(signupForm.agreedTerms && signupForm.agreedPrivacy)?'pointer':'not-allowed',marginTop:6,boxShadow:'0 4px 12px rgba(125,170,61,0.3)'}}>
                     {signupForm.checking ? <><BusySpin/>ID確認中...</> : signupForm.submitting ? <><BusySpin/>登録中...</> : '登録する'}
                   </button>
-                  <button type="button" onClick={()=>setMode('login')} style={{display:'block',width:'100%',padding:'10px',marginTop:10,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>← ログイン画面に戻る</button>
+                  <button type="button" onClick={()=>setMode('login')} style={{display:'block',width:'100%',padding:'10px',marginTop:10,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>ログイン画面に戻る</button>
                 </form>
               )}
             </div>
@@ -18866,7 +18934,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                       style={{flex:1,padding:'10px',background:'#3b82f6',color:'white',border:'none',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>＋ もう一人招待</button>
                   )}
                   <button onClick={()=>{setInviteMode('list'); setInviteFamForm({email:'',relation:'',createdUrl:'',sentAuto:false,sending:false,sendError:''});}}
-                    style={{flex:1,padding:'10px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>← 一覧に戻る</button>
+                    style={{flex:1,padding:'10px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>一覧に戻る</button>
                 </div>
               </div>
             ) : (
@@ -18891,7 +18959,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                 </div>
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={()=>{setInviteMode('list'); setInviteFamForm({email:'',relation:'',createdUrl:''});}}
-                    style={{flex:1,padding:'10px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>← 一覧に戻る</button>
+                    style={{flex:1,padding:'10px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>一覧に戻る</button>
                   <button onClick={async ()=>{
                     const em = (inviteFamForm.email||'').trim();
                     if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { alert('正しいメールアドレスを入力してください'); return; }
@@ -19435,7 +19503,7 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
         </div>
         {/* 下部リンク */}
         <div style={{textAlign:'center',marginTop:16,fontSize:11,color:'#5e8030'}}>
-          {onBackToStores && <button onClick={onBackToStores} style={{background:'transparent',color:'#5e8030',border:'none',cursor:'pointer',fontSize:11,fontWeight:'bold',marginRight:12}}>← 店舗選択に戻る</button>}
+          {onBackToStores && <button onClick={onBackToStores} style={{background:'transparent',color:'#5e8030',border:'none',cursor:'pointer',fontSize:11,fontWeight:'bold',marginRight:12}}>店舗選択に戻る</button>}
           <button onClick={onLogout} style={{background:'transparent',color:'#64748b',border:'none',cursor:'pointer',fontSize:11,fontWeight:'bold'}}>ログアウト</button>
         </div>
       </div>
@@ -29081,7 +29149,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   {_base ? <div className="mt-3 text-base text-slate-500"><span className="font-bold">今の特記：</span>{_base}</div> : null}
                 </div>); })()}
                 <div className="flex gap-5 mt-6 pb-6">
-                  <button {...longPressTapProps(() => setKibunStep('mood'))} className="px-10 py-5 bg-slate-200 text-slate-700 rounded-full text-2xl font-bold hover:bg-slate-300 active:scale-95">← 戻る</button>
+                  <button {...longPressTapProps(() => setKibunStep('mood'))} className="px-10 py-5 bg-slate-200 text-slate-700 rounded-full text-2xl font-bold hover:bg-slate-300 active:scale-95">戻る</button>
                   <button {...longPressTapProps(() => {
                     updateRecord(recId, moodKey, kibunTempMood);
                     // ★ 2026-10-14: 内容は気分の欄(…Reason)にも残し(モニタリングAI・分析で使う)、特記欄へ反映する
@@ -29741,7 +29809,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <button onClick={()=>{ setSelectedPatientId(null); setPatientSearch(''); onPatientChange && onPatientChange(null); }}
               title="利用者一覧に戻る" className="tsu-o-back"
               style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:10,padding:'6px 12px',fontSize:12,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
-              ← <span className="tsu-back-txt">一覧に戻る</span>
+              <span className="tsu-back-txt">一覧に戻る</span><span className="tsu-back-short">一覧</span>{/* ★ 2026-10-30(ユーザー要望): 戻るボタンの「←」はなくした(スマホは「一覧」の2文字) */}
             </button>
           )}
           {/* 利用者プルダウン: かな昇順 + ア行/カ行... の optgroup でラベル付け */}
@@ -34902,7 +34970,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
       {/* ヘッダー：スクロールコンテナの外 */}
       <div className="thp bg-white px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 shrink-0 sticky top-0 z-30" style={{minWidth:0}}>
         <div className="flex flex-wrap items-center gap-3">
-          {navigateTo && <button onClick={goBackFromTicket} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm flex items-center gap-1 shrink-0" title="戻る"><ArrowLeft size={16}/>戻る</button>}
+          {navigateTo && <button onClick={goBackFromTicket} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm flex items-center gap-1 shrink-0" title="戻る">戻る</button>}
           <div style={{position:'relative'}}>
             <button onClick={()=>{setPatDropOpen(v=>!v);setPatSearch('');}} className="bg-slate-50 border border-slate-300 hover:border-blue-400 px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 min-w-[160px] max-w-[220px]">
               <span className="truncate flex-1 text-left">{sp?.name || '利用者を選択'}</span>
@@ -38318,7 +38386,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _dropAtAutoOf = (pl, pid) => { if (!pl) return false; if ((pl.dropAt || {})[String(pid)]) return !!(pl.dropAtAuto || {})[String(pid)]; const lm = _legacyDropAt(pl, pid); return !!(lm && lm.atAuto); };
   // 送りの印(送2号車 など)と着く時間をまとめた文字(運行表・一覧用)
   const _dropLabel = (pl, pid) => { const tg = _dropTag(pl, pid); const at = _dropAtOf(pl, pid); return tg ? (at ? `${tg} ${at}` : tg) : (at ? `送${at}` : ''); };
-  const _dropTag = (pl, pid) => {
+  const _dropTag = (pl, pid, noCar) => {
     if (!pl || pl.dropMode !== 'custom' || !pl.drop) return '';
     const zoneOf = (src) => { for (const cid of Object.keys(src.cars||{})) if ((src.cars[cid]||[]).some(m => m.pid === pid)) return { z: cid }; if ((src.walkers||[]).some(m => m.pid === pid)) return { z: 'walk' }; const o = (src.others||[]).find(m => m.pid === pid); return o ? { z: 'other', why: o.why || '' } : null; };
     const pk = zoneOf(pl), dr = zoneOf(pl.drop);
@@ -38326,6 +38394,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (dr.z === 'other') { if (pk && pk.z === 'other') return (dr.why && dr.why !== (pk.why||'')) ? dr.why : ''; return dr.why || '送その他'; } // 迎えも送りもその他なら、送りの理由が違うときだけ
     if (pk && pk.z === dr.z) return '';
     if (dr.z === 'walk') return '送徒歩';
+    if (noCar) return ''; // ★ 2026-10-30(ユーザー): スマホの一覧は送りの車の名前を出さない(違う車は「送りの座席」で見る)
     const c = cars.find(x => x.id === dr.z); return c ? `送${c.name}` : '';
   };
   // ★ 週の「完成」確定と、完成後に変えた箇所の自動赤丸(2026-09-26 ユーザー要望・2026-09-28 実装)
@@ -40331,15 +40400,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const _mins = (t) => { const m = String(_fmtT(t) || '').match(/(\d+):(\d+)/); return m ? (+m[1]) * 60 + (+m[2]) : 9999; };
         // ★ 2026-10-13(ユーザー指示): 1行目=名前・時間(近く)・住所、2行目=待ち合わせ場所・電話(横並び)。電話は枠で目立たせず文字だけ(携帯優先・固定はその次)。
         //   「送迎時の連絡先」をご家族などにしている方は、その相手と番号を先頭に(本人の番号はその後ろ)
-        const Row = ({ m, pl, sl, rm, walk }) => { const pt = _pt(m.pid); const dot = !rm && (m.mark || _dotOf(pl, iso, m.pid)); const tg = rm ? '' : _dropLabel(pl, m.pid); const calls = tsumugiPickupCalls(pt); const addr = _addr(pt); const place = _place(pt); return (
+        // ★ 2026-10-30(ユーザー要望「送りの車の名前は不要・送りの時間は入れた方だけ待ち合わせ場所の右に」): 車の名前は出さない(徒歩・早退などは出す)。送りの時間は「送りの時間 表示」の店舗で入れた方だけ
+        const Row = ({ m, pl, sl, rm, walk }) => { const pt = _pt(m.pid); const dot = !rm && (m.mark || _dotOf(pl, iso, m.pid)); const tg = rm ? '' : _dropTag(pl, m.pid, true); const dAt = (rm || !_dropShown) ? '' : _dropAtOf(pl, m.pid); const dAuto = !!dAt && _dropAtAutoOf(pl, m.pid); const calls = tsumugiPickupCalls(pt); const addr = _addr(pt); const place = _place(pt); return (
           <div data-testid={`tp-dl-${iso}-${sl}-${m.pid}`} data-rm={rm ? '1' : '0'} className={`px-3 py-1.5 border-b border-slate-100 ${rm ? 'opacity-50' : ''}`}>
             {/* ★ 2026-10-13(ユーザー指示): 時間が凹凸にならないよう名前を固定幅(約6.5文字)にして時間を縦1列にそろえる */}
             {/* ★ 2026-10-13(ユーザー指示): 1行目=名前・時間(一番目立つ)・待ち合わせ場所(ピンの印・文字だけ)、2行目=住所(大きめ)・電話 */}
             <div className="flex items-baseline gap-x-2 gap-y-0 flex-wrap">
               <span className={`shrink-0 truncate font-bold text-[18px] text-slate-900 ${rm ? 'line-through' : ''}`} style={{width:'6.6em'}}>{_pname(m.pid)}</span>
               <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-[19px] text-slate-900 border-2 rounded px-1 ${dot ? 'border-red-600' : 'border-transparent'} ${rm ? 'line-through' : ''}`} style={{minWidth:'3.2em', textAlign:'center'}}>{walk ? (/\d/.test(String(m.t||'')) ? `${_fmtT(m.t)} 着` : '到着') : (_fmtT(m.t) || '—')}</span>
-              {tg ? <span className="shrink-0 text-[11px] text-slate-500">{tg}</span> : null}
+              {tg ? <span data-testid={`tp-dl-tag-${iso}-${sl}-${m.pid}`} className="shrink-0 text-[11px] text-slate-500">{tg}</span> : null}
               {!rm && place ? <span className="min-w-0 inline-flex items-center gap-0.5 text-[12px] text-slate-600 leading-snug" title="待ち合わせ場所"><TsuHailIcon size={18} className="shrink-0" />{place}</span> : null}
+              {dAt ? <span data-testid={`tp-dl-dat-${iso}-${sl}-${m.pid}`} className={`shrink-0 text-[12px] font-bold tabular-nums whitespace-nowrap ${dAuto ? 'text-slate-500' : 'text-indigo-700'}`} title={dAuto ? '送りで家に着く目安' : '送りで家に着く時間'}>送 {dAt}{dAuto ? '頃' : ''}</span> : null}
             </div>
             {rm ? <div className="text-[12px] text-red-700 font-bold">{_absReasonOfPid(m.pid, iso, sl)}</div> : (
               <div className="flex items-baseline gap-x-3 gap-y-0 flex-wrap text-[13px] leading-snug">
@@ -40873,7 +40944,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <div className="fixed inset-0 bg-slate-900/60 flex items-start justify-center p-2 sm:p-5 overflow-y-auto" style={{ zIndex: 10000 }} data-testid="tp-seat-modal">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[1240px]" onClick={e => e.stopPropagation()}>
               <div className="flex items-center gap-2 flex-wrap px-4 py-3 border-b border-slate-200">
-                <button type="button" data-testid="tp-seat-close" onClick={() => { setSeatMv(null); setSeatOrd(null); }} className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+                <button type="button" data-testid="tp-seat-close" onClick={() => { setSeatMv(null); setSeatOrd(null); }} className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold">閉じる</button>
                 <span className="text-base font-bold text-slate-800">座席表（送り）</span>
                 <div className="flex items-center gap-1">
                   <button type="button" disabled={dayIdx <= 0} onClick={() => { setSeatOrd(null); setSeatMv({ iso: _iso(days[dayIdx - 1]), sl }); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-sm font-bold text-slate-600 disabled:opacity-30">◀</button>
@@ -40986,7 +41057,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         return (
         <div className="fixed inset-0 bg-white flex flex-col" style={{ zIndex: 10000 }} data-testid="tp-seat-view">
           <div className="flex items-center gap-2 px-3 pb-2 border-b border-slate-200" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}>
-            <button type="button" onClick={() => setSeatView(null)} data-testid="tp-sv-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+            <button type="button" onClick={() => setSeatView(null)} data-testid="tp-sv-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold">閉じる</button>
             <span className="text-[15px] font-bold text-slate-800">送りの座席表</span>
             <span className={`ml-auto text-[12px] font-bold rounded px-2 py-0.5 whitespace-nowrap ${svSl === 'AM' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>{dl} {svSl === 'AM' ? 'AM送り' : 'PM送り'}</span>
           </div>
@@ -45282,7 +45353,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       </div>
                       {csvModal.error && <div className="text-xs font-bold text-red-600">エラー: {csvModal.error}</div>}
                       <div className="flex gap-2">
-                        <button type="button" onClick={()=>setCsvModal(prev=>({...prev, resolvingDup:false, dupList:undefined, dupChoices:undefined, error:''}))} className="flex-1 py-2.5 rounded-xl font-bold text-slate-600 border border-slate-300">← 戻る</button>
+                        <button type="button" onClick={()=>setCsvModal(prev=>({...prev, resolvingDup:false, dupList:undefined, dupChoices:undefined, error:''}))} className="flex-1 py-2.5 rounded-xl font-bold text-slate-600 border border-slate-300">戻る</button>
                         <button type="button" onClick={()=>doImport(csvModal.dupChoices||{})} className="flex-1 py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700">この内容で取り込む</button>
                       </div>
                     </div>
@@ -51340,7 +51411,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           }
         `}</style>
         <div className="no-print sticky top-0 z-50 flex items-center gap-4 px-6 py-3" style={{backgroundColor:'#333'}}>
-          <button onClick={()=>{ setIsPrintPreview(false); document.title='つむぎ｜デイサービス管理'; }} className="bg-white text-gray-800 px-4 py-2 rounded-xl font-bold text-sm hover:bg-gray-100">← 編集に戻る</button>
+          <button onClick={()=>{ setIsPrintPreview(false); document.title='つむぎ｜デイサービス管理'; }} className="bg-white text-gray-800 px-4 py-2 rounded-xl font-bold text-sm hover:bg-gray-100">編集に戻る</button>
           <span className="text-sm text-white opacity-80">印刷プレビュー（A4縦）{printPages.length > 1 ? ' — 2ページ' : ''}</span>
           <button onClick={()=>{
               const pages = document.querySelectorAll('.diary-print-page');
@@ -52857,7 +52928,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
       {/* ヘッダ */}
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
         {editing ? <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold">閉じる</button>
           <span className="text-sm font-bold text-slate-700 whitespace-nowrap">個別機能訓練計画書（様式3-3）の編集{editing.zantei ? '（暫定）' : ''}<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
         </> : <>
           <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
@@ -53432,7 +53503,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
         {editing ? <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold">閉じる</button>
           <span className="text-sm font-bold text-slate-700 whitespace-nowrap">生活機能チェック（様式3-2）の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
         </> : <>
           <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
@@ -53577,7 +53648,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
         {editing ? <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold">閉じる</button>
           <span className="text-sm font-bold text-slate-700 whitespace-nowrap">興味・関心チェック（様式3-1）の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
         </> : <>
           <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
@@ -54003,7 +54074,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
         {editing ? <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold">閉じる</button>
           <span className="text-sm font-bold text-slate-700 whitespace-nowrap">{_shien ? '要支援の計画書の編集' : '通所介護計画書の編集'}{editing.zantei ? '（暫定）' : ''}<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
         </> : <>
           <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
@@ -55648,7 +55719,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
         {editing ? <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold">閉じる</button>
           <span className="text-sm font-bold text-slate-700 whitespace-nowrap">ADL評価の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
         </> : <>
           {_isSubmit ? <KeikakuPatientSelect patients={patients} pid={null} onChange={(id)=>navigateTo('kinou_patient', id)}/> : <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>}
@@ -55674,7 +55745,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
       {batchMode && batch && (
         <div className="fixed inset-0 z-50 bg-slate-100 flex flex-col">
           <div className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-2 flex-wrap shadow-sm">
-            <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setBatchMode(false); setBatch(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+            <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setBatchMode(false); setBatch(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold">閉じる</button>
             <span className="text-sm font-bold text-indigo-700">評価・計画（3か月ごとの評価）</span>
             <span className="text-sm font-bold text-slate-700">{patient?.name} 様</span>
             <div className="flex items-center gap-1.5 ml-2">
@@ -58541,7 +58612,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
         {/* 操作バー（スクロール時も上部に固定） */}
         <div className="fax-no-print tsu-abs-bar" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'#1e293b',color:'white',padding:'10px 20px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
           <button type="button" onClick={closeFax} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
-            ← カレンダーに戻る
+            カレンダーに戻る
           </button>
           <span style={{fontSize:13,fontWeight:'bold',color:'#64748b'}}>{absDate}　{maskedName} 様</span>
           {/* ★ 2026-10-08(ユーザー要望): スマホでも ダウンロード・氏名マスキング・保存・連絡済にする を1行に(CSS tsu-abs-actions) */}
@@ -60943,7 +61014,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
             <div className="space-y-4">
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-center justify-between gap-2 flex-wrap">
                 <span>初回の様子をケアマネ向けにまとめます（初回の記録があればバイタルが自動で入ります）。</span>
-                <button onClick={()=>setIrMode(null)} className="px-3 py-1 bg-white border border-amber-300 text-amber-800 rounded-lg font-bold text-xs shrink-0">← 戻る</button>
+                <button onClick={()=>setIrMode(null)} className="px-3 py-1 bg-white border border-amber-300 text-amber-800 rounded-lg font-bold text-xs shrink-0">戻る</button>
               </div>
               {_savedIR && <div className="text-[11px] text-emerald-700 font-bold">✓ 保存済み（{(_savedIR.createdAt||'').slice(0,10)} 作成）。 内容を編集して再保存できます。</div>}
               <div className="grid grid-cols-2 gap-3">

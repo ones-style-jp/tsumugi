@@ -1,8 +1,9 @@
 // 2026-10-30 ユーザー提案「ホームに、その日みんなに伝える利用者のこと(転倒・注射で運動少なめ など)をメモで共有。先の日に見せることも」
-//   決定: 表示はその日だけ＋「あすにも出す」／支援経過表はチェックしたものだけ／まずメモを試験版へ
-//   ①ホーム: 書く(利用者つき・支援経過表にも残す)→今日の申し送りに出る・支援経過表に1行(書いた日・書いた人・memoId)
-//   ②全体(利用者なし)も書ける ③先の日の分は今日に出ず「これからの申し送り」に出る ④あすにも出す→次の営業日に写し・ボタンは「…にも出しています」
-//   ⑤直す→内容が変わる・支援経過表の行は変わらない ⑥今日の予定(ホーム)にメモが混ざらない・前からの予定はそのまま
+//   決定: 表示はその日だけ／支援経過表はチェックしたものだけ／まずメモを試験版へ
+//   2026-10-30 追加(ユーザー要望): 「あすにも出す」→「複製」(日付を選ぶ)・「直す」→「編集」・隣に「削除」・書く画面の次の営業日のボタンはなし・退所済みの方は名前の選択に出さない
+//   ①ホーム: 書く(利用者つき・支援経過表にも残す)→今日の申し送りに出る・支援経過表に1行(書いた日・書いた人・memoId)・退所済み(利用終了日を過ぎた)の方は選べない
+//   ②全体(利用者なし)も書ける ③先の日の分は今日に出ず「これからの申し送り」に出る ④複製→選んだ日(初めは次の営業日)に写し・同じ日にもう一度は「すでにあります」で押せない
+//   ⑤編集→内容が変わる・支援経過表の行は変わらない・画面の名前は「申し送りを編集」 ⑥今日の予定(ホーム)にメモが混ざらない・前からの予定はそのまま
 //   ⑦カレンダー: 日のマスに「申し送り n」・その日の申し送りに出る・予定の一覧にメモが出ない・予定を消してもメモは残る
 //   ⑧提供記録入力: 申し送りのある方の名前に印・押すと内容(先の日の分は印なし) ⑨削除→消える・墓石 ⑩予定の通知の数にメモを入れない
 //   ⑪スマホ: 横にはみ出さない・押す所44px・本文16px・書く画面は全面 ⑫iPad: 書く画面が真ん中
@@ -15,17 +16,18 @@ const seed = async (page) => page.evaluate(() => {
   const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const dow = new Date().getDay(); const t = new Date(); const iso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
   d.systemSettings.facilityInfo = { ...(d.systemSettings.facilityInfo || {}), closedDays: [] }; d.holidays = [];
   const ps = d.patients.filter(p => p.status === '利用中' && !p.endDate); ps.forEach((p, i) => { p.scheduleAmPm = ['', '', '', '', '', '', '']; if (i < 3) p.scheduleAmPm[dow] = 'AM'; p.pauseHistory = []; });
+  ps[5].endDate = '2025-12-31'; // 退所済み(利用終了日を過ぎた・status は利用中のまま)
   d.scheduleEvents = (d.scheduleEvents || []).filter(e => e.kind !== 'memo'); d.scheduleEvents.push({ id: 'ev_chk_keep', date: iso, start: '10:00', end: '11:00', title: '見本の予定', note: '', color: '#3b82f6', _savedAt: Date.now() });
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0');
   sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify({ id: 'demo_rec', name: '見本 職員', roleLabel: '介護職員' }));
-  return { P: ps[0].id, Pn: ps[0].name, P2: ps[1].id, iso, ev0: d.scheduleEvents.filter(e => e.kind !== 'memo').length }; });
+  return { P: ps[0].id, Pn: ps[0].name, P2: ps[1].id, PX: ps[5].id, PQ: (d.patients.find(p => p.status === '退所') || {}).id ?? null, iso, ev0: d.scheduleEvents.filter(e => e.kind !== 'memo').length }; });
 const go = async (page, view, extra) => { await page.evaluate(([v, x]) => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: v, pid: null, t: Date.now(), ...(x || {}) })), [view, extra]); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2200); await page.locator('button', { hasText: 'あとで' }).click({ timeout: 400 }).catch(() => {}); };
 const data = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('daycareAppData_v3')));
 const memos = async (page) => ((await data(page)).scheduleEvents || []).filter(e => e.kind === 'memo');
-const write = async (page, { pid, text, sp, next }) => {
+const write = async (page, { pid, text, sp, date }) => {
   await page.getByTestId('home-memo-add').click(); await page.waitForTimeout(400);
   if (pid != null) await page.getByTestId('memo-pt').selectOption(String(pid));
-  await page.getByTestId('memo-text').fill(text); if (sp) await page.getByTestId('memo-sp').check(); if (next) await page.getByTestId('memo-date-next').click();
+  await page.getByTestId('memo-text').fill(text); if (sp) await page.getByTestId('memo-sp').check(); if (date) await page.getByTestId('memo-date').fill(date);
   await page.getByTestId('memo-save').click(); await page.waitForTimeout(900); };
 
 const b = await chromium.launch(); const ctx = await b.newContext({ viewport: { width: 1366, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' }); const page = await ctx.newPage(); page.on('dialog', d => d.accept());
@@ -34,6 +36,12 @@ if (await page.getByText('担当者を選択', { exact: false }).count()) { awai
 const S = await seed(page); const tomorrow = await page.evaluate(() => { const t = new Date(); t.setDate(t.getDate() + 1); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; });
 await go(page, 'dashboard');
 r.empty = /今日の申し送りはありません/.test(await page.getByTestId('home-memos').innerText());
+// 書く画面: 退所済みの方は選べない・次の営業日のボタンはない
+await page.getByTestId('home-memo-add').click(); await page.waitForTimeout(400);
+const opts = await page.locator('[data-testid="memo-pt"] option').evaluateAll(os => os.map(o => o.value)); const noNext = (await page.getByTestId('memo-date-next').count()) === 0;
+console.log('選べる方', opts.length - 1, '退所済み', S.PX, opts.includes(String(S.PX)), '退所', S.PQ, S.PQ != null && opts.includes(String(S.PQ)), '次の営業日のボタンなし', noNext);
+r.noRetired = opts.length > 3 && !opts.includes(String(S.PX)) && !(S.PQ != null && opts.includes(String(S.PQ))) && opts.includes(String(S.P)) && noNext;
+await page.locator('[data-testid="memo-editor"] button', { hasText: 'やめる' }).click(); await page.waitForTimeout(300);
 // ① 利用者つき＋支援経過表
 await write(page, { pid: S.P, text: T1, sp: true });
 let M = await memos(page); const m1 = M.find(m => m.title === T1);
@@ -45,23 +53,27 @@ r.writeShow = (await page.getByTestId(`memo-row-${m1.id}`).innerText()).includes
 await write(page, { text: T2 }); M = await memos(page); const m2 = M.find(m => m.title === T2);
 r.zentai = !!m2 && !m2.patientId && (await page.getByTestId(`memo-row-${m2.id}`).innerText()).includes('全体') && (await page.locator('[data-testid="home-memos-today"] [data-testid^="memo-row-"]').count()) === 2;
 // ③ 先の日
-await write(page, { pid: S.P2, text: T3, next: true }); M = await memos(page); const m3 = M.find(m => m.title === T3);
+await write(page, { pid: S.P2, text: T3, date: tomorrow }); M = await memos(page); const m3 = M.find(m => m.title === T3);
 const todayN = await page.locator('[data-testid="home-memos-today"] [data-testid^="memo-row-"]').count();
 const upTxt = await page.getByTestId('home-memos-upcoming').innerText(); await page.getByTestId('home-memos-upcoming').click(); await page.waitForTimeout(300);
 const upList = await page.getByTestId('home-memos-upcoming-list').innerText();
 console.log('③', m3 && m3.date, '今日の数', todayN, upTxt, JSON.stringify(upList.split('\n').slice(0, 3)));
 r.future = !!m3 && m3.date === tomorrow && todayN === 2 && /これからの申し送り 1件/.test(upTxt) && upList.includes(T3) && /^あす /.test(upList);
-// ④ あすにも出す
-const nb = page.getByTestId(`memo-next-${m1.id}`); const nbTxt0 = await nb.innerText(); await nb.click(); await page.waitForTimeout(900);
+// ④ 複製(ボタンは 複製・編集・削除)
+const btns = await page.getByTestId(`memo-row-${m1.id}`).locator('button').allInnerTexts();
+await page.getByTestId(`memo-copy-${m1.id}`).click(); await page.waitForTimeout(400);
+const cd0 = await page.getByTestId('memo-copy-date').inputValue(); await page.getByTestId('memo-copy-go').click(); await page.waitForTimeout(900);
 M = await memos(page); const c1 = M.find(m => m.copyOf === m1.id);
-const nbTxt1 = await page.getByTestId(`memo-next-${m1.id}`).innerText(); const nbDis = await page.getByTestId(`memo-next-${m1.id}`).isDisabled();
-console.log('④', nbTxt0, '→', nbTxt1, nbDis, JSON.stringify(c1 && { date: c1.date, fromDate: c1.fromDate, spId: c1.spId || null }));
-r.copy = nbTxt0 === 'あすにも出す' && !!c1 && c1.date === tomorrow && c1.fromDate === S.iso && !c1.spId && c1.title === T1 && nbTxt1 === 'あすにも出しています' && nbDis;
-// ⑤ 直す
+await page.getByTestId(`memo-copy-${m1.id}`).click(); await page.waitForTimeout(400);
+const dupHint = await page.getByTestId('memo-copy-hint').innerText(); const dupDis = await page.getByTestId('memo-copy-go').isDisabled();
+await page.locator('[data-testid="memo-copy"] button', { hasText: 'やめる' }).click(); await page.waitForTimeout(300);
+console.log('④ ボタン', JSON.stringify(btns), '初めの日', cd0, JSON.stringify(c1 && { date: c1.date, fromDate: c1.fromDate, spId: c1.spId || null }), 'もう一度', dupHint, dupDis);
+r.copy = JSON.stringify(btns) === JSON.stringify(['複製', '編集', '削除']) && cd0 === tomorrow && !!c1 && c1.date === tomorrow && c1.fromDate === S.iso && !c1.spId && c1.title === T1 && /すでにあります/.test(dupHint) && dupDis && M.length === 4;
+// ⑤ 編集
 await page.getByTestId(`memo-edit-${m1.id}`).click(); await page.waitForTimeout(400);
-const spDone = await page.getByTestId('memo-sp-done').count(); await page.getByTestId('memo-text').fill(T1b); await page.getByTestId('memo-save').click(); await page.waitForTimeout(900);
+const edTitle = await page.getByTestId('memo-editor').innerText(); const spDone = await page.getByTestId('memo-sp-done').count(); await page.getByTestId('memo-text').fill(T1b); await page.getByTestId('memo-save').click(); await page.waitForTimeout(900);
 M = await memos(page); D = await data(page); sp = ((D.patients.find(p => p.id === S.P).personalFile || {}).supportProgress || []).filter(x => x.memoId === m1.id);
-r.edit = spDone === 1 && M.find(m => m.id === m1.id).title === T1b && sp.length === 1 && sp[0].content === T1 && (await page.getByTestId(`memo-text-${m1.id}`).innerText()) === T1b;
+r.edit = edTitle.includes('申し送りを編集') && spDone === 1 && M.find(m => m.id === m1.id).title === T1b && sp.length === 1 && sp[0].content === T1 && (await page.getByTestId(`memo-text-${m1.id}`).innerText()) === T1b;
 // ⑥ 今日の予定にメモが混ざらない
 const evTxt = await page.locator('[data-testid="home-today-events"]').innerText().catch(() => '');
 r.homeEvents = evTxt.includes('見本の予定') && !evTxt.includes('見本の申し送り') && !evTxt.includes('見本の全体連絡');
@@ -84,7 +96,7 @@ const ptm = await page.getByTestId('pt-memos').innerText().catch(() => '');
 console.log('⑧ 印', badge, '(先の日の方', badge2, ')', JSON.stringify(ptm.split('\n').slice(0, 2)));
 r.record = badge >= 1 && badge2 === 0 && ptm.includes(T1b) && /申し送り（/.test(ptm);
 // ⑨ 削除
-await go(page, 'dashboard'); await page.getByTestId(`memo-edit-${m2.id}`).click(); await page.waitForTimeout(400); await page.getByTestId('memo-del').click(); await page.waitForTimeout(900);
+await go(page, 'dashboard'); await page.getByTestId(`memo-rdel-${m2.id}`).click(); await page.waitForTimeout(900); // 行の「削除」
 D = await data(page); M = await memos(page);
 r.del = !M.some(m => m.id === m2.id) && !!(D.deletedIds && D.deletedIds.scheduleEvents && D.deletedIds.scheduleEvents[m2.id]) && (await page.getByTestId(`memo-row-${m2.id}`).count()) === 0;
 await b.close();
@@ -105,7 +117,10 @@ for (const [lab, vp, ua] of [['スマホ', { width: 390, height: 844 }, 'Mozilla
   await pg.getByTestId('memo-pt').selectOption(String(S2.P)); await pg.getByTestId('memo-text').fill(T1); await pg.getByTestId('memo-save').tap(); await pg.waitForTimeout(900);
   const row = await pg.evaluate(() => { const r = document.querySelector('[data-testid="home-memos-today"] [data-testid^="memo-row-"]'); if (!r) return null; const t = r.querySelector('[data-testid^="memo-text-"]'); const bs = [...r.querySelectorAll('button')].map(b => Math.round(b.getBoundingClientRect().height)); const add = document.querySelector('[data-testid="home-memo-add"]');
     return { fs: getComputedStyle(t).fontSize, btnH: bs, addH: Math.round(add.getBoundingClientRect().height), sw: document.documentElement.scrollWidth, hs: (document.querySelector('[data-testid="home-scroll"]') || {}).scrollWidth, hc: (document.querySelector('[data-testid="home-scroll"]') || {}).clientWidth }; });
-  console.log(lab, '書く画面', JSON.stringify(ed), '行', JSON.stringify(row));
+  await pg.locator('[data-testid^="memo-copy-memo_"]').first().tap(); await pg.waitForTimeout(500);
+  const cpd = await pg.evaluate(() => { const i = document.querySelector('[data-testid="memo-copy-date"]'); const g = document.querySelector('[data-testid="memo-copy-go"]'); const bx = document.querySelector('[data-testid="memo-copy"] > div').getBoundingClientRect(); return i && g ? { fs: getComputedStyle(i).fontSize, h: Math.round(i.getBoundingClientRect().height), goH: Math.round(g.getBoundingClientRect().height), right: Math.round(bx.right), sw: document.documentElement.scrollWidth } : null; });
+  console.log(lab, '書く画面', JSON.stringify(ed), '行', JSON.stringify(row), '複製の画面', JSON.stringify(cpd));
+  r[`copyDlg_${lab}`] = !!cpd && cpd.fs === '16px' && cpd.h >= (lab === 'スマホ' ? 44 : 40) && cpd.goH >= (lab === 'スマホ' ? 44 : 40) && cpd.right <= vp.width && cpd.sw <= vp.width;
   if (lab === 'スマホ') r.phone = ed.w === 390 && ed.fs === '16px' && ed.saveH >= 44 && ed.ptH >= 44 && ed.ptFs === '16px' && !!row && row.fs === '16px' && row.btnH.every(h => h >= 44) && row.addH >= 44 && row.sw <= 390 && row.hs <= row.hc;
   else r.ipad = ed.w === 480 && Math.abs(ed.left - (1080 - 480) / 2) <= 2 && ed.fs === '16px' && ed.ptFs === '16px' && ed.ptH >= 40 && ed.saveH >= 40 && !!row && row.btnH.every(h => h >= 40) && row.sw <= 1080;
   await b2.close(); }
