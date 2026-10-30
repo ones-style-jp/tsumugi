@@ -220,3 +220,41 @@ describe('半日休業(holidayAmpmOn・holidayClosesSlots・2026-10-28)', () => 
     expect(holidayClosesSlots('PM', false, false)).toBe(false);
   });
 });
+
+import { dateIsoAny, healPatientDates } from './logic';
+describe('日付をどの書き方でも読む(dateIsoAny・扇橋店の CSV 取込 2026-10-30)', () => {
+  it('よくある書き方', () => {
+    expect(dateIsoAny('1940-05-15')).toBe('1940-05-15');
+    expect(dateIsoAny('1940/5/15')).toBe('1940-05-15');
+    expect(dateIsoAny('2024/06/01 0:00')).toBe('2024-06-01');
+    expect(dateIsoAny('1940年5月15日')).toBe('1940-05-15');
+    expect(dateIsoAny('１９４０／５／１５')).toBe('1940-05-15');
+    expect(dateIsoAny('19400515')).toBe('1940-05-15');
+    expect(dateIsoAny('2024.6.1')).toBe('2024-06-01');
+  });
+  it('和暦・Excel の通し番号・月/日/年', () => {
+    expect(dateIsoAny('昭和15年5月15日')).toBe('1940-05-15');
+    expect(dateIsoAny('S15.5.15')).toBe('1940-05-15');
+    expect(dateIsoAny('s15/5/15')).toBe('1940-05-15');
+    expect(dateIsoAny('令和6年6月1日')).toBe('2024-06-01');
+    expect(dateIsoAny('R6.6.1')).toBe('2024-06-01');
+    expect(dateIsoAny('令和元年5月1日')).toBe('2019-05-01');
+    expect(dateIsoAny('H30-4-1')).toBe('2018-04-01');
+    expect(dateIsoAny('45444')).toBe('2024-06-01'); // Excel: 2024/6/1
+    expect(dateIsoAny('14746')).toBe('1940-05-15');
+    expect(dateIsoAny('6/1/2024')).toBe('2024-06-01');
+    expect(dateIsoAny('25/12/2024')).toBe('2024-12-25');
+  });
+  it('読めない文字と空は空', () => {
+    expect(dateIsoAny('')).toBe(''); expect(dateIsoAny(null)).toBe(''); expect(dateIsoAny('不明')).toBe('');
+    expect(dateIsoAny('2024/13/1')).toBe(''); expect(dateIsoAny('2023/2/29')).toBe(''); expect(dateIsoAny('99999')).toBe(''); expect(dateIsoAny('123')).toBe('');
+  });
+  it('利用者の日付をそろえる(healPatientDates)', () => {
+    const pats = [{ id: 1, birthDate: 'S15.5.15', startDate: '45444', endDate: '', careLevelTo: '2027-03-31' }, { id: 2, birthDate: '1950-01-01', startDate: '不明' }, { id: 3 }];
+    const r = healPatientDates(pats);
+    expect(r.fixed).toEqual([{ id: 1, field: 'birthDate', from: 'S15.5.15', to: '1940-05-15' }, { id: 1, field: 'startDate', from: '45444', to: '2024-06-01' }]);
+    expect(r.patients[0]).toEqual({ id: 1, birthDate: '1940-05-15', startDate: '2024-06-01', endDate: '', careLevelTo: '2027-03-31' });
+    expect(r.patients[1]).toBe(pats[1]); expect(r.patients[2]).toBe(pats[2]); // 直す所がない方は同じ参照(同期の時刻を刻まない)
+    const r2 = healPatientDates(r.patients); expect(r2.fixed).toEqual([]); expect(r2.patients).toBe(r.patients); // もう一度かけても変わらない
+  });
+});
