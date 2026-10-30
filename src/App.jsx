@@ -13122,7 +13122,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const tasks = { today: [], week: [], month: [] };
           // 今日その方が来る時間帯('AM'|'PM'|'1日'|'')。振替/臨時の記録があればその時間帯、欠席なら''
           const slotToday = (pid) => { const r = byPid.get(pid); if (r && (r.status === '振替' || r.status === '臨時')) return r.furikaeAmpm || slotOf(pmap.get(pid)) || 'AM'; if (r && r.status === '欠席') return ''; return slotOf(pmap.get(pid)); };
-          const ampmText = (ids) => { let a = 0, p = 0, none = 0; ids.forEach(id => { const v = slotToday(id); if (v === '1日') { a++; p++; } else if (v === 'AM') a++; else if (v === 'PM') p++; else none++; }); return { t: `午前 ${a}名・午後 ${p}名`, none }; };
+          // ★ 2026-10-30(ユーザー要望「午前0名・午後0名のときは書かなくてよい」): 0名の側は出さない(午前だけ・午後だけ)。どちらも0名(今日来る方がいない)ならその人数だけ
+          const ampmText = (ids) => { let a = 0, p = 0, none = 0; ids.forEach(id => { const v = slotToday(id); if (v === '1日') { a++; p++; } else if (v === 'AM') a++; else if (v === 'PM') p++; else none++; }); return { t: [a ? `午前 ${a}名` : '', p ? `午後 ${p}名` : ''].filter(Boolean).join('・') || `${ids.length}名`, none }; };
           // ★ 2026-10-26(ユーザー要望「ホームに載せる通知の種類を選べるように。体力測定は要らない、本日の業務にしか出さない など」): systemSettings.homeTasks[種類]={on, todayOnly}
           const ht = ss.homeTasks || {};
           const _typeOf = (key) => (key.startsWith('tsusho') || key.startsWith('kinou')) ? 'keikaku' : key.startsWith('mon_') ? 'monitoring' : key.startsWith('fitness') ? 'fitness' : key.startsWith('events') ? 'events' : key.startsWith('task_') ? 'tasks' : key; // ★ 2026-10-26: 体力測定の鍵は fitness_t/_w/_m(React の key の重複で消えない不具合の対策)

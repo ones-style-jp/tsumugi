@@ -1,7 +1,21 @@
 {
-  "version": "upd-2026-1030-trial477",
+  "version": "upd-2026-1030-trial478",
   "updatedAt": "2026-10-30",
   "notes": [
+    {
+      "id": "upd-2026-1030-trial478",
+      "type": "update",
+      "title": "本日の業務の人数",
+      "date": "2026-10-30",
+      "body": "ホーム（本日の業務）",
+      "items": [
+        {
+          "kind": "change",
+          "where": "ホーム（本日の業務）",
+          "change": "体力測定や計画書の人数で、0名の側は出さないようにしました（例: 「午前 1名・午後 0名」→「午前 1名」）。"
+        }
+      ]
+    },
     {
       "id": "upd-2026-1030-trial477",
       "type": "update",
