@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates } from './lib/logic';
 import { PATIENT_TEXT_FL } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL)
 import {
   isSupabaseEnabled,
@@ -1008,7 +1008,9 @@ const GLOBAL_STYLE = `
 const GlobalStyle = () => React.createElement('style', null, GLOBAL_STYLE);
 
 // === 年齢計算ヘルパー ===
-const calcAge = (birthDate) => { if(!birthDate) return null; const b=new Date(birthDate); const n=new Date(); let age=n.getFullYear()-b.getFullYear(); if(n.getMonth()<b.getMonth()||(n.getMonth()===b.getMonth()&&n.getDate()<b.getDate())) age--; return age; };
+// ★ 2026-10-30(扇橋店: CSV取込のあと年齢が出ない・提供記録入力に一人しか出ない): 日付の文字が YYYY-MM-DD でない(和暦・Excel の通し番号など)ときも読む(lib/logic.js dateIsoAny)。読めなければ Invalid Date
+const tsuDateObj = (v) => new Date(dateIsoAny(v) || NaN);
+const calcAge = (birthDate) => { const _iso = dateIsoAny(birthDate); if(!_iso) return null; const b=new Date(_iso); const n=new Date(); let age=n.getFullYear()-b.getFullYear(); if(n.getMonth()<b.getMonth()||(n.getMonth()===b.getMonth()&&n.getDate()<b.getDate())) age--; return age; };
 // === 和暦 ⇄ 西暦 ヘルパー (生年月日の和暦入力用) ===
 const WAREKI_ERAS = [['明治',1868],['大正',1912],['昭和',1926],['平成',1989],['令和',2019]];
 const warekiParts = (iso) => { if(!iso) return {era:'',ey:'',m:'',day:''}; const d=new Date(iso); if(isNaN(d.getTime())) return {era:'',ey:'',m:'',day:''}; const y=d.getFullYear(); const e=[...WAREKI_ERAS].reverse().find(([,s])=>y>=s)||WAREKI_ERAS[0]; return {era:e[0], ey:y-e[1]+1, m:d.getMonth()+1, day:d.getDate()}; };
@@ -10951,7 +10953,8 @@ const getTempColorClass = (tempStr) => {
 
 const isPatientResigned = (p) => {
     if (!p || !p.endDate) return false;
-    const end = new Date(p.endDate); const today = new Date();
+    const _eIso = dateIsoAny(p.endDate); if (!_eIso) return false; // ★ 2026-10-30: 読めない文字の終了日は「終了日なし」(退所扱いにしない)
+    const end = new Date(_eIso); const today = new Date();
     end.setHours(0,0,0,0); today.setHours(0,0,0,0);
     return end < today; 
 };
@@ -10976,8 +10979,11 @@ const isPatientActiveOnDate = (p, targetDateStr) => {
     //   誤判定され、開始日の翌日からしか予定が反映されない不具合になっていた。
     //   文字列比較なら 当日(開始日==対象日)も「利用中」に含まれる。
     const t = String(targetDateStr).slice(0, 10);
-    if (p.startDate && String(p.startDate).slice(0, 10) > t) return false; // 開始日より前のみ除外(当日は含む)
-    if (p.endDate && String(p.endDate).slice(0, 10) < t) return false;     // 終了日より後のみ除外(当日は含む)
+    // ★ 2026-10-30(扇橋店): 日付の文字が YYYY-MM-DD でないとき(CSV 取込の和暦・Excel の通し番号など)は読み直す。読めなければ「日付なし」と同じ(出さなくなる方を作らない)
+    const _d = (v) => { if (!v) return ''; const sv = String(v); return /^\d{4}-\d{2}-\d{2}/.test(sv) ? sv.slice(0, 10) : dateIsoAny(sv); };
+    const _sd = _d(p.startDate), _ed = _d(p.endDate);
+    if (_sd && _sd > t) return false; // 開始日より前のみ除外(当日は含む)
+    if (_ed && _ed < t) return false; // 終了日より後のみ除外(当日は含む)
     return true;
 };
 
@@ -22491,7 +22497,7 @@ export default function App() {
       // ★ 防護: 年数は 2 or 5 のみ有効(想定外の値では絶対に削除しない)
       if (ay !== 2 && ay !== 5) return false;
       if (!p.endDate) return false;
-      const d = new Date(p.endDate); if (isNaN(d.getTime())) return false;
+      const d = tsuDateObj(p.endDate); if (isNaN(d.getTime())) return false;
       // ★ 防護: 桁違い等の不正な終了日(2020年より前/未来の年)では削除しない(日付入力の不具合残骸で誤削除しないため)
       const _ey = d.getFullYear();
       if (_ey < 2020 || _ey > now.getFullYear()) { console.warn('[自動削除] 保護: 終了日が不正なため削除をスキップ', p.id, p.endDate); return false; }
@@ -23465,6 +23471,17 @@ export default function App() {
     };
   }, [staffSession, currentView, _sec.pinRequired, _sec.lockMin]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ★ 2026-10-30(扇橋店: CSV 取込で「S15.5.15」「45444」のような日付の文字が入り、提供記録入力に一人しか出ない・年齢が出ない):
+  //   利用者の日付の項目(生年月日・利用開始日/終了日・認定有効期間・負担割合の期間)が YYYY-MM-DD でなければ、読める書き方だけ自動でそろえて保存する
+  //   (端末ごとに同じ結果になるので、どの端末が先でも同じ値。直す所がない方は参照そのまま=同期の時刻を刻まない。読めない文字は残すが、表示側は「日付なし」として扱う)
+  const _healedPatsRef = React.useRef(null);
+  React.useEffect(() => {
+    const pats = appData && appData.patients; if (!Array.isArray(pats) || !pats.length || _healedPatsRef.current === pats) return;
+    _healedPatsRef.current = pats;
+    const h = healPatientDates(pats); if (!h.fixed.length) return;
+    try { console.warn('[日付の修復]', h.fixed.map(f => `${f.id}:${f.field} ${f.from}→${f.to}`).join(' / ')); } catch {}
+    handleSaveToCloud({ ...appData, patients: h.patients }, { manual: true, message: `✓ 利用者の日付の書き方をそろえました（${h.fixed.length}か所・CSV取込の形）` });
+  }, [appData && appData.patients]);
   const handleSaveToCloud = (newData, options = {}) => {
     // ★ 古い端末のpushで新しいデータが巻き戻る問題への対策:
     //   「変更された利用者マスタ」「編集された月間シフト」にだけ更新時刻を刻む。
@@ -30391,7 +30408,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           {(basicOpen || !compactMode) && selectedPatient && <div className={(!compactMode && !basicOpen) ? 'tsu-screen-hide' : undefined}>{(()=>{
             const age = calcAge(selectedPatient.birthDate);
             const birthDispBase = selectedPatient.birthDate
-              ? new Date(selectedPatient.birthDate).toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'})
+              ? (dateIsoAny(selectedPatient.birthDate) ? tsuDateObj(selectedPatient.birthDate).toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'}) : String(selectedPatient.birthDate)) // ★ 2026-10-30: 読めない文字は「Invalid Date」ではなくそのまま
               : '—';
             // 生年月日 + (n歳) を 1 つの値に
             const birthWithAge = selectedPatient.birthDate
@@ -41450,7 +41467,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                 if (!patRecs.length) {
                   // 初回: 利用開始日 + 周期
                   if (!p.startDate) return null;
-                  return addCycle(new Date(p.startDate), p);
+                  return addCycle(tsuDateObj(p.startDate), p);
                 }
                 return addCycle(new Date(patRecs[0].date), p);
               };
@@ -43249,7 +43266,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const mOpts = appData?.systemSettings?.massageTypes || ["通常", "横向き", "仰向け", "うつ伏せ", "座位", "無し"];
   const oOpts = appData?.systemSettings?.onyokuTypes || ["腰", "肩", "無し"];
   const careLevelOrder = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
-  const isBirthMonth = (p) => { if (!p.birthDate) return false; const m = new Date(p.birthDate).getMonth()+1; return m === new Date().getMonth()+1; };
+  const isBirthMonth = (p) => { if (!p.birthDate) return false; const m = tsuDateObj(p.birthDate).getMonth()+1; return m === new Date().getMonth()+1; };
   // ★ 期限もの(保険証/負担割合証)の更新状態(2026-08-26 店舗要望):
   //   'expired'=期限切れで未更新 / 'expiring'=期限30日以内で未更新 / 'updated'=新期間・変更予定を登録済み / ''=問題なし
   //   「誰がまだ更新していないか」を名簿でひと目で分かるようにする(チェックリストは作らない)。
@@ -43288,7 +43305,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     else if (masterSort === 'cmOffice') r = (a.cmOffice||'').localeCompare(b.cmOffice||'', 'ja');
     else if (masterSort === 'bday') {
       const now = new Date();
-      const getMonthDay = (p) => { if(!p.birthDate) return 9999; const d=new Date(p.birthDate); return (d.getMonth()-now.getMonth()+12)%12*100+d.getDate(); };
+      const getMonthDay = (p) => { if(!p.birthDate) return 9999; const d=tsuDateObj(p.birthDate); return (d.getMonth()-now.getMonth()+12)%12*100+d.getDate(); };
       r = getMonthDay(a) - getMonthDay(b);
     }
     else if (masterSort === 'insurance') r = (a.careLevelTo||'9999').localeCompare(b.careLevelTo||'9999');
@@ -43756,7 +43773,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               </div>
               <div className="flex items-center gap-1">
                 <button onClick={()=>{setNewPatientName('');setNewPatientModal(true);}} className="flex items-center gap-1 px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[12px] font-bold shadow active:scale-95 whitespace-nowrap shrink-0"><Plus size={13}/>新規</button>
-                <button onClick={()=>setCsvModal({isOpen:true, mode:null, importText:'', error:''})} title="CSV入出力" className="flex items-center gap-1 px-2 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-[12px] font-bold shadow active:scale-95 whitespace-nowrap shrink-0">CSV</button>
+                <button data-testid="csv-open" onClick={()=>setCsvModal({isOpen:true, mode:null, importText:'', error:''})} title="CSV入出力" className="flex items-center gap-1 px-2 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-[12px] font-bold shadow active:scale-95 whitespace-nowrap shrink-0">CSV</button>
                 <button onClick={() => { if (isMobileView) setMobileRosterOpen(false); else setIsSidebarCollapsed(true); }} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-lg" title={isMobileView ? '閉じる' : '名簿を折りたたむ'}><ChevronLeft size={18} /></button>
               </div>
             </div>
@@ -43836,11 +43853,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               更新の確認が必要: {expiringPats.length > 0 ? `保険証 ${expiringPats.length}名` : ''}{expiringPats.length > 0 && _bp.length > 0 ? '・' : ''}{_bp.length > 0 ? `負担割合証 ${_bp.length}名` : ''}（下の赤い表示の方。個人ファイルの保険証/負担割合証で新しい期間を登録すると消えます）
             </div>
           ) : null; })()}
-          <div className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-0.5 bg-slate-50">{dPats.map(p => { const inf = subInfo(p); const bday = isBirthMonth(p); const expiring = isInsuranceExpiring(p); const bdayDate = bday && p.birthDate ? `${new Date(p.birthDate).getMonth()+1}/${new Date(p.birthDate).getDate()}` : null; const _age = calcAge(p.birthDate);
+          <div className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-0.5 bg-slate-50">{dPats.map(p => { const inf = subInfo(p); const bday = isBirthMonth(p); const expiring = isInsuranceExpiring(p); const bdayDate = bday && p.birthDate ? `${tsuDateObj(p.birthDate).getMonth()+1}/${tsuDateObj(p.birthDate).getDate()}` : null; const _age = calcAge(p.birthDate);
             // 並び順による追加バッジ（事業所・ケアマネ・介護度は常に表示するので除外）
             const _sortExtra =
               masterSort === 'startDate' && p.startDate ? <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 self-start mt-0.5">通所 {dTxt(dBtw(p.startDate,new Date()))}</span> :
-              masterSort === 'bday' && p.birthDate ? <span className="text-[10px] font-bold text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1 self-start mt-0.5">誕生 {new Date(p.birthDate).getMonth()+1}/{new Date(p.birthDate).getDate()}</span> :
+              masterSort === 'bday' && p.birthDate ? <span className="text-[10px] font-bold text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1 self-start mt-0.5">誕生 {tsuDateObj(p.birthDate).getMonth()+1}/{tsuDateObj(p.birthDate).getDate()}</span> :
               masterSort === 'insurance' && p.careLevelTo ? <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-1 self-start mt-0.5">更新 {p.careLevelTo.replace(/-/g,'/')}</span> :
               masterSort === 'age' && _age !== null ? <span className="text-[10px] font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded px-1 self-start mt-0.5">{_age} 歳</span> :
               (masterSort === 'schedule' || masterDowFilter.length > 0) ? (() => { const _mon=[1,2,3,4,5,6,0]; const _dw='日月火水木金土'; const t=_mon.map(di=>{ const v=(p.scheduleAmPm||[])[di]; return v?_dw[di]+(v==='1日'?'':v):''; }).filter(Boolean).join('・'); return t ? <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded px-1 self-start mt-0.5">{t}</span> : <span className="text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded px-1 self-start mt-0.5">利用日未設定</span>; })() :
@@ -44974,10 +44991,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           return -1;
         };
         // ★ 2026-10-28(テンプレートを全部入れて試した結果): 全角の数字(１９４２年１月２日・２０２４／８／１)は日付と読めず文字のまま入っていた → 半角にしてから読む
-        const normDate = (s) => {
-          const m = _toHalf(String(s||'')).replace(/[／]/g, '/').replace(/[－‐–—]/g, '-').match(/(\d{4})[\/\-年.](\d{1,2})[\/\-月.](\d{1,2})/);
-          return m ? `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}` : String(s||'').trim();
-        };
+        // ★ 2026-10-30(扇橋店: 取り込んだ生年月日・利用開始日が「S15.5.15」「45444(Excel の通し番号)」のような文字のまま入り、提供記録入力に出ない・年齢が出ない):
+        //   日付はどの書き方でも読む(lib/logic.js dateIsoAny・和暦/区切りなし/通し番号/月日年)。読めない文字は入れずに、取り込み完了の知らせに出す(前は文字のまま入れていた)
+        const normDate = (s) => dateIsoAny(s);
         const splitName = (full) => { const a=String(full||'').trim().split(/[\s　]+/).filter(Boolean); return { last:a[0]||'', first:a.slice(1).join(' ')||'' }; };
         // ★ 取り込み値の正規化 (カイポケ等の表記ゆれをアプリの選択肢に合わせる)
         const _toHalf = (s) => String(s||'').replace(/[０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[Ａ-Ｚａ-ｚ]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
@@ -45009,8 +45025,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               emPhone:     findCol(header,['緊急連絡先電話','連絡先電話'],['氏名','カナ']),
               insuranceNo: (findCol(header,['被保険者番号','被保番','被保険者証番号'])!==-1 ? findCol(header,['被保険者番号','被保番','被保険者証番号']) : findCol(header,['保険者番号'],['被'])),
               careLevel:   findCol(header,['介護度','要介護','要支援'],['期間']),
-              startDate:   findCol(header,['利用開始','開始日'],['適用','介護度','緊急']),
-              endDate:     findCol(header,['利用終了','終了日'],['適用']),
+              startDate:   findCol(header,['利用開始','開始日'],['適用','介護度','緊急','認定','有効','契約更新']), // ★ 2026-10-30: 「認定開始日」「有効期間開始日」を利用開始日に取らない
+              endDate:     findCol(header,['利用終了','終了日'],['適用','認定','有効']), // ★ 2026-10-30: 「認定終了日」「有効期間終了日」を利用終了日に取らない(全員が退所済みになる)
               status:      findCol(header,['状態','利用状態','利用区分','利用状況','利用者状態','ステータス','サービス状況','サービス提供状況','在籍状況','状況'],['開始','終了','日']),
               kiou:        findCol(header,['既往']),
               ryui:        findCol(header,['留意']),
@@ -45058,7 +45074,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               if (one) return parseSchedOne(one);
               return { s: null }; };
             const _recPids = new Set((appData.ticketRecords || []).filter(t => t && t.patientId != null).map(t => t.patientId));
-            let schedSet = 0; const schedKept = [], schedErr = [];
+            let schedSet = 0; const schedKept = [], schedErr = [], dateErr = []; // ★ 2026-10-30: 読めない日付(入れずに知らせる)
             // ★ 2026-10-12(ユーザー要望): 番号の整形。Excel で先頭のゼロが落ちた番号を戻し、全角を半角に
             const normInsNo = (v) => { let t = _toHalf(String(v||'')).replace(/[\s　\-－]/g, ''); if (/^\d{1,9}$/.test(t) && t.length >= 6) t = t.padStart(10, '0'); return t; };
             const normTel = (v) => { let t = _toHalf(String(v||'')).trim().replace(/[\s　]/g, '').replace(/[－‐–—ー]/g, '-').replace(/[()（）]/g, ''); const dg = t.replace(/-/g, ''); if (/^\d{9,10}$/.test(dg) && !dg.startsWith('0')) t = '0' + t; return t; };
@@ -45132,7 +45148,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               if (name) { const s=splitName(name); rec.name=name; rec.lastName=s.last; rec.firstName=s.first; }
               if (kana) { const s=splitName(kana); rec.kana=kana; rec.kanaLast=s.last; rec.kanaFirst=s.first; }
               set('gender', normGender(val(row,col.gender)));
-              set('birthDate', col.birthDate>=0 && val(row,col.birthDate) ? normDate(val(row,col.birthDate)) : '');
+              // ★ 2026-10-30: 日付の列は読めたときだけ入れる(読めない文字は入れず、完了の知らせに出す)
+              const dateOf = (ci, label) => { const raw = val(row, ci); if (ci < 0 || !raw) return ''; const iso = normDate(raw); if (!iso) dateErr.push(`${name || ('ID:' + _idEarly)}（${label}: ${raw}）`); return iso; };
+              set('birthDate', dateOf(col.birthDate, '生年月日'));
               set('zipCode', _toHalf(val(row,col.zipCode)).replace(/[－‐–—ー]/g, '-').replace(/[\s　〒]/g, '')); // ★ 2026-10-28: 全角の郵便番号は半角に
               set('prefecture', val(row,col.prefecture));
               set('city', val(row,col.city));
@@ -45151,14 +45169,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               set('medicalInstitution', val(row,col.medInst));
               set('medicalContact', normTel(val(row,col.medContact)));
               set('careLevel', normCare(val(row,col.careLevel)));
-              set('startDate', col.startDate>=0 && val(row,col.startDate) ? normDate(val(row,col.startDate)) : '');
-              set('endDate', col.endDate>=0 && val(row,col.endDate) ? normDate(val(row,col.endDate)) : '');
+              set('startDate', dateOf(col.startDate, '利用開始日'));
+              set('endDate', dateOf(col.endDate, '利用終了日'));
               set('status', normStatus(val(row,col.status)));
               set('kiou', val(row,col.kiou));
               set('ryui', val(row,col.ryui));
               set('email', val(row,col.email));
-              set('careLevelFrom', col.careLevelFrom>=0 && val(row,col.careLevelFrom) ? normDate(val(row,col.careLevelFrom)) : '');
-              set('careLevelTo', col.careLevelTo>=0 && val(row,col.careLevelTo) ? normDate(val(row,col.careLevelTo)) : '');
+              set('careLevelFrom', dateOf(col.careLevelFrom, '認定有効期間（開始）'));
+              set('careLevelTo', dateOf(col.careLevelTo, '認定有効期間（終了）'));
               set('costBurden', normBurden(val(row,col.costBurden)));
               set('cmOffice', val(row,col.cmOffice));
               set('cmName', val(row,col.cmName));
@@ -45234,7 +45252,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             onSave({...appData, patients: existing, systemSettings: _nextSettings, patientIdSeq: Math.max(maxId, Number(appData.patientIdSeq)||0)});
             setCsvModal({isOpen:false, mode:null, importText:'', error:''});
             const _lst = (a) => a.slice(0, 5).join('、') + (a.length > 5 ? ` ほか${a.length - 5}名` : '');
-            const _schedMsg = [schedSet ? `基本利用曜日: ${schedSet}名に入れました` : '', schedKept.length ? `基本利用曜日は、すでに利用している方は変えていません（利用者マスタの画面で変更してください）: ${_lst(schedKept)}` : '', schedErr.length ? `基本利用曜日が読めず入れていません（「基本利用曜日（午前）」「基本利用曜日（午後）」の列に「月、水」のように書いてください）: ${_lst(schedErr)}` : ''].filter(Boolean).join('\n');
+            const _schedMsg = [dateErr.length ? `日付が読めず入れていません（「1940/5/15」「昭和15年5月15日」のように書いてください）: ${_lst(dateErr)}` : '', schedSet ? `基本利用曜日: ${schedSet}名に入れました` : '', schedKept.length ? `基本利用曜日は、すでに利用している方は変えていません（利用者マスタの画面で変更してください）: ${_lst(schedKept)}` : '', schedErr.length ? `基本利用曜日が読めず入れていません（「基本利用曜日（午前）」「基本利用曜日（午後）」の列に「月、水」のように書いてください）: ${_lst(schedErr)}` : ''].filter(Boolean).join('\n');
             alert(`取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件${skipped?` / スキップ ${skipped} 件`:''}${_schedMsg ? '\n' + _schedMsg : ''}\n（空欄の項目は既存データを上書きしません／氏名が空の行・スキップ指定は取り込みません／ケアマネ事業所・担当者はマスタにも自動登録しました）`);
           } catch (e) {
             setCsvModal(prev=>({...prev, error: e.message || String(e)}));
@@ -45257,7 +45275,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     <div className="text-sm font-bold text-amber-700 mb-1">テンプレート</div>
                     <div className="text-xs text-slate-600">空の入力用 CSV（見本1件付き）。Excel で記入してインポート可</div>
                   </button>
-                  <button onClick={()=>setCsvModal({...csvModal, mode:'import'})} className="p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-left">
+                  <button data-testid="csv-mode-import" onClick={()=>setCsvModal({...csvModal, mode:'import'})} className="p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-left">
                     <div className="text-sm font-bold text-emerald-700 mb-1">インポート</div>
                     <div className="text-xs text-slate-600">CSV を貼り付けて一括追加・更新（既存ID は更新）</div>
                   </button>
@@ -45290,7 +45308,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       }}/>
                     </label>
                     <div className="text-[11px] text-center text-slate-500">または下のテキストエリアに直接貼り付け</div>
-                    <textarea value={csvModal.importText} onChange={e=>setCsvModal({...csvModal,importText:e.target.value,error:''})}
+                    <textarea data-testid="csv-import-text" value={csvModal.importText} onChange={e=>setCsvModal({...csvModal,importText:e.target.value,error:''})}
                       placeholder="ここにCSVを貼り付け（1行目はヘッダー）"
                       className="w-full h-48 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono outline-none"/>
                     <div className="text-[11px] bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-amber-900">
@@ -45314,7 +45332,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       <div className="text-[11px] text-slate-400 mt-1">※ 氏名が重複する人がいた場合は、次の画面で<b>1人ずつ</b>「更新／新規追加／スキップ」を選べます（上はその初期値）。</div>
                     </div>
                     {csvModal.error && <div className="text-xs font-bold text-red-600">エラー: {csvModal.error}</div>}
-                    <button disabled={!csvModal.importText.trim()} onClick={()=>doImport()} className="w-full py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40">取り込みを実行</button>
+                    <button data-testid="csv-import-go" disabled={!csvModal.importText.trim()} onClick={()=>doImport()} className="w-full py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40">取り込みを実行</button>
                   </div>
                 )}
                 {/* ★ 氏名重複の 1人ずつ解決 画面 */}
@@ -52768,7 +52786,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   const _prevRec = editing ? (records.filter(r => r.id !== editing.id && ((r.createdAt||0) < (editing.createdAt||Number.MAX_SAFE_INTEGER)))[0] || null) : null;
   React.useEffect(() => { setPrevEvalPatch(null); }, [editing?.id]);
 
-  const _age = (bd) => { if(!bd) return ''; const d=new Date(bd), n=new Date(); let a=n.getFullYear()-d.getFullYear(); if(n.getMonth()<d.getMonth()||(n.getMonth()===d.getMonth()&&n.getDate()<d.getDate()))a--; return a; };
+  const _age = (bd) => { const a0 = calcAge(bd); if (a0 === null) return ''; return a0; };
   const toReiwa = (iso) => { if(!iso) return ''; const d=new Date(iso); if(isNaN(d.getTime())) return iso; const r=d.getFullYear()-2018; return `令和${r}年${d.getMonth()+1}月${d.getDate()}日`; };
   const JIRITSU_BODY = ['自立','J1','J2','A1','A2','B1','B2','C1','C2'];
   const JIRITSU_DEM = ['自立','Ⅰ','Ⅱa','Ⅱb','Ⅲa','Ⅲb','Ⅳ','M'];
@@ -53289,7 +53307,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
         const lab={...cell,background:'#f3f4f6',fontWeight:'bold'};
         const sec={fontWeight:'bold',fontSize:'12px',margin:'8px 0 3px',borderBottom:'2px solid #000',paddingBottom:'1px'};
         const scale=(opts,sel)=>opts.map(o=><span key={o} style={{marginRight:6,padding:sel===o?'0 3px':'0',fontWeight:sel===o?'bold':'normal',border:sel===o?'1.5px solid #000':'none',borderRadius:sel===o?'3px':0}}>{o}</span>);
-        const bd=patient?.birthDate?new Date(patient.birthDate):null;
+        const bd=patient?.birthDate?tsuDateObj(patient.birthDate):null;
         // ★ 2026-08-13: シート描画を関数化し、通常印刷(kk-print-area)とケアマネ送付セット
         //   (kk-fax-set: 送付状+今回+前回[評価入り])で共用する。 A4固定行高の組みは従来どおり。
         const KK_CSS = `.kk-sheet table{table-layout:fixed;width:100%;border-collapse:collapse;max-width:100%}
@@ -53798,7 +53816,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   const [prevEvalPatch, setPrevEvalPatch] = React.useState(null);
   const _prevRec = editing ? (records.filter(r => r.id !== editing.id && ((r.createdAt||0) < (editing.createdAt||Number.MAX_SAFE_INTEGER)))[0] || null) : null;
   React.useEffect(() => { setPrevEvalPatch(null); }, [editing?.id]);
-  const _age = (bd)=>{ if(!bd) return ''; const d=new Date(bd),n=new Date(); let a=n.getFullYear()-d.getFullYear(); if(n.getMonth()<d.getMonth()||(n.getMonth()===d.getMonth()&&n.getDate()<d.getDate()))a--; return a; };
+  const _age = (bd)=>{ const a0 = calcAge(bd); if (a0 === null) return ''; return a0; };
   const toReiwa = (iso)=>{ if(!iso) return ''; const d=new Date(iso); if(isNaN(d.getTime())) return iso; const r=d.getFullYear()-2018; return `令和${r}年${d.getMonth()+1}月${d.getDate()}日`; };
   const blankProg = ()=>({ item:'', content:'', freqWeek:'', time:'' });
   const _defaultProgs = ()=>['入浴','機能訓練','レクリエーション','健康チェック'].map(item=>({ item, content:'', freqWeek:'', time:'' }));
@@ -54423,7 +54441,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +`<td style="${csm}">前回作成日：　${esc(rec.prevDate)||'　　　年　　月　　日'}</td>`
           +`<td style="${csm}">初回作成日：　${esc(rec.firstDate)||'　　　年　　月　　日'}</td>`
           +`</tr></table>`;
-        const _bd=patient?.birthDate?new Date(patient.birthDate):null;
+        const _bd=patient?.birthDate?tsuDateObj(patient.birthDate):null;
         const _bdOk=_bd&&!isNaN(_bd.getTime());
         const _era=_bdOk?(_bd.getFullYear()<1926?'大正':'昭和'):'';
         const _eraY=_bdOk?(_era==='大正'?_bd.getFullYear()-1911:_bd.getFullYear()-1925):'';
@@ -55260,7 +55278,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const patient = (appData.patients||[]).find(p => p.id === pid);
   const addons = appData.systemSettings?.addons || {};
-  const _age = (bd)=>{ if(!bd) return ''; const d=new Date(bd),n=new Date(); let a=n.getFullYear()-d.getFullYear(); if(n.getMonth()<d.getMonth()||(n.getMonth()===d.getMonth()&&n.getDate()<d.getDate()))a--; return a; };
+  const _age = (bd)=>{ const a0 = calcAge(bd); if (a0 === null) return ''; return a0; };
   const today = tsuTodayIso();
   const adlRecords = (appData.adlRecords||[]).filter(r => r.patientId===pid).sort((a,b)=>(b.evalDate||'').localeCompare(a.evalDate||''));
   const [editing, setEditing] = React.useState(null);
@@ -56656,7 +56674,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const _dowMonOrder = [1,2,3,4,5,6,0];
   const getSchedule = (p) => _dowMonOrder.map(i=>(p.scheduleAmPm||[])[i]?dowStr[i]:'').filter(Boolean).join('');
   const _schedKey = (p) => { const s = _dowMonOrder.map((di,ord)=>(p.scheduleAmPm||[])[di]?String(ord):'').join(''); return s || '9'; };
-  const isBdayMonth = (p) => { if(!p.birthDate) return false; return new Date(p.birthDate).getMonth()+1 === new Date().getMonth()+1; };
+  const isBdayMonth = (p) => { if(!p.birthDate) return false; return tsuDateObj(p.birthDate).getMonth()+1 === new Date().getMonth()+1; };
   const sortPats = (arr) => [...arr].sort((a,b)=>{
     let c = 0;
     if(monitorSort==='kana') c = (a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja');

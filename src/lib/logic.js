@@ -234,3 +234,35 @@ export const mergeTpTelDone = (win, lose) => {
   });
   return changed ? { ...win, _telDone: out } : win;
 };
+
+// ★ 2026-10-30(扇橋店: 利用者マスタの CSV 取込のあと、提供記録入力に一人しか出ない・年齢が出ない):
+//   取り込んだ日付の文字が YYYY-MM-DD でない(和暦・区切りなし・Excel の通し番号・月/日/年 など)と、利用開始日より前と判定されて
+//   提供記録に出ず、年齢も計算できなかった。日付はどの書き方でも読み、読めない文字は「日付なし」と同じに扱う。
+//   返り値は 'YYYY-MM-DD'。読めなければ ''
+const _ERA_BASE = { '明治': 1867, 'M': 1867, '大正': 1911, 'T': 1911, '昭和': 1925, 'S': 1925, '平成': 1988, 'H': 1988, '令和': 2018, 'R': 2018 };
+export const dateIsoAny = (v) => {
+  if (v == null) return '';
+  if (v instanceof Date) return isNaN(v.getTime()) ? '' : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  let s = String(v).trim(); if (!s) return '';
+  s = s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/[Ａ-Ｚａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/[／]/g, '/').replace(/[－‐–—]/g, '-').replace(/[．]/g, '.').replace(/[\s　]+/g, ' ').trim();
+  const mk = (y, m, d) => { y = +y; m = +m; d = +d; if (!(y >= 1850 && y <= 2200 && m >= 1 && m <= 12 && d >= 1 && d <= 31)) return ''; const dt = new Date(y, m - 1, d); if (dt.getMonth() !== m - 1 || dt.getDate() !== d) return ''; return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`; };
+  let m;
+  if ((m = s.match(/^(\d{4})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})/))) return mk(m[1], m[2], m[3]); // 2024/6/1・2024-06-01・2024年6月1日・2024.6.1(後ろに時刻や「日」があっても)
+  if ((m = s.match(/^(\d{4})(\d{2})(\d{2})$/))) return mk(m[1], m[2], m[3]); // 20240601
+  if ((m = s.match(/^(明治|大正|昭和|平成|令和|[MTSHR])\s*\.?\s*(元|\d{1,2})\s*[.\-\/年]\s*(\d{1,2})\s*[.\-\/月]\s*(\d{1,2})/i))) { // 昭和15年5月15日・S15.5.15・R6/6/1・H.30-4-1
+    const k = m[1].length === 1 ? m[1].toUpperCase() : m[1]; const yy = m[2] === '元' ? 1 : +m[2]; return mk(_ERA_BASE[k] + yy, m[3], m[4]); }
+  if ((m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/))) return mk(m[3], m[1], m[2]) || mk(m[3], m[2], m[1]); // 6/1/2024(月/日/年)・読めなければ 日/月/年
+  if (/^\d{5}$/.test(s)) { const n = +s; if (n >= 10000 && n <= 80000) { const dt = new Date(Date.UTC(1899, 11, 30) + n * 86400000); return mk(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate()); } } // Excel の通し番号(1900年起点)
+  return '';
+};
+// 利用者の日付の項目を YYYY-MM-DD にそろえる(読める書き方だけ直す・読めない文字と空はそのまま)。直した分を fixed に返す
+export const PATIENT_DATE_FIELDS = ['birthDate', 'startDate', 'endDate', 'careLevelFrom', 'careLevelTo', 'costBurdenFrom', 'costBurdenTo'];
+export const healPatientDates = (patients) => {
+  const fixed = []; if (!Array.isArray(patients)) return { patients, fixed };
+  const out = patients.map(p => {
+    if (!p || typeof p !== 'object') return p; let np = null;
+    PATIENT_DATE_FIELDS.forEach(k => { const v = p[k]; if (v == null || v === '' || typeof v !== 'string' && typeof v !== 'number') return; const sv = String(v); if (/^\d{4}-\d{2}-\d{2}$/.test(sv)) return; const iso = dateIsoAny(sv); if (!iso) return; if (!np) np = { ...p }; np[k] = iso; fixed.push({ id: p.id, field: k, from: sv, to: iso }); });
+    return np || p; });
+  return { patients: fixed.length ? out : patients, fixed };
+};
