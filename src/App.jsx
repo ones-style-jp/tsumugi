@@ -37671,8 +37671,8 @@ function TsuTokkiPresetCard({ appData, onSave }) {
   const save = (patch, msg) => onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), ...patch, _updatedAt: syncNow() } }, { manual: true, message: msg });
   const add = () => { const t = txt.trim().slice(0, TOKKI_PRESET_MAX); if (!t) return; if (list.includes(t)) { alert(`「${t}」はすでにあります`); return; } if (list.length >= TOKKI_PRESET_MAX_N) { alert(`一言は${TOKKI_PRESET_MAX_N}件までです`); return; } save({ tokkiPresets: [...list, t] }, `✓ 「${t}」を追加しました`); setTxt(''); };
   return (
-    <div data-testid="tokki-preset-card" className="bg-white p-3 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
-      <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-2">特記の一言・音声入力</h3>
+    <div data-testid="tokki-preset-card" data-sec-title="特記の一言・音声入力" className="scroll-mt-24 md:scroll-mt-14 bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200">{/* ★ 2026-10-30(ユーザー「各種設定のサービス提供内容の左の並びに特記の一言・音声入力が無い」): SectionCard と同じ見出しの印(data-sec-title)・余白 */}
+      <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-1.5">特記の一言・音声入力</h3>
       <p className="text-xs text-slate-500 mb-3">提供記録の特記の「一言」で選べる言葉です（{TOKKI_PRESET_MAX}文字・{TOKKI_PRESET_MAX_N}件まで）。</p>
       <div className="flex flex-wrap gap-2 mb-3">
         {list.length === 0 && <span className="text-xs text-slate-400">まだありません（一言のプルダウンは出ません）</span>}
@@ -46284,7 +46284,7 @@ const TSU_SETTINGS_INDEX = [
   ['record','テンキー補完ボタンの管理','テンキー 補完 候補 ボタン'],
   ['record','介護整体者の登録','介護整体 整体 実施者 職員'],
   ['record','サービス提供内容の項目管理','提供記録 項目 列 表示 一言 特記'],
-  ['record','体調の理由（カスタマイズ）','体調 理由 候補 カスタマイズ'],
+  ['record','特記の一言・音声入力','特記 一言 定型 音声入力 マイク 声'],
   ['diary','日誌','日誌 車両 車 定員 送迎車両 自動コピー 1週間前 職員 担当者 申し送り'],
   ['fitness','体力測定','体力測定 周期 項目 備考 定型文 実施しない'],
   ['keikaku','要支援の計画書の名前','要支援 総合事業 個別サービス計画書 通所型サービス計画 名前 江東区'],
@@ -51327,10 +51327,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                       );
                     })}
                   </div>
-                  <div style={{marginTop:4,paddingTop:4,borderTop:'1px solid #f1f5f9',display:'flex',gap:8,fontSize:8,fontWeight:'bold',color:'#64748b'}}>
-                    <span><span style={{color:'#16a34a'}}>●</span> AM+PM完了</span>
-                    <span><span style={{color:'#d97706'}}>AM</span> AMのみ完了</span>
-                    <span><span style={{color:'#2563eb'}}>PM</span> PMのみ完了</span>
+                  <div data-testid="diary-cal-legend" style={{marginTop:4,paddingTop:4,borderTop:'1px solid #f1f5f9',display:'flex',flexWrap:'wrap',columnGap:8,rowGap:2,fontSize:8,fontWeight:'bold',color:'#64748b'}}>{/* ★ 2026-10-30(ユーザー「完了の了だけ改行されているのが気になる」): 1つずつは折り返さず、入らなければ説明ごと次の行へ */}
+                    <span style={{whiteSpace:'nowrap'}}><span style={{color:'#16a34a'}}>●</span> AM+PM完了</span>
+                    <span style={{whiteSpace:'nowrap'}}><span style={{color:'#d97706'}}>AM</span> AMのみ完了</span>
+                    <span style={{whiteSpace:'nowrap'}}><span style={{color:'#2563eb'}}>PM</span> PMのみ完了</span>
                   </div>
                 </div>
               </details>
