@@ -7,6 +7,7 @@ import {
   monitoringStatusFromRate,
   exercisePrimaryNumber,
   mergeTpTelDone,
+  mergeTaskDone,
   pickHolidays,
   holidayAmpmOn,
   fullHolidaySet,
@@ -299,5 +300,22 @@ describe('被保険者番号を10桁に(2026-10-30)', () => {
     expect(r.fixed).toEqual([{ id: 1, from: '98765', to: '0000098765' }, { id: 4, from: 'H1', to: 'H000000001' }]);
     expect(r.patients[1]).toBe(pats[1]); expect(r.patients[2]).toBe(pats[2]); expect(r.patients[0].insuranceNo).toBe('0000098765');
     expect(healInsuranceNo(r.patients).fixed).toEqual([]);
+describe('カレンダーのタスクの済みの同期(mergeTaskDone)', () => {
+  it('別の端末で別の回を済みにしても両方残る', () => {
+    const a = { id: 't', kind: 'task', _savedAt: 2, done: { '2026-10-30': { by: 'A', at: 200 } } };
+    const b = { id: 't', kind: 'task', _savedAt: 1, done: { '2026-10-29': { by: 'B', at: 100 } } };
+    const m = mergeTaskDone(a, b);
+    expect(Object.keys(m.done).sort()).toEqual(['2026-10-29', '2026-10-30']);
+  });
+  it('同じ回は新しい方(戻したのが後なら戻した方)', () => {
+    const a = { id: 't', kind: 'task', _savedAt: 2, done: { '2026-10-30': { by: 'A', at: 100 } } };
+    const b = { id: 't', kind: 'task', _savedAt: 1, done: { '2026-10-30': { off: true, by: 'B', at: 300 } } };
+    expect(mergeTaskDone(a, b).done['2026-10-30'].off).toBe(true);
+    expect(mergeTaskDone(b, a).done['2026-10-30'].off).toBe(true);
+  });
+  it('足すものが無ければ同じものを返す', () => {
+    const a = { id: 't', kind: 'task', done: { x: { at: 5 } } };
+    expect(mergeTaskDone(a, { id: 't', done: { x: { at: 1 } } })).toBe(a);
+    expect(mergeTaskDone(a, null)).toBe(a);
   });
 });
