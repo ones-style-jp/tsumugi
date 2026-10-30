@@ -282,3 +282,16 @@ export const healPausedStatus = (patients, todayIso) => {
   });
   return { patients: fixed.length ? out : patients, fixed };
 };
+// ★ 2026-10-30(ユーザー指示「全店舗の被保険者番号を10桁に。桁が少ない分は前に0」): 被保険者番号は10桁(LIFE の提出でも10桁)。
+//   数字だけで9桁以下なら前に0を足す。英字1つ＋数字(H900000001 の形)は英字のあとを9桁に。全角は半角に・空白とハイフンは外す。それ以外(10桁以上・記号入り・空)は触らない
+export const normalizeInsuranceNo = (v) => {
+  const s = String(v ?? '').normalize('NFKC').replace(/[\s\-ー－‐]/g, '').trim(); if (!s) return '';
+  if (/^\d{1,9}$/.test(s)) return s.padStart(10, '0');
+  if (/^[A-Za-z]\d{1,9}$/.test(s)) return s[0].toUpperCase() + s.slice(1).padStart(9, "0");
+  return s;
+};
+export const healInsuranceNo = (patients) => {
+  const fixed = []; if (!Array.isArray(patients)) return { patients, fixed };
+  const out = patients.map(p => { if (!p || typeof p !== 'object') return p; const v = p.insuranceNo; if (v == null || v === '') return p; const n = normalizeInsuranceNo(v); if (!n || n === String(v)) return p; fixed.push({ id: p.id, from: String(v), to: n }); return { ...p, insuranceNo: n }; });
+  return { patients: fixed.length ? out : patients, fixed };
+};

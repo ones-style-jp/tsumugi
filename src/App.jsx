@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo } from './lib/logic';
 import { PATIENT_TEXT_FL } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL)
 import {
   isSupabaseEnabled,
@@ -23491,10 +23491,11 @@ export default function App() {
     const h = healPatientDates(pats);
     // ★ 2026-10-30(柴又店: 休止の終了日を過ぎたのに状態が休止中のまま): 最新の休止の終了日が昨日以前なら状態を「利用中」に(再開の操作と同じ・statusUpdatedAt を刻む)
     const h2 = healPausedStatus(h.patients, tsuTodayIso());
-    if (!h.fixed.length && !h2.fixed.length) return;
+    const h3 = healInsuranceNo(h2.patients); // ★ 2026-10-30(ユーザー指示): 被保険者番号を10桁に(前に0・LIFE と同じ)
+    if (!h.fixed.length && !h2.fixed.length && !h3.fixed.length) return;
     try { console.warn('[利用者の修復]', [...h.fixed.map(f => `${f.id}:${f.field} ${f.from}→${f.to}`), ...h2.fixed.map(f => `${f.id}:休止→利用中(終了 ${f.toDate})`)].join(' / ')); } catch {}
-    const _msg = [h.fixed.length ? `日付の書き方 ${h.fixed.length}か所` : '', h2.fixed.length ? `休止の終了日を過ぎた方を利用中に ${h2.fixed.length}名` : ''].filter(Boolean).join('・');
-    handleSaveToCloud({ ...appData, patients: h2.patients }, { manual: true, message: `✓ 利用者の情報をそろえました（${_msg}）` });
+    const _msg = [h.fixed.length ? `日付の書き方 ${h.fixed.length}か所` : '', h2.fixed.length ? `休止の終了日を過ぎた方を利用中に ${h2.fixed.length}名` : '', h3.fixed.length ? `被保険者番号を10桁に ${h3.fixed.length}名` : ''].filter(Boolean).join('・');
+    handleSaveToCloud({ ...appData, patients: h3.patients }, { manual: true, message: `✓ 利用者の情報をそろえました（${_msg}）` });
   }, [appData && appData.patients]);
   const handleSaveToCloud = (newData, options = {}) => {
     // ★ 古い端末のpushで新しいデータが巻き戻る問題への対策:
@@ -35852,13 +35853,10 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     });
   }, [appData.ticketRecords, appData.patients, appData.monthlyShifts, targetDateStr, selectedDate, sharedAmpm]);
 
-  useEffect(() => {
-      if (isBulkEditOpen || isScheduleModalOpen) {
-          const initialOverrides = {};
-          // ★ 数字を含まない値(「　時　分」等の過去の残骸)は「未設定」とみなし自動計算値を表示する。
-          //   これをしないと、残骸のある人だけ空白表示になり、編集も効かないように見える。
+  // ★ 2026-10-30(ユーザー要望「未定を解除したら、次回の日付と時間をまた出してほしい」): 次回予定の小窓を開いたときの1人分の表示値(保存値があればそれ・なければ自動計算)。
+  //   「未定」を解除したときも同じ計算で出し直す(前は空欄のままだった)
+  const _cbSeedFor = (r) => {
           const _hasNum = (v) => /\d/.test(String(v ?? ''));
-          displayRecords.forEach(r => {
               const p = (appData.patients||[]).find(pt => pt.id === r.patientId);
               const info = getNextVisitInfo(p, selectedDate, appData.monthlyShifts, appData);
               const _dispDate = _hasNum(r.nextDateOverride) ? r.nextDateOverride : info.date;
@@ -35881,7 +35879,13 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                       _dispTime = getPickupTimeForDow(p, new Date(_y, parseInt(_dm[1],10)-1, parseInt(_dm[2],10)).getDay(), appData) || info.time;
                   } else _dispTime = info.time;
               }
-              initialOverrides[r.id] = { nextDateOverride: _dispDate, nextTimeOverride: _dispTime };
+              return { nextDateOverride: _dispDate, nextTimeOverride: _dispTime };
+  };
+  useEffect(() => {
+      if (isBulkEditOpen || isScheduleModalOpen) {
+          const initialOverrides = {};
+          displayRecords.forEach(r => {
+              initialOverrides[r.id] = _cbSeedFor(r);
           });
           setLocalOverrides(initialOverrides);
           // 開いた時点の表示値を基準として控える (差分のあった項目だけ保存するため)
@@ -36701,7 +36705,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         <div className="flex-1 min-w-[250px]">
                           <div className="text-[10px] font-bold text-slate-400 mb-1 flex items-center gap-2">次回利用日
                             {/* ★ 2026-10-23(ユーザー要望): 「未定」を押すと日付と時間を空欄で渡す(もう一度押すと元の自動計算に戻る) */}
-                            {(() => { const _dUndec = String(localData.nextDateOverride || '').trim() === '未定'; return <button type="button" data-testid={`cb-next-undec-${r.patientId}`} onClick={() => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextDateOverride: _dUndec ? '' : '未定', nextTimeOverride: _dUndec ? '' : '未定' } }))} className={`text-[10px] font-bold rounded px-2 py-0.5 border ${_dUndec ? 'bg-slate-600 text-white border-slate-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{_dUndec ? '未定（空欄）' : '未定'}</button>; })()}
+                            {(() => { const _dUndec = String(localData.nextDateOverride || '').trim() === '未定'; return <button type="button" data-testid={`cb-next-undec-${r.patientId}`} onClick={() => setLocalOverrides(prev => { const _re = _dUndec ? _cbSeedFor({ ...r, nextDateOverride: '', nextTimeOverride: '' }) : null; return { ...prev, [r.id]: { ...(prev[r.id] || {}), nextDateOverride: _dUndec ? (_re.nextDateOverride || '') : '未定', nextTimeOverride: _dUndec ? (_re.nextTimeOverride || '') : '未定' } }; })} className={`text-[10px] font-bold rounded px-2 py-0.5 border ${_dUndec ? 'bg-slate-600 text-white border-slate-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{_dUndec ? '未定（空欄）' : '未定'}</button>; })()}
                           </div>
                           <div className={`flex items-center gap-1 p-1.5 border rounded-lg ${/\d|未定/.test(String(r.nextDateOverride ?? '')) ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
                             <ImeSafeInput type="text" inputMode="numeric" value={curMonth} maxLength={2} readOnly={_tpOn} onClick={_tpOn ? _goMonthly : undefined} data-testid={`cb-next-month-${r.patientId}`}
