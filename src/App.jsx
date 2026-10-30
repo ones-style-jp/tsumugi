@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus } from './lib/logic';
 import { PATIENT_TEXT_FL } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL)
 import {
   isSupabaseEnabled,
@@ -23488,9 +23488,13 @@ export default function App() {
   React.useEffect(() => {
     const pats = appData && appData.patients; if (!Array.isArray(pats) || !pats.length || _healedPatsRef.current === pats) return;
     _healedPatsRef.current = pats;
-    const h = healPatientDates(pats); if (!h.fixed.length) return;
-    try { console.warn('[日付の修復]', h.fixed.map(f => `${f.id}:${f.field} ${f.from}→${f.to}`).join(' / ')); } catch {}
-    handleSaveToCloud({ ...appData, patients: h.patients }, { manual: true, message: `✓ 利用者の日付の書き方をそろえました（${h.fixed.length}か所・CSV取込の形）` });
+    const h = healPatientDates(pats);
+    // ★ 2026-10-30(柴又店: 休止の終了日を過ぎたのに状態が休止中のまま): 最新の休止の終了日が昨日以前なら状態を「利用中」に(再開の操作と同じ・statusUpdatedAt を刻む)
+    const h2 = healPausedStatus(h.patients, tsuTodayIso());
+    if (!h.fixed.length && !h2.fixed.length) return;
+    try { console.warn('[利用者の修復]', [...h.fixed.map(f => `${f.id}:${f.field} ${f.from}→${f.to}`), ...h2.fixed.map(f => `${f.id}:休止→利用中(終了 ${f.toDate})`)].join(' / ')); } catch {}
+    const _msg = [h.fixed.length ? `日付の書き方 ${h.fixed.length}か所` : '', h2.fixed.length ? `休止の終了日を過ぎた方を利用中に ${h2.fixed.length}名` : ''].filter(Boolean).join('・');
+    handleSaveToCloud({ ...appData, patients: h2.patients }, { manual: true, message: `✓ 利用者の情報をそろえました（${_msg}）` });
   }, [appData && appData.patients]);
   const handleSaveToCloud = (newData, options = {}) => {
     // ★ 古い端末のpushで新しいデータが巻き戻る問題への対策:
@@ -38244,7 +38248,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   }, [appData.ticketRecords]);
   const _recsOn = (pid, iso) => (_recByDay.get(iso) || []).filter(r => r.patientId === pid);
   const _recSlot = (r) => { const fa = r.furikaeAmpm; if (fa) return fa === '1日' ? 'AM' : fa; const tk = String(r.tokki || ''); if (/午後/.test(tk)) return 'PM'; if (/午前/.test(tk)) return 'AM'; return 'AM'; };
-  const _recAbsent = (pid, iso) => _recsOn(pid, iso).some(r => r.status === '欠席' || r.status === '休止' || r.status === '休業');
+  // ★ 2026-10-30(柴又店: 休止の終了日(10/26)を過ぎたのに来週の送迎表で休み扱い): 休止中に先の日を開いて保存された記録(状態=休止)が残っていた。
+  //   提供記録入力はその日を開くと出席に戻すが、送迎表は記録をそのまま読んでいた → 「休止」の記録は、その日が休止の期間(履歴)に入っているときだけ休みと数える
+  const _recAbsent = (p, iso) => _recsOn(p.id, iso).some(r => r.status === '欠席' || r.status === '休業' || (r.status === '休止' && _isPausedOn(p, iso)));
   // その日のスロットに来る予定の利用者(欠席/休業/休止は除外・振替は含む)
   const _attendees = (iso, sl) => {
     const d = new Date(iso); const dow = d.getDay(); const dayNum = d.getDate();
@@ -38267,7 +38273,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         attending = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
         furikae = String(ov).startsWith('振'); rinji = ov === '臨時';
       } else {
-        attending = baseHit && !_recAbsent(p.id, iso); // ★ 2026-09-16e: 生statusではなく期間ベース(_isPausedOn)で休止判定 / ★ 2026-09-30: 当日の欠席記録
+        attending = baseHit && !_recAbsent(p, iso); // ★ 2026-09-16e: 生statusではなく期間ベース(_isPausedOn)で休止判定 / ★ 2026-09-30: 当日の欠席記録
         // ★ 2026-09-30: 提供記録の振替/臨時(この時間帯)で来る方
         if (!attending) { const _ra = _recsOn(p.id, iso).find(r => (r.status === '振替' || r.status === '臨時') && _recSlot(r) === sl); if (_ra) { attending = true; furikae = _ra.status === '振替'; rinji = _ra.status === '臨時'; } }
       }
@@ -38300,7 +38306,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${sl}`];
       let attending;
       if (ov !== undefined && ov !== '') attending = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
-      else attending = !_recAbsent(p.id, iso); // ★ 2026-09-16e: 生statusではなく期間ベース(_isPausedOn)で休止判定 / ★ 2026-09-30: 当日の欠席記録
+      else attending = !_recAbsent(p, iso); // ★ 2026-09-16e: 生statusではなく期間ベース(_isPausedOn)で休止判定 / ★ 2026-09-30: 当日の欠席記録
       if (attending && !_isPausedOn(p, iso)) return;
       // ★ 2026-09-16d(店舗指摘): 予定上は欠席等でも、当日の提供記録が出席/振替/臨時なら実際は来所している→休みに出さない
       if (_recAttendsOnDate(p.id, iso)) return;
@@ -38310,7 +38316,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   // ★ 2026-10-13(ユーザー要望「確定後に外れた方(休みなど)の理由を表示」): 休みの理由。提供記録の欠席/休止/休業(特記=理由)→休止期間の理由→月間スケジュールの印、の順
   const _absReasonOf = (p, iso, ov) => {
-    const r = _recsOn(p.id, iso).find(x => x && (x.status === '欠席' || x.status === '休止' || x.status === '休業'));
+    const r = _recsOn(p.id, iso).find(x => x && (x.status === '欠席' || x.status === '休業' || (x.status === '休止' && _isPausedOn(p, iso)))); // ★ 2026-10-30: 休止の期間外に残った「休止」の記録は理由にしない
     if (r) { const t = absReasonFromTokki(r.tokki); return `${r.status}${t ? '・' + t : ''}`; }
     const pz = getPauseReasonOnDate(p, iso); if (pz) return `休止${pz.reason ? '・' + pz.reason : ''}`;
     if (ov !== undefined && ov !== '' && !(ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'))) return `休み（月間スケジュール${/^[×x✕休]$/.test(String(ov)) ? '' : ': ' + ov}）`;

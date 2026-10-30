@@ -279,3 +279,24 @@ describe('日付をどの書き方でも読む(dateIsoAny・扇橋店の CSV 取
     const r2 = healPatientDates(r.patients); expect(r2.fixed).toEqual([]); expect(r2.patients).toBe(r.patients); // もう一度かけても変わらない
   });
 });
+
+import { healPausedStatus } from './logic';
+describe('休止の終了日を過ぎた方の状態を利用中に(healPausedStatus・2026-10-30)', () => {
+  it('最新の休止の終了日が今日より前なら利用中・それ以外は触らない', () => {
+    const pats = [
+      { id: 1, status: '休止', pauseHistory: [{ fromDate: '2026-06-01', toDate: '2026-07-01' }, { fromDate: '2026-09-01', toDate: '2026-10-26' }] }, // 直す
+      { id: 2, status: '休止', pauseHistory: [{ fromDate: '2026-09-01', toDate: '2026-11-05' }] }, // 終了日が先
+      { id: 3, status: '休止', pauseHistory: [{ fromDate: '2026-09-01' }] }, // 終了日なし
+      { id: 4, status: '休止', pauseHistory: [{ fromDate: '2026-09-01', toDate: '2026-10-26' }, { fromDate: '2026-12-01' }] }, // 先の休止予定が最新
+      { id: 5, status: '利用中', pauseHistory: [{ fromDate: '2026-09-01', toDate: '2026-10-26' }] },
+      { id: 6, status: '休止', pauseHistory: [{ fromDate: '2026-09-01', toDate: '2026-10-30' }] }, // 終了日が今日(当日は休止)
+      { id: 7, status: '休止', pauseHistory: [] },
+    ];
+    const r = healPausedStatus(pats, '2026-10-30');
+    expect(r.fixed.map(f => f.id)).toEqual([1]);
+    expect(r.patients[0].status).toBe('利用中'); expect(typeof r.patients[0].statusUpdatedAt).toBe('number');
+    [1, 2, 3, 4, 5, 6].forEach(i => expect(r.patients[i]).toBe(pats[i]));
+    expect(healPausedStatus(r.patients, '2026-10-30').fixed).toEqual([]);
+    expect(healPausedStatus(pats, 'x').patients).toBe(pats);
+  });
+});
