@@ -48205,14 +48205,22 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                 {/* ★ LIFE(科学的介護)連携: CSV出力で使う事業所番号・保険者番号・サービス種類コード。 LIFE画面はここから読み込む。 */}
                 <div className="border border-cyan-200 bg-cyan-50/50 rounded-xl p-3">
                   <div className="text-sm font-bold text-cyan-800 mb-2">LIFE連携（科学的介護）用の情報</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">介護保険事業所番号（10桁） <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.officeNumber || <span className="text-red-500">未設定</span>}</div></div>
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">保険者番号（6桁） <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.insurerNo || <span className="text-red-500">未設定</span>}</div></div>
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">サービス種類コード <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.serviceCode || <span className="text-red-500">未設定</span>}</div></div>
-                    {/* ★ 2026-10-14(扇橋): 要介護(通所介護=139…/78)と要支援・事業対象者(総合事業=13A…/A6・A7)で事業所番号・サービス種類が別。利用者の介護度で自動的に切り替えて出力する */}
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">総合事業の事業所番号 <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.officeNumber2 || <span className="text-slate-400">（なし）</span>}</div></div>
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">総合事業用のサービス種類コード <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.serviceCode2 || <span className="text-slate-400">（なし）</span>}</div></div>
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">CSVバージョン</label><input type="text" value={facilityInfo.lifeCsvVersion || ""} onChange={e => setFacilityInfo({...facilityInfo, lifeCsvVersion: e.target.value.trim()})} placeholder="0310（3.10版の固定値・空欄なら0310）" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                  {/* ★ 2026-10-31(ユーザー要望): 事業所番号とサービス種類コードは「通所介護で1行・総合事業で1行」に並べる。CSVバージョンはアプリが対応している版(LIFE_VERSION_DEFAULT)を表示するだけ(店舗では把握していないため入力欄を廃止) */}
+                  {(() => { const _ro = (v, none) => <div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{v || none}</div>; const _nd = <span className="text-orange-600">未設定</span>; const _na = <span className="text-slate-400">（なし）</span>;
+                    const _row = (title, key, oNo, sCode, none) => (
+                      <div key={key} data-testid={`life-cfg-row-${key}`} className="grid grid-cols-1 md:grid-cols-[9rem_1fr_1fr] gap-3 items-end">
+                        <div className="text-sm font-bold text-slate-700 md:pb-2.5">{title}</div>
+                        <div><label className="block text-xs font-bold text-slate-600 mb-1">事業所番号（10桁） <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label>{_ro(oNo, none)}</div>
+                        <div><label className="block text-xs font-bold text-slate-600 mb-1">サービス種類コード <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label>{_ro(sCode, none)}</div>
+                      </div>);
+                    return (<div className="space-y-3">
+                      {_row('通所介護', 'kaigo', facilityInfo.officeNumber, facilityInfo.serviceCode, _nd)}
+                      {/* ★ 2026-10-14(扇橋): 要介護(通所介護=139…/78)と要支援・事業対象者(総合事業=13A…/A6・A7)で事業所番号・サービス種類が別。利用者の介護度で自動的に切り替えて出力する */}
+                      {_row('総合事業（要支援・事業対象者）', 'sougou', facilityInfo.officeNumber2, facilityInfo.serviceCode2, _na)}
+                    </div>); })()}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">保険者番号（6桁） <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.insurerNo || <span className="text-orange-600">未設定</span>}</div></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">CSVバージョン <span className="font-normal text-slate-400">（つむぎが対応している版・入力は不要）</span></label><div data-testid="life-cfg-version" className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{LIFE_VERSION_DEFAULT}<span className="font-normal text-slate-500 ml-2">（CSV連携仕様書 3.10版）</span></div></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">リハ・個別機能／栄養／口腔の一体的取組 <span className="font-normal text-slate-400">（生活機能チェック・個別機能訓練のCSV必須項目）</span></label>
                       <select value={facilityInfo.lifeTrinity || '0'} onChange={e => setFacilityInfo({...facilityInfo, lifeTrinity: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"><option value="0">0：無し（既定）</option><option value="1">1：有り（一体的取組を実施している）</option></select></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">記入者の職種の既定値 <span className="font-normal text-slate-400">（生活機能チェックで職種未選択のときに使う）</span></label>
@@ -55306,7 +55314,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const [editing, setEditing] = React.useState(null);
   // ★ LIFE連携の事業所情報は「各種設定→LIFE連携」タブ(保存先は systemSettings.facilityInfo)から読み込む(二重管理を避ける)
   const _fi = appData.systemSettings?.facilityInfo || {};
-  const lifeOfficeCfg = { officeNumber:_fi.officeNumber||'', insurerNo:_fi.insurerNo||'', serviceCode:_fi.serviceCode||LIFE_SERVICE_CODE_DEFAULT, facilityOutpatientCategory:_fi.facilityOutpatientCategory||'2', version:_fi.lifeCsvVersion||LIFE_VERSION_DEFAULT, trinity:_fi.lifeTrinity==='1'?'1':'0', defaultJob:_fi.lifeDefaultJob||'' };
+  const lifeOfficeCfg = { officeNumber:_fi.officeNumber||'', insurerNo:_fi.insurerNo||'', serviceCode:_fi.serviceCode||LIFE_SERVICE_CODE_DEFAULT, facilityOutpatientCategory:_fi.facilityOutpatientCategory||'2', version:LIFE_VERSION_DEFAULT /* ★ 2026-10-31: 版はアプリ固定(設定の入力欄は廃止) */, trinity:_fi.lifeTrinity==='1'?'1':'0', defaultJob:_fi.lifeDefaultJob||'' };
   // ★ 2026-10-14(扇橋): 要支援・事業対象者は総合事業の事業所番号/サービス種類(各種設定→事業所情報・空なら通所介護側と同じ)
   const _isSougou = (p) => /要支援|事業対象/.test(String(p?.careLevel||''));
   const lifeCfgFor = (p) => (_isSougou(p) && _fi.officeNumber2) ? { ...lifeOfficeCfg, officeNumber: _fi.officeNumber2, serviceCode: _fi.serviceCode2 || lifeOfficeCfg.serviceCode } : lifeOfficeCfg;

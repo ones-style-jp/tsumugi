@@ -1,7 +1,26 @@
 {
-  "version": "upd-2026-1030-trial485",
-  "updatedAt": "2026-10-30",
+  "version": "upd-2026-1031-trial486",
+  "updatedAt": "2026-10-31",
   "notes": [
+    {
+      "id": "upd-2026-1031-trial486",
+      "type": "improve",
+      "title": "LIFE連携の設定の並び",
+      "date": "2026-10-31",
+      "body": "各種設定 → LIFE連携",
+      "items": [
+        {
+          "kind": "improve",
+          "where": "各種設定 → LIFE連携",
+          "change": "事業所番号とサービス種類コードを「通所介護」で1行、「総合事業（要支援・事業対象者）」で1行に並べました。"
+        },
+        {
+          "kind": "improve",
+          "where": "各種設定 → LIFE連携",
+          "change": "「CSVバージョン」の入力欄をなくし、つむぎが対応している版（0310・CSV連携仕様書3.10版）を表示するだけにしました。店舗で入力する必要はありません。"
+        }
+      ]
+    },
     {
       "id": "upd-2026-1030-trial485",
       "type": "fix",
