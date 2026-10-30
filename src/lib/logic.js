@@ -252,3 +252,19 @@ export const healPatientDates = (patients) => {
     return np || p; });
   return { patients: fixed.length ? out : patients, fixed };
 };
+// ★ 2026-10-30(ユーザー報告「休止の終了日(10/26)を過ぎたのに、利用者の状態が休止中のまま」): 状態(status)は終了日を過ぎても自動で「利用中」に書き換わらず、
+//   一覧(getPatientDisplayStatus)だけが利用中と見せていた。最新の休止(開始日がいちばん新しいもの)に終了日があり、それが今日より前なら status を「利用中」にする。
+//   先の日からの休止予定(開始日が今日より後)・終了日なしの休止は触らない。直した方だけ新しい参照(同期の時刻は App 側で刻む)
+export const healPausedStatus = (patients, todayIso) => {
+  const fixed = []; if (!Array.isArray(patients) || !/^\d{4}-\d{2}-\d{2}$/.test(String(todayIso || ''))) return { patients, fixed };
+  const iso = (v) => { const s = String(v || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : ''; };
+  const out = patients.map(p => {
+    if (!p || p.status !== '休止' || !Array.isArray(p.pauseHistory) || !p.pauseHistory.length) return p;
+    const hist = p.pauseHistory.filter(h => h && iso(h.fromDate)); if (!hist.length) return p;
+    const latest = hist.slice().sort((a, b) => iso(b.fromDate).localeCompare(iso(a.fromDate)))[0];
+    const to = iso(latest.toDate); if (!to || to >= todayIso) return p;
+    fixed.push({ id: p.id, toDate: to });
+    return { ...p, status: '利用中', statusUpdatedAt: Date.now() };
+  });
+  return { patients: fixed.length ? out : patients, fixed };
+};
