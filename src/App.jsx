@@ -10789,7 +10789,7 @@ const tsuNextOverrideStale = (patient, ov, baseIso, appData) => { try {
   const b = new Date(baseIso); let y = b.getFullYear(); if (+m[1] < b.getMonth() + 1) y += 1; const dt = new Date(y, +m[1] - 1, +m[2]); if (isNaN(dt.getTime())) return false;
   if (getPauseReasonOnDate(patient, dt)) return true;
   const r = (appData?.ticketRecords || []).find(x => x && x.patientId === patient.id && recMatchesDateYear(x, `${+m[1]}月${+m[2]}日`, y));
-  if (r && (r.status === '欠席' || r.status === '休止' || r.status === '休業')) return true;
+  if (r && (r.status === '欠席' || r.status === '休業' || (r.status === '休止' && getPauseReasonOnDate(patient, dt)))) return true; // ★ 2026-10-30(柴又店): 休止の期間外に残った「休止」の記録(休止中に先の日を保存した残り)では捨てない
   const sh = appData?.monthlyShifts?.[`${y}-${String(+m[1]).padStart(2, '0')}`]?.[patient.id] || {}; const vals = ['AM', 'PM', '1日'].map(k => sh[`${+m[2]}_${k}`]).filter(v => v !== undefined).map(String);
   if (vals.length && vals.every(v => v === '欠席' || v === '休業' || v === '休止')) return true;
   return false; } catch { return false; } };
@@ -10827,7 +10827,7 @@ const getNextVisitInfo = (patient, currentDateStr, monthlyShifts, appData) => {
         // ★ 提供記録が「欠席/休業/休止」ならこの日は来所しない → 次の候補へ
         const _rec = _recOn(nextDate.getFullYear(), nextDate.getMonth()+1, day);
         const _recStatus = _rec ? String(_rec.status || '') : '';
-        if (_recStatus === '欠席' || _recStatus === '休業' || _recStatus === '休止') continue;
+        if (_recStatus === '欠席' || _recStatus === '休業') continue; // ★ 2026-10-30(柴又店): 「休止」の記録は上の休止期間の判定に任せる(休止が終わったあとに残った記録でその日を飛ばさない)
         let shiftAM = monthlyShifts?.[monthKey]?.[patient.id]?.[`${day}_AM`];
         let shiftPM = monthlyShifts?.[monthKey]?.[patient.id]?.[`${day}_PM`];
         // ★ 2026-10-23(ユーザー報告「休みの方の次回が、月間表で欠席の10/28になる」): 1日利用の方の月間表のシフトは「日_1日」の鍵に入る(欠席など)。AM/PM の鍵が無ければそれを使う

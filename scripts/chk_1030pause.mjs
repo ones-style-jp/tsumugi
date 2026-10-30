@@ -3,6 +3,7 @@
 //   A: 古い終了日なし＋最新は終了日10/26 → 今日は休止でない(提供記録入力に出席で出る・利用者マスタは利用中)。過去(10/20)は休止
 //   B: 古い終了日なし＋最新は終了日が先(11/5) → 今日は休止  C: 終了日なしが1件だけ → 休止  D: 終了した休止＋先の日からの休止予定 → 今日は休止でない  E: 状態が利用中なら終了日なしの履歴があっても休止でない
 //   F(2026-10-30 柴又店の報告): 終了日10/26の休止1件＋休止中に保存された来週(今日+7日)の記録(状態=休止) → 開き直すと状態が「利用中」に直り(お知らせ)、来週の送迎表で休み扱いにならない(名前が「休み:」に出ず、一覧に出る)
+//   G(2026-10-30 柴又店): F の今日の記録の次回利用日が来週(休止の記録が残る日)を指していても、連絡帳の次回はその日のまま(前は古い上書きとみなして捨て、自動計算もその日を飛ばして空欄になった)
 //   実行: node scripts/chk_1030pause.mjs [--port 4175]
 import { chromium } from 'playwright';
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i >= 0 ? process.argv[i + 1] : '4175'; })();
@@ -24,6 +25,7 @@ const S = await page.evaluate(() => { const d = JSON.parse(localStorage.getItem(
   set('F', 5, '休止', [{ reason: '入院', fromDate: '2026-09-01', toDate: '2026-10-26' }]);
   const n7 = new Date(t); n7.setDate(n7.getDate() + 7); const iso7 = `${n7.getFullYear()}-${String(n7.getMonth() + 1).padStart(2, '0')}-${String(n7.getDate()).padStart(2, '0')}`;
   d.ticketRecords.push({ id: `tk_chk_f_${Date.now()}`, patientId: act[5].id, date: `${n7.getMonth() + 1}月${n7.getDate()}日`, year: n7.getFullYear(), status: '休止', tokki: '入院（9/1〜）', recorder: '', _savedAt: Date.now() - 86400000 * 10 });
+  d.ticketRecords.push({ id: `tk_chk_f0_${Date.now()}`, patientId: act[5].id, date: `${t.getMonth() + 1}月${t.getDate()}日`, year: t.getFullYear(), status: '出席', tokki: '', recorder: '', nextDateOverride: `${n7.getMonth() + 1}月${n7.getDate()}日`, _savedAt: Date.now() - 3600000 }); // 今日の記録: 次回=来週
   act.slice(6).forEach(p => { p.scheduleAmPm = ['', '', '', '', '', '', '']; });
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0'); return { ids, iso, iso7, names: Object.fromEntries(Object.entries(ids).map(([k, id]) => [k, d.patients.find(p => p.id === id).name])) }; });
 const paused = async (k) => { const id = S.ids[k]; const row = (await page.getByTestId(`rv-name-${id}`).count()) === 1; if (!row) return 'なし'; const btn = page.locator(`[data-testid^="rv-kibun-open-"][data-testid$="-${id}"]`).first(); return (await btn.count()) ? ((await btn.isDisabled()) ? '休止' : '出席') : '?'; };
@@ -49,6 +51,13 @@ const toasts = [];
   console.log('F 状態', pF.status, 'statusUpdatedAt', !!pF.statusUpdatedAt); r.healF = pF.status === '利用中' && !!pF.statusUpdatedAt;
   const pA = dF.patients.find(p => p.id === S.ids.A); r.healA = pA.status === '利用中'; // A も最新の休止が終わっているので利用中に
   const pB = dF.patients.find(p => p.id === S.ids.B), pD = dF.patients.find(p => p.id === S.ids.D); r.healKeep = pB.status === '休止' && pD.status === '休止'; }
+// G: 連絡帳の次回利用日が来週のまま(休止の記録が残る日でも捨てない)
+{ await go('print', { ampm: 'AM' }); const [m7, d7] = [Number(S.iso7.slice(5, 7)), Number(S.iso7.slice(8, 10))];
+  await page.getByTestId('cb-input-hub').click(); await page.waitForTimeout(300); await page.getByTestId('cb-hub-next').click(); await page.waitForTimeout(600); // 各種入力 → 次回予定
+  const cm = await page.getByTestId(`cb-next-month-${S.ids.F}`).inputValue().catch(() => 'なし'); const cd = await page.getByTestId(`cb-next-day-${S.ids.F}`).inputValue().catch(() => 'なし');
+  // 印刷される連絡帳(cb-list)の F の面: 次回お迎えの日付が来週になっている(前は「　月　日（　）」の空欄)
+  const printed = await page.evaluate((nm) => { const cards = [...document.querySelectorAll('[data-testid="cb-list"] > *')]; const c = cards.find(x => x.innerText.includes(nm)); if (!c) return 'なし'; const i = c.innerText.indexOf('次回お迎え時間'); return i >= 0 ? c.innerText.slice(i, i + 40).replace(/\n/g, ' ') : c.innerText.slice(0, 60); }, S.names.F);
+  console.log('G 連絡帳の次回(入力)', cm, '/', cd, '期待', m7, '/', d7, '／ 印刷', JSON.stringify(printed)); r.cbNextG = Number(cm) === m7 && Number(cd) === d7; r.cbPrintG = printed.replace(/\s/g, '').includes(`${m7}月${d7}日`); }
 { const ctx2 = await b.newContext({ viewport: { width: 393, height: 800 }, hasTouch: true, isMobile: true, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' }); const pg = await ctx2.newPage(); pg.on('dialog', d => d.accept());
   await pg.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' }); await pg.waitForTimeout(800);
   if (await pg.getByText('担当者を選択', { exact: false }).count()) { await pg.locator('button', { hasText: /見本|例示|架空/ }).first().click().catch(() => {}); await pg.waitForTimeout(800); }
