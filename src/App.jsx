@@ -21120,7 +21120,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState(() => {
     try {
       // ★ 2026-10-27: 通知を押して開いたとき(?tsugo=schedule)はカレンダーへ。URL の印は消す
-      try { const _q = new URLSearchParams(window.location.search); const _go = _q.get('tsugo'); if (_go === 'schedule') { _q.delete('tsugo'); const _u = window.location.pathname + (_q.toString() ? `?${_q}` : '') + window.location.hash; window.history.replaceState(null, '', _u); return 'schedule'; } } catch {}
+      try { const _q = new URLSearchParams(window.location.search); const _go = _q.get('tsugo'); if (_go === 'schedule' || _go === 'dashboard') { _q.delete('tsugo'); const _u = window.location.pathname + (_q.toString() ? `?${_q}` : '') + window.location.hash; window.history.replaceState(null, '', _u); return _go; } } catch {} // ★ 2026-10-30: タスクのお知らせはホーム(dashboard)
       const _noResume = sessionStorage.getItem('tsumugiNoResume') === '1'; if (_noResume) sessionStorage.removeItem('tsumugiNoResume'); // ★ 2026-10-26: ログアウト直後はホームから
       const raw = _noResume ? null : sessionStorage.getItem('tsumugi_resume_view');
       if (raw) {
@@ -46716,7 +46716,7 @@ function TsuPushDeviceCard() {
 // 各種設定 → システム: 予定のお知らせ(店舗の設定・全端末共通)
 const TSU_PUSH_DEFAULT_LABELS = [{ color: '#3b82f6', label: '担当者会議' }, { color: '#ef4444', label: '契約' }, { color: '#10b981', label: '見学' }, { color: '#f59e0b', label: '避難訓練' }, { color: '#8b5cf6', label: '行事' }, { color: '#0ea5e9', label: 'その他' }];
 function TsuPushStoreCard({ appData, saveSS }) {
-  const ss = appData.systemSettings || {}; const cfg = { on: true, dayBefore: true, dayBeforeAt: '17:00', before: true, beforeMin: 30, offColors: [], ...(ss.pushNotify || {}) };
+  const ss = appData.systemSettings || {}; const cfg = { on: true, dayBefore: true, dayBeforeAt: '17:00', before: true, beforeMin: 30, offColors: [], taskMorning: true, taskMorningAt: '09:00', ...(ss.pushNotify || {}) };
   const labels = (Array.isArray(ss.scheduleColorLabels) && ss.scheduleColorLabels.length) ? ss.scheduleColorLabels : TSU_PUSH_DEFAULT_LABELS;
   const off = new Set((cfg.offColors || []).map(x => String(x).toLowerCase()));
   const set = (patch, m) => saveSS({ pushNotify: { ...cfg, ...patch } }, m || '✓ 予定のお知らせの設定を保存しました');
@@ -46729,7 +46729,10 @@ function TsuPushStoreCard({ appData, saveSS }) {
         <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-daybefore" checked={cfg.dayBefore !== false} onChange={e => set({ dayBefore: e.target.checked })} className="w-5 h-5"/>前日にお知らせ</label>
           <select data-testid="push-cfg-daybefore-at" value={cfg.dayBeforeAt || '17:00'} onChange={e => set({ dayBeforeAt: e.target.value })} className={sel}>{['15:00','16:00','17:00','18:00','19:00'].map(t => <option key={t} value={t}>{t}</option>)}</select><span className="text-xs text-slate-500">あすの予定をまとめて1回</span></div>
         <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-before" checked={cfg.before !== false} onChange={e => set({ before: e.target.checked })} className="w-5 h-5"/>はじまる前にお知らせ</label>
-          <select data-testid="push-cfg-before-min" value={String(cfg.beforeMin || 30)} onChange={e => set({ beforeMin: Number(e.target.value) })} className={sel}>{[15, 30, 60].map(m => <option key={m} value={m}>{m}分前</option>)}</select><span className="text-xs text-slate-500">時間の入った予定だけ</span></div>
+          <select data-testid="push-cfg-before-min" value={String(cfg.beforeMin || 30)} onChange={e => set({ beforeMin: Number(e.target.value) })} className={sel}>{[15, 30, 60].map(m => <option key={m} value={m}>{m}分前</option>)}</select><span className="text-xs text-slate-500">時間の入った予定・タスクだけ</span></div>
+        {/* ★ 2026-10-30: タスクの朝のお知らせ(今日のタスクと期限切れの数を1回・題名は出さない) */}
+        <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-taskmorning" checked={cfg.taskMorning !== false} onChange={e => set({ taskMorning: e.target.checked })} className="w-5 h-5"/>タスクを朝にお知らせ</label>
+          <select data-testid="push-cfg-taskmorning-at" value={cfg.taskMorningAt || '09:00'} onChange={e => set({ taskMorningAt: e.target.value })} className={sel}>{['07:30','08:00','08:30','09:00','09:30','10:00'].map(t => <option key={t} value={t}>{t}</option>)}</select><span className="text-xs text-slate-500">今日のタスクと期限切れの数を1回</span></div>
         <div>
           <div className="text-xs font-bold text-slate-600 mb-1">お知らせする予定（ラベル）</div>
           <div className="flex flex-wrap gap-2">{labels.filter(l => l && l.color).map(l => { const on = !off.has(String(l.color).toLowerCase()); return (

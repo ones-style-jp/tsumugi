@@ -79,9 +79,10 @@ async function sendTo(sub, payload, v) {
   catch (e) { const st = e && e.statusCode; return { ok: false, status: st || 0, gone: st === 404 || st === 410 }; }
 }
 async function storeData(storeId) {
-  const rows = await sb(`app_state?key=eq.${encodeURIComponent(storeId)}&select=ev:data->scheduleEvents,pn:data->systemSettings->pushNotify,cl:data->systemSettings->scheduleColorLabels&limit=1`);
+  // ★ 2026-10-30: タスクの繰り返し(毎月（最終営業日）・毎日は営業日だけ)のため、定休日と休業日も読む
+  const rows = await sb(`app_state?key=eq.${encodeURIComponent(storeId)}&select=ev:data->scheduleEvents,pn:data->systemSettings->pushNotify,cl:data->systemSettings->scheduleColorLabels,cd:data->systemSettings->facilityInfo->closedDays,hol:data->holidays&limit=1`);
   const r = (Array.isArray(rows) && rows[0]) || {};
-  return { events: Array.isArray(r.ev) ? r.ev : [], cfg: r.pn || null, colorLabels: Array.isArray(r.cl) ? r.cl : [] };
+  return { events: Array.isArray(r.ev) ? r.ev : [], cfg: r.pn || null, colorLabels: Array.isArray(r.cl) ? r.cl : [], closedDays: Array.isArray(r.cd) ? r.cd : [0], holidays: Array.isArray(r.hol) ? r.hol : [] };
 }
 
 async function runCron(nowMs, dryStore) {
