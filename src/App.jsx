@@ -23485,7 +23485,9 @@ export default function App() {
   //   利用者の日付の項目(生年月日・利用開始日/終了日・認定有効期間・負担割合の期間)が YYYY-MM-DD でなければ、読める書き方だけ自動でそろえて保存する
   //   (端末ごとに同じ結果になるので、どの端末が先でも同じ値。直す所がない方は参照そのまま=同期の時刻を刻まない。読めない文字は残すが、表示側は「日付なし」として扱う)
   const _healedPatsRef = React.useRef(null);
-  React.useEffect(() => {
+  React.useEffect(() => { try {
+    // ★ 2026-10-30(ユーザー報告「アプリを立ち上げたらエラー」): ログインの前(staffSession なし)に動くと、保存の処理がログイン中の店舗を前提にしていて落ちた → ログイン後だけ。万一でも画面を落とさない(try)
+    if (!staffSession && String(import.meta.env.VITE_E2E_DEMO || '') !== '1') return; // (自動テストの見本はログインなしで動く)
     const pats = appData && appData.patients; if (!Array.isArray(pats) || !pats.length || _healedPatsRef.current === pats) return;
     _healedPatsRef.current = pats;
     const h = healPatientDates(pats);
@@ -23496,7 +23498,7 @@ export default function App() {
     try { console.warn('[利用者の修復]', [...h.fixed.map(f => `${f.id}:${f.field} ${f.from}→${f.to}`), ...h2.fixed.map(f => `${f.id}:休止→利用中(終了 ${f.toDate})`)].join(' / ')); } catch {}
     const _msg = [h.fixed.length ? `日付の書き方 ${h.fixed.length}か所` : '', h2.fixed.length ? `休止の終了日を過ぎた方を利用中に ${h2.fixed.length}名` : '', h3.fixed.length ? `被保険者番号を10桁に ${h3.fixed.length}名` : ''].filter(Boolean).join('・');
     handleSaveToCloud({ ...appData, patients: h3.patients }, { manual: true, message: `✓ 利用者の情報をそろえました（${_msg}）` });
-  }, [appData && appData.patients]);
+  } catch (e) { try { console.warn('[利用者の修復] 失敗', e); } catch {} } }, [appData && appData.patients, staffSession]);
   const handleSaveToCloud = (newData, options = {}) => {
     // ★ 古い端末のpushで新しいデータが巻き戻る問題への対策:
     //   「変更された利用者マスタ」「編集された月間シフト」にだけ更新時刻を刻む。
@@ -23844,7 +23846,7 @@ export default function App() {
       const _hasRealData = (newData.patients || []).length > 0;
       // ★ 店舗不一致ガード: データに刻まれた店舗ID(_sbStoreId)が現在の店舗と明らかに違うなら push しない
       //   (別店舗のデータを誤って書き込む=店舗間混在の最終防波堤。 未設定時は従来ガードに委ねる)
-      const _storeMatch = !(newData._sbStoreId && newData._sbStoreId !== staffSession.storeId);
+      const _storeMatch = !(newData._sbStoreId && newData._sbStoreId !== (staffSession && staffSession.storeId)); // ★ 2026-10-30: ログイン前でも落ちない
       const _canPush = isSupabaseEnabled && staffSession?.storeId
         && !storeTransitionRef.current
         && dataLoadedForStoreRef.current === staffSession.storeId
