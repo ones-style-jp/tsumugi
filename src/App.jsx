@@ -13017,7 +13017,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const dow = ['日','月','火','水','木','金','土'][now.getDay()];
-  const todayEvents = (appData.scheduleEvents||[]).filter(e=>e.date===todayStr).sort((a,b)=>String(a.start||'99').localeCompare(String(b.start||'99')));
+  const todayEvents = (appData.scheduleEvents||[]).filter(e=>e.date===todayStr && !tsuIsMemo(e)).sort((a,b)=>String(a.start||'99').localeCompare(String(b.start||'99')));
   // お知らせ (事業所が投稿したお知らせ) 直近
   const patName = (pid) => (appData.patients||[]).find(p=>p.id===pid)?.name || '';
   // ★ 2026-10-04(ユーザー指示「ここのお知らせもグループ化して」): モニタリングの自動お知らせ(monann_)は月ごとに1行にまとめる(詳細に配信先一覧)
@@ -13129,7 +13129,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const add = (due, t) => { const c = ht[_typeOf(t.key)] || {}; if (c.on === false) return; const tier = tierOf(due); if (c.todayOnly && tier !== 'today') return; if (due > monthEnd && due > weekEnd) return; tasks[tier].push({ ...t, _due: due }); }; // ★ 2026-10-26: 期限順に並べる
           const _evOn = (ht.events || {}).on !== false;
           // ★ 2026-10-26(ユーザー質問「カレンダーの契約・担会などは今週/今月の業務に出るのか」): 今日より後の予定を「今週」「今月」に出す(今日の分は本日の一覧)
-          if (_evOn) { try { const _evs = (appData.scheduleEvents||[]).filter(e => e && e.date && String(e.date) > todayIso).map(e => ({ e, d: new Date(String(e.date) + 'T00:00:00') })).filter(x => !isNaN(x.d) && x.d <= monthEnd).sort((a, b) => String(a.e.date).localeCompare(String(b.e.date)) || String(a.e.start||'99').localeCompare(String(b.e.start||'99')));
+          if (_evOn) { try { const _evs = (appData.scheduleEvents||[]).filter(e => e && e.date && !tsuIsMemo(e) && String(e.date) > todayIso).map(e => ({ e, d: new Date(String(e.date) + 'T00:00:00') })).filter(x => !isNaN(x.d) && x.d <= monthEnd).sort((a, b) => String(a.e.date).localeCompare(String(b.e.date)) || String(a.e.start||'99').localeCompare(String(b.e.start||'99')));
             const _pn = (e) => { const p = e.patientId ? (appData.patients||[]).find(x => x.id === e.patientId) : null; return p ? ` ${p.name}様` : ''; };
             const _fmtE = (x) => `${x.d.getMonth()+1}/${x.d.getDate()} ${x.e.title || '予定'}${_pn(x.e)}`;
             // ★ 2026-10-26(ユーザー「何件ではなく1つずつ」): 予定ごとに1行(日付・題名・利用者名・時間)。押すとカレンダー
@@ -13239,6 +13239,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 </div>
               </div>
               <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd',position:'relative'}}>
+                <TsuHomeMemos appData={appData} onSave={onSave} isRead={isRead} markRead={markRead} />{/* ★ 2026-10-30: 今日の申し送り(本日の業務の上) */}
                 {section('today', '本日の業務', 'home-tasks-today', true)}
                 {section('week', '今週の業務', 'home-tasks-week', false)}
                 {section('month', '今月の業務', 'home-tasks-month', false)}
@@ -13458,6 +13459,177 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
   );
 }
 // === スケジュール管理 ===
+// ★ 2026-10-30(ユーザー提案「ホームに、その日みんなに伝える利用者のこと(転倒があった・注射で運動を少なめ など)をメモで共有したい。先の日に見せることも」):
+//   申し送りメモ。カレンダーの予定(scheduleEvents)に kind:'memo' で入れる = 端末どうしは予定と同じ「id ごとにまとめる・消したら墓石」(古い端末でも消し合わない)。
+//   ・表示はその日だけ(ユーザー決定)。続けて見せたいときは「あすにも出す」で次の営業日に写しを作る(copyOf=元の id・fromDate=元の日)。日が過ぎたらホームから消え、カレンダーのその日に残る
+//   ・利用者を選んだときだけ「支援経過表にも残す」(チェックしたものだけ・ユーザー決定)。書いた日・書いた人で支援経過表に1行足す(spId)。あとでメモを直しても支援経過表の行は変えない
+//   ・カレンダーの予定の一覧・ホームの予定・予定の通知(api/_push_plan.js)からは外す。ご家族・ケアマネの画面には予定ごと渡らない
+const TSU_MEMO_COLOR = '#f97316';
+const TSU_MEMO_MAX = 200;
+const tsuIsMemo = (e) => !!e && e.kind === 'memo';
+const tsuIsoAdd = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return _isoOf(d); };
+const tsuNextOpenIso = (appData, iso) => forwardOpenDate(tsuIsoAdd(iso, 1), appData?.systemSettings?.facilityInfo?.closedDays || [0], appData?.holidays);
+// 'M/D（曜）'。rel=true なら今日・あすを前に付ける
+const tsuMemoDayLabel = (iso, rel) => { if (!iso) return ''; const [, m, d] = String(iso).split('-').map(Number); const dt = new Date(`${iso}T00:00:00`); const w = '日月火水木金土'[dt.getDay()]; const t = tsuTodayIso(); const pre = !rel ? '' : iso === t ? '今日 ' : iso === tsuIsoAdd(t, 1) ? 'あす ' : ''; return `${pre}${m}/${d}（${w}）`; };
+const tsuMemoSort = (a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.at || '').localeCompare(String(b.at || ''));
+const tsuMemosOf = (appData) => (Array.isArray(appData?.scheduleEvents) ? appData.scheduleEvents : []).filter(tsuIsMemo);
+// 提供記録入力の名前の印用: 日付ごとに 利用者ID → その日の申し送り(予定の配列が変わるまで覚えておく)
+const _tsuMemoIdxCache = new WeakMap();
+const tsuMemoIndex = (appData, iso) => { const arr = appData?.scheduleEvents; if (!Array.isArray(arr) || !iso) return null; let c = _tsuMemoIdxCache.get(arr); if (!c) { c = {}; _tsuMemoIdxCache.set(arr, c); }
+  if (!c[iso]) { const mp = new Map(); arr.forEach(e => { if (tsuIsMemo(e) && e.date === iso && e.patientId !== '' && e.patientId != null) { const L = mp.get(e.patientId) || []; L.push(e); mp.set(e.patientId, L); } }); mp.forEach(L => L.sort(tsuMemoSort)); c[iso] = mp; } return c[iso]; };
+const tsuMemoSave = (appData, onSave, memo) => {
+  const list = Array.isArray(appData.scheduleEvents) ? appData.scheduleEvents : [];
+  const prev = memo.id ? list.find(e => e.id === memo.id) : null;
+  const id = prev ? prev.id : `memo_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const me = getActiveRecorderName() || ''; const nowIso = new Date().toISOString();
+  const text = String(memo.title || '').trim().slice(0, TSU_MEMO_MAX);
+  const ev = { ...(prev || {}), id, kind: 'memo', color: TSU_MEMO_COLOR, date: memo.date, title: text, patientId: memo.patientId ?? '', by: prev ? (prev.by || '') : me, at: prev ? (prev.at || nowIso) : nowIso, _savedAt: syncNow() };
+  if (prev && me && me !== (prev.by || '')) ev.editedBy = me;
+  let patients = appData.patients, patChanged = false;
+  if (memo.toSupport && ev.patientId !== '' && ev.patientId != null && !ev.spId) {
+    const p = (appData.patients || []).find(x => x.id === ev.patientId);
+    if (p) { const pf = p.personalFile || {}; const today = tsuTodayIso(); const spId = `sp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const content = ev.date !== today ? `${text}（${tsuMemoDayLabel(ev.date)}の申し送り）` : text;
+      patients = (appData.patients || []).map(x => x.id === p.id ? { ...p, personalFile: { ...pf, supportProgress: [...(Array.isArray(pf.supportProgress) ? pf.supportProgress : []), { id: spId, date: today, staff: ev.by || me, from: '', content, memoId: id }] } } : x);
+      patChanged = true; ev.spId = spId; ev.spAt = today; }
+  }
+  onSave({ ...appData, scheduleEvents: prev ? list.map(e => e.id === id ? ev : e) : [...list, ev], ...(patChanged ? { patients } : {}) },
+    { manual: true, message: patChanged ? '✓ 申し送りを保存し、支援経過表にも残しました' : (prev ? '✓ 申し送りを直しました' : '✓ 申し送りを保存しました') });
+  return ev;
+};
+const tsuMemoDelete = (appData, onSave, id) => {
+  const _td = { ...(appData.deletedIds || {}), scheduleEvents: { ...((appData.deletedIds || {}).scheduleEvents || {}), [String(id)]: Date.now() } };
+  onSave({ ...appData, scheduleEvents: (appData.scheduleEvents || []).filter(e => e.id !== id), deletedIds: _td }, { manual: true, message: '✓ 申し送りを削除しました' });
+};
+// 次の営業日にも出す(写し)。すでにその日に写しがあれば何もしない
+const tsuMemoCopiedTo = (appData, m, iso) => { const root = m.copyOf || m.id; return tsuMemosOf(appData).some(e => e.id !== m.id && (e.copyOf || e.id) === root && e.date === iso); };
+const tsuMemoCopyNext = (appData, onSave, m) => {
+  const next = tsuNextOpenIso(appData, m.date); if (tsuMemoCopiedTo(appData, m, next)) return;
+  const ev = { id: `memo_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, kind: 'memo', color: TSU_MEMO_COLOR, date: next, title: m.title || '', patientId: m.patientId ?? '', by: m.by || '', at: new Date().toISOString(), copyOf: m.copyOf || m.id, fromDate: m.fromDate || m.date, copiedBy: getActiveRecorderName() || '', _savedAt: syncNow() };
+  onSave({ ...appData, scheduleEvents: [...(appData.scheduleEvents || []), ev] }, { manual: true, message: `✓ ${tsuMemoDayLabel(next, true)}にも出します` });
+};
+function TsuMemoEditor({ appData, onSave, init, onClose }) {
+  useTsuBackLock(true);
+  const _ph = tsuViewW() < 640; const _touch = tsuTouchDev(); const today = tsuTodayIso();
+  const prev = init && init.id ? (appData.scheduleEvents || []).find(e => e.id === init.id) : null;
+  const [d, setD] = React.useState(() => ({ id: prev ? prev.id : '', date: (prev && prev.date) || (init && init.date) || today, patientId: (prev && prev.patientId) || (init && init.patientId) || '', title: (prev && prev.title) || '', toSupport: false }));
+  const pts = React.useMemo(() => (appData.patients || []).filter(p => p.status !== '退所' && String(p.name || '').trim()).slice().sort((a, b) => String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja')), [appData.patients]);
+  const next = tsuNextOpenIso(appData, today);
+  const fs = (_ph || _touch) ? 16 : 14; const hh = _ph ? 44 : _touch ? 40 : 38; // ★ 指で使う端末は16px(iPhone/iPad は16px未満の欄で拡大される)
+  const field = { width: '100%', fontSize: fs, minHeight: hh, border: '1px solid #cbd5e1', borderRadius: 10, padding: '6px 10px', background: 'white', color: '#1e293b', boxSizing: 'border-box' };
+  const lab = { fontSize: 12, fontWeight: 'bold', color: '#64748b', marginBottom: 4 };
+  const chip = (on) => ({ minHeight: hh, fontSize: _ph ? 15 : 13, fontWeight: 'bold', borderRadius: 10, padding: '0 12px', cursor: 'pointer', whiteSpace: 'nowrap', border: `1px solid ${on ? '#fb923c' : '#e2e8f0'}`, background: on ? '#fff7ed' : 'white', color: on ? '#c2410c' : '#475569' });
+  const save = () => { const t = String(d.title || '').trim(); if (!t) { alert('申し送りの内容を入力してください'); return; } if (!d.date) { alert('表示する日を選んでください'); return; } tsuMemoSave(appData, onSave, { ...d, title: t }); onClose(); };
+  const del = () => { if (!prev) return; if (!window.confirm(`この申し送りを削除しますか？${prev.spId ? '\n（支援経過表に残した行はそのまま残ります）' : ''}`)) return; tsuMemoDelete(appData, onSave, prev.id); onClose(); };
+  return (
+    <div data-testid="memo-editor" style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: _ph ? 'stretch' : 'center', justifyContent: 'center', padding: _ph ? 0 : 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'white', width: '100%', maxWidth: _ph ? 'none' : 480, borderRadius: _ph ? 0 : 16, boxShadow: '0 20px 50px rgba(0,0,0,0.25)', padding: _ph ? '14px 16px 20px' : 20, display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto', maxHeight: '100%', boxSizing: 'border-box', textAlign: 'left' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 17, fontWeight: 'bold', color: '#9a3412', flex: 1 }}>{prev ? '申し送りを直す' : '申し送りを書く'}</div>
+          <button type="button" onClick={onClose} aria-label="閉じる" style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'transparent', color: '#64748b', borderRadius: 22, cursor: 'pointer' }}><X size={20} /></button>
+        </div>
+        <div>
+          <div style={lab}>利用者（選ばなくても書けます）</div>
+          {/* 利用者IDは数字の店もある → 選んだ文字から元のIDに戻す(名前・提供記録の印と結び付けるため) */}
+          <select data-testid="memo-pt" value={d.patientId === '' || d.patientId == null ? '' : String(d.patientId)} onChange={e => { const v = e.target.value; const pid = v ? ((pts.find(p => String(p.id) === v) || {}).id ?? v) : ''; setD(x => ({ ...x, patientId: pid, toSupport: pid !== '' ? x.toSupport : false })); }} style={{ ...field, height: hh }}>{/* iPhone の選択欄は minHeight が効かない → height */}
+            <option value="">全体への連絡（利用者を選ばない）</option>
+            {pts.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lab}>内容</div>
+          <textarea data-testid="memo-text" rows={_ph ? 5 : 4} maxLength={TSU_MEMO_MAX} value={d.title} onChange={e => { const v = e.target.value; setD(x => ({ ...x, title: v })); }} autoFocus={!_touch}
+            placeholder="例: 朝に注射をしたので、運動は軽めに" style={{ ...field, minHeight: 0, lineHeight: 1.5, resize: 'vertical' }} />
+          <div style={{ textAlign: 'right' }}><CharCount value={d.title} max={TSU_MEMO_MAX} /></div>
+        </div>
+        <div>
+          <div style={lab}>表示する日</div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input type="date" data-testid="memo-date" value={d.date} onChange={e => { const v = e.target.value; setD(x => ({ ...x, date: v })); }} style={{ ...field, height: hh, width: 'auto', flex: '1 1 150px' }} />
+            <button type="button" data-testid="memo-date-today" onClick={() => setD(x => ({ ...x, date: today }))} style={chip(d.date === today)}>今日</button>
+            <button type="button" data-testid="memo-date-next" onClick={() => setD(x => ({ ...x, date: next }))} style={chip(d.date === next)}>{next === tsuIsoAdd(today, 1) ? 'あす' : tsuMemoDayLabel(next)}</button>
+          </div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>その日だけホームに出ます。日が過ぎたら、カレンダーのその日に残ります。</div>
+        </div>
+        {d.patientId !== '' && d.patientId != null && (prev && prev.spId
+          ? <div data-testid="memo-sp-done" style={{ fontSize: 13, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '8px 12px' }}>支援経過表に残しました{prev.spAt ? `（${tsuMemoDayLabel(prev.spAt)}）` : ''}。ここで直しても、支援経過表の行は変わりません。</div>
+          : <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 12px', minHeight: hh, boxSizing: 'border-box' }}>
+              <input type="checkbox" data-testid="memo-sp" checked={!!d.toSupport} onChange={e => { const v = e.target.checked; setD(x => ({ ...x, toSupport: v })); }} style={{ width: 20, height: 20, marginTop: 2, accentColor: '#059669', flexShrink: 0 }} />
+              <span><span style={{ fontSize: fs, fontWeight: 'bold', color: '#1e293b' }}>支援経過表にも残す</span><span style={{ display: 'block', fontSize: 12, color: '#64748b' }}>転倒など、記録として残したいものだけチェックしてください。書いた日・書いた人で1行足します。</span></span>
+            </label>)}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+          {prev && <button type="button" data-testid="memo-del" onClick={del} style={{ minHeight: hh, fontSize: 13, fontWeight: 'bold', color: '#c2410c', background: 'white', border: '1px solid #fdba74', borderRadius: 10, padding: '0 14px', cursor: 'pointer' }}>削除</button>}
+          <span style={{ flex: 1 }} />
+          <button type="button" onClick={onClose} style={{ minHeight: hh, fontSize: fs, fontWeight: 'bold', color: '#475569', background: '#f1f5f9', border: 'none', borderRadius: 10, padding: '0 16px', cursor: 'pointer' }}>やめる</button>
+          <button type="button" data-testid="memo-save" onClick={save} style={{ minHeight: hh, fontSize: fs, fontWeight: 'bold', color: 'white', background: '#059669', border: 'none', borderRadius: 10, padding: '0 20px', cursor: 'pointer' }}>保存</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+// 1件の申し送り(ホーム・カレンダー共通)
+function TsuMemoRow({ appData, onSave, m, onEdit, showDate }) {
+  const _ph = tsuViewW() < 640; const _tp = tsuTouchDev();
+  const pt = (m.patientId !== '' && m.patientId != null) ? (appData.patients || []).find(p => p.id === m.patientId) : null;
+  const next = tsuNextOpenIso(appData, m.date); const copied = tsuMemoCopiedTo(appData, m, next);
+  const nl = next === tsuIsoAdd(m.date, 1) ? 'あす' : tsuMemoDayLabel(next);
+  const btn = { minHeight: _ph ? 44 : _tp ? 40 : 30, fontSize: _ph ? 14 : 12, fontWeight: 'bold', borderRadius: 8, padding: '0 10px', cursor: 'pointer', whiteSpace: 'nowrap' };
+  const meta = [m.by || '', m.copyOf && m.fromDate ? `${tsuMemoDayLabel(m.fromDate)}から` : '', m.spId ? '支援経過表に残しました' : ''].filter(Boolean).join('・');
+  return (
+    <div data-testid={`memo-row-${m.id}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: _ph ? 'wrap' : 'nowrap', background: '#fff7ed', border: '1px solid #fed7aa', borderLeft: `4px solid ${TSU_MEMO_COLOR}`, borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
+      <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 2 }}>
+          {showDate && <span style={{ fontSize: 12, fontWeight: 'bold', color: '#9a3412', whiteSpace: 'nowrap' }}>{tsuMemoDayLabel(m.date, true)}</span>}
+          <span style={{ fontSize: 12, fontWeight: 'bold', color: pt ? '#9a3412' : '#475569', background: pt ? '#ffedd5' : '#f1f5f9', borderRadius: 6, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pt ? `${pt.name} 様` : '全体'}</span>
+          {meta && <span style={{ fontSize: 11, color: '#9a3412' }}>{meta}</span>}
+        </div>
+        <div data-testid={`memo-text-${m.id}`} style={{ fontSize: _ph ? 16 : 14, color: '#1e293b', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.5 }}>{m.title}</div>
+      </div>
+      {onSave && <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center', marginLeft: _ph ? 'auto' : 0 }}>
+        <button type="button" data-testid={`memo-next-${m.id}`} disabled={copied} onClick={() => tsuMemoCopyNext(appData, onSave, m)} title="同じ内容を次の営業日にも出します"
+          style={{ ...btn, color: copied ? '#94a3b8' : '#c2410c', background: 'white', border: `1px solid ${copied ? '#e2e8f0' : '#fdba74'}`, cursor: copied ? 'default' : 'pointer' }}>{copied ? `${nl}にも出しています` : `${nl}にも出す`}</button>
+        {onEdit && <button type="button" data-testid={`memo-edit-${m.id}`} onClick={() => onEdit(m)} style={{ ...btn, color: '#334155', background: '#f1f5f9', border: '1px solid #e2e8f0' }}>直す</button>}
+      </div>}
+    </div>
+  );
+}
+// ホームの「今日の申し送り」
+function TsuHomeMemos({ appData, onSave, isRead, markRead }) {
+  const _ph = tsuViewW() < 640; const _tp = tsuTouchDev(); const today = tsuTodayIso();
+  const all = tsuMemosOf(appData);
+  const todayL = all.filter(m => m.date === today).sort(tsuMemoSort);
+  const upcoming = all.filter(m => String(m.date || '') > today).sort(tsuMemoSort);
+  const [ed, setEd] = React.useState(null); const [showUp, setShowUp] = React.useState(false);
+  // 見たら既読(サイドバーの「ホーム」の新着の数から外す)
+  const _ids = todayL.map(m => m.id).join('|');
+  React.useEffect(() => { if (!markRead || !isRead) return; const ids = todayL.filter(m => !isRead(m.id)).map(m => m.id); if (!ids.length) return; const t = setTimeout(() => ids.forEach(id => markRead(id)), 1200); return () => clearTimeout(t); }, [_ids]);
+  const hb = { minHeight: _ph ? 44 : _tp ? 36 : 28, fontSize: _ph ? 14 : 12, fontWeight: 'bold', borderRadius: 8, padding: '0 12px', cursor: 'pointer', whiteSpace: 'nowrap' };
+  const groups = []; upcoming.forEach(m => { const g = groups[groups.length - 1]; if (g && g.date === m.date) g.list.push(m); else groups.push({ date: m.date, list: [m] }); });
+  return (
+    <div data-testid="home-memos" style={{ flex: '1 1 100%', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6, paddingBottom: 4, borderBottom: '2px solid #fb923c' }}>
+        <span style={{ fontSize: 15, fontWeight: 'bold', color: '#c2410c' }}>今日の申し送り</span>
+        {todayL.length > 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>{todayL.length}件</span>}
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {upcoming.length > 0 && <button type="button" data-testid="home-memos-upcoming" onClick={() => setShowUp(v => !v)} style={{ ...hb, color: '#9a3412', background: 'white', border: '1px solid #fed7aa' }}>{showUp ? 'これからの分を閉じる' : `これからの申し送り ${upcoming.length}件`}</button>}
+          {onSave && <button type="button" data-testid="home-memo-add" onClick={() => setEd({ date: today })} style={{ ...hb, color: 'white', background: TSU_MEMO_COLOR, border: 'none' }}>＋ 申し送りを書く</button>}
+        </span>
+      </div>
+      {todayL.length === 0
+        ? <div style={{ fontSize: 12, color: '#94a3b8' }}>今日の申し送りはありません</div>
+        : <div data-testid="home-memos-today" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{todayL.map(m => <TsuMemoRow key={m.id} appData={appData} onSave={onSave} m={m} onEdit={x => setEd(x)} />)}</div>}
+      {showUp && groups.length > 0 && (
+        <div data-testid="home-memos-upcoming-list" style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {groups.map(g => (<React.Fragment key={g.date}>
+            <div style={{ fontSize: 12, fontWeight: 'bold', color: '#9a3412', marginTop: 2 }}>{tsuMemoDayLabel(g.date, true)}</div>
+            {g.list.map(m => <TsuMemoRow key={m.id} appData={appData} onSave={onSave} m={m} onEdit={x => setEd(x)} />)}
+          </React.Fragment>))}
+        </div>
+      )}
+      {ed && <TsuMemoEditor appData={appData} onSave={onSave} init={ed} onClose={() => setEd(null)} />}
+    </div>
+  );
+}
 function ScheduleView({ appData, onSave, navigateTo }) {
   // ★ 予定カードから利用者マスタ/担会記録へジャンプ(2026-08-28 店舗要望・ホームの本日スケジュールと同じ動線)
   const _goMaster = (pid) => { if (navigateTo) navigateTo('master', pid); };
@@ -13501,8 +13673,13 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   }, [viewMode]);
   const [dragEvId, setDragEvId] = useState(null); // ドラッグ移動中の予定ID
   const [evDetail, setEvDetail] = useState(null); // ★ 予定クリック時の確認ポップアップ(Googleカレンダー方式・2026-08-21)
-  const events = appData.scheduleEvents || [];
-  const save = (list, msg) => onSave({ ...appData, scheduleEvents: list }, msg ? { manual:true, message: msg } : undefined);
+  // ★ 2026-10-30: 申し送りメモ(kind:'memo')は予定の一覧・繰り返し・移動から外し、保存のときは元のまま戻す(消さない)
+  const _memoAll = (appData.scheduleEvents || []).filter(tsuIsMemo);
+  const events = (appData.scheduleEvents || []).filter(e => !tsuIsMemo(e));
+  const save = (list, msg) => onSave({ ...appData, scheduleEvents: [...list, ..._memoAll] }, msg ? { manual:true, message: msg } : undefined);
+  const _memoByDate = {}; _memoAll.forEach(m => { if (!_memoByDate[m.date]) _memoByDate[m.date] = []; _memoByDate[m.date].push(m); });
+  const memosOf = (ds) => (_memoByDate[ds] || []).slice().sort(tsuMemoSort);
+  const [memoEd, setMemoEd] = useState(null);
   // ★ 色ラベル(カテゴリ): 色を押すとタイトルが自動で入る。 各種設定不要でここで編集・保存。
   const DEFAULT_SCHED_LABELS = [{color:'#3b82f6',label:'担当者会議'},{color:'#ef4444',label:'契約'},{color:'#10b981',label:'見学'},{color:'#f59e0b',label:'避難訓練'},{color:'#8b5cf6',label:'行事'},{color:'#0ea5e9',label:'その他'}];
   // ★ 固定ラベル(2026-08-28 店舗要望): 担当者会議・契約・見学は必ず使うため先頭3件に固定し、名前変更・削除不可。
@@ -13542,7 +13719,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
       const tstr = ev.start ? `${ev.start}${ev.end?`〜${ev.end}`:''}` : '';
       personalAnns = [{ id:annId, patientId:ev.patientId, title:`【予定】${ev.title}`, body:`${mm}月${dd}日(${w})${tstr?` ${tstr}`:''}${ev.note?`\n${ev.note}`:''}`, date:ev.date, postedAt:new Date().toISOString(), audience:['family','caremanager','related'], photos:[], _fromSchedule:evId }, ...personalAnns];
     }
-    onSave({ ...appData, scheduleEvents: list, familyPersonalAnnouncements: personalAnns }, { manual:true, message: (ev.patientId&&ev.notify) ? '✓ 予定を保存し、お知らせを配信しました' : (modal.id ? '✓ 予定を更新しました' : '✓ 予定を追加しました') });
+    onSave({ ...appData, scheduleEvents: [...list, ..._memoAll], familyPersonalAnnouncements: personalAnns }, { manual:true, message: (ev.patientId&&ev.notify) ? '✓ 予定を保存し、お知らせを配信しました' : (modal.id ? '✓ 予定を更新しました' : '✓ 予定を追加しました') });
     setModal(null);
   };
   const del = (id) => {
@@ -13550,7 +13727,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
     const annId = `schednews_${id}`;
     // ★ 端末間の id 単位マージで削除済み予定が復活しないよう、墓石(tombstone)を記録する
     const _td = { ...(appData.deletedIds||{}), scheduleEvents: { ...((appData.deletedIds||{}).scheduleEvents||{}), [String(id)]: Date.now() } };
-    onSave({ ...appData, scheduleEvents: events.filter(e=>e.id!==id), familyPersonalAnnouncements: (appData.familyPersonalAnnouncements||[]).filter(a=>a.id!==annId), deletedIds: _td }, { manual:true, message:'✓ 削除しました' });
+    onSave({ ...appData, scheduleEvents: [...events.filter(e=>e.id!==id), ..._memoAll], familyPersonalAnnouncements: (appData.familyPersonalAnnouncements||[]).filter(a=>a.id!==annId), deletedIds: _td }, { manual:true, message:'✓ 削除しました' });
     setModal(null);
   };
   // ★ 繰り返し予定の展開: e.date と一致、または 繰り返し(毎週/毎月/毎年・N間隔)がその日に当たる
@@ -13704,6 +13881,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                         </div>
                       </div>
                       {holi && holidayName(dstr) && <span style={{fontSize:8,fontWeight:'bold',color:'#ef4444',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{holidayName(dstr)}</span>}
+                      {(() => { const _mo = memosOf(dstr); return _mo.length > 0 ? <span data-testid={`sch-memo-chip-${dstr}`} title={`申し送り ${_mo.length}件`} style={{fontSize:_schPhone?8:9,fontWeight:'bold',color:'#c2410c',background:'#fff7ed',border:'1px solid #fed7aa',borderRadius:4,padding:'0 3px',alignSelf:'flex-start',whiteSpace:'nowrap',lineHeight:1.4,maxWidth:'100%',overflow:'hidden'}}>{_schPhone ? `申${_mo.length}` : `申し送り ${_mo.length}`}</span> : null; })()}
                       {evs.slice(0,4).map(e=>{ const drg = !e._occ && (!e.repeat||e.repeat==='none'); return (
                         <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?ev=>{setDragEvId(e.id);}:undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation(); setEvDetail(e);}}
                           title={`${e.title}${patName(e)?'／'+patName(e):''}`}
@@ -13808,10 +13986,21 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                   ))}
                 </div>
               )}
+              {/* ★ 2026-10-30: この日の申し送り(ホームの「今日の申し送り」と同じもの。過ぎた日の分もここに残る) */}
+              {(() => { const ms = memosOf(selDay); return (
+                <div data-testid="sch-day-memos" style={{marginTop:12,paddingTop:10,borderTop:'1px dashed #fed7aa'}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:8}}>
+                    <div style={{fontSize:13,fontWeight:'bold',color:'#c2410c'}}>申し送り{ms.length ? `（${ms.length}件）` : ''}</div>
+                    <button type="button" data-testid="sch-memo-add" onClick={()=>setMemoEd({ date: selDay })} style={{whiteSpace:'nowrap',background:'white',color:'#c2410c',border:'1px solid #fdba74',borderRadius:8,padding:_schPhone?'10px 12px':'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>＋ 申し送り</button>
+                  </div>
+                  {ms.length === 0 ? <div style={{fontSize:12,color:'#94a3b8'}}>この日の申し送りはありません</div>
+                    : <div style={{display:'flex',flexDirection:'column',gap:6}}>{ms.map(m => <TsuMemoRow key={m.id} appData={appData} onSave={onSave} m={m} onEdit={x=>setMemoEd(x)} />)}</div>}
+                </div>); })()}
             </div>
           </div>
         </div>
       </div>
+      {memoEd && <TsuMemoEditor appData={appData} onSave={onSave} init={memoEd} onClose={()=>setMemoEd(null)} />}
       {/* 予定 追加/編集モーダル */}
       {/* ★ 予定の確認ポップアップ: クリック→内容確認→編集/削除(2026-08-21) */}
       {evDetail && (()=>{ const e=evDetail; const REP={daily:'毎日',weekly:'毎週',monthly:'毎月(同じ日)',monthly_nth:'毎月(第◯曜日)',yearly:'毎年'}; return (
@@ -27971,11 +28160,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       }
                       return (
                         <div style={{position:'relative',width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:3}}>
-                          {_showBadge && (
-                            <span style={{fontSize:tsuFz(8),fontWeight:'bold',background:'#f59e0b',color:'white',padding:'2px 6px',borderRadius:4,lineHeight:1,whiteSpace:'nowrap',marginBottom:2,alignSelf:'center',display:'inline-block'}}>
-                              体力測定
-                            </span>
-                          )}
+                          {(() => { const _rvMs = (masterData.id && tsuMemoIndex(appData, selectedDate)?.get(masterData.id)) || []; if (!_showBadge && !_rvMs.length) return null; return (
+                            <div style={{display:'flex',gap:3,justifyContent:'center',alignItems:'center',marginBottom:2}}>{/* ★ 2026-10-30: その日の申し送りがある方は「申し送り」(押すと利用者情報に内容) */}
+                              {_showBadge && <span style={{fontSize:tsuFz(8),fontWeight:'bold',background:'#f59e0b',color:'white',padding:'2px 6px',borderRadius:4,lineHeight:1,whiteSpace:'nowrap',alignSelf:'center',display:'inline-block'}}>
+                                体力測定
+                              </span>}
+                              {_rvMs.length > 0 && <button type="button" data-testid={`rv-memo-${p.id}`} onClick={(e) => { e.stopPropagation(); setPatientInfoModal(masterData); }} title={_rvMs.map(m => m.title).join('\n')}
+                                style={{fontSize:tsuFz(8),fontWeight:'bold',background:'#fff7ed',color:'#c2410c',border:'1px solid #fb923c',padding:'1px 5px',borderRadius:4,lineHeight:1,whiteSpace:'nowrap',cursor:'pointer'}}>申し送り</button>}
+                            </div>); })()}
                           <div className={`flex flex-row items-center justify-center w-full gap-1 whitespace-nowrap truncate cursor-pointer hover:text-amber-800 ${(isAbsent || isPause) ? 'text-slate-400' : 'text-slate-800'}`}
                             data-testid={`rv-name-${p.id}`} title="押すと利用者情報・長押しで印（何人でも）" style={{WebkitUserSelect:'none',userSelect:'none',WebkitTouchCallout:'none'}}
                             {..._rvLpHandlers(p.id)} onClick={_rvLpClick(()=>setPatientInfoModal(masterData))}>
@@ -28925,6 +29117,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               );
             })()}
             <div className="space-y-3">
+              {(() => { const _ms = (patientInfoModal.id && tsuMemoIndex(appData, selectedDate)?.get(patientInfoModal.id)) || []; if (!_ms.length) return null; return (
+                <div data-testid="pt-memos" className="rounded-xl p-3" style={{background:'#fff7ed',border:'1px solid #fed7aa'}}>{/* ★ 2026-10-30: この日の申し送り */}
+                  <div className="text-[10px] font-bold mb-1" style={{color:'#c2410c'}}>申し送り（{tsuMemoDayLabel(selectedDate)}）</div>
+                  <div className="space-y-1">{_ms.map(m => <div key={m.id} className="text-sm text-slate-700 whitespace-pre-wrap" style={{overflowWrap:'anywhere'}}>{m.title}{m.by ? <span className="text-[10px] text-slate-400 ml-1">（{m.by}）</span> : null}</div>)}</div>
+                </div>); })()}
               <div className="bg-slate-50 rounded-xl p-3">
                 <div className="text-[10px] font-bold text-slate-400 mb-1">既往歴</div>
                 <div className="text-sm text-slate-700 whitespace-pre-wrap overflow-y-auto" style={{maxHeight:100}}>{patientInfoModal.kiou||'なし'}</div>
@@ -61197,7 +61394,7 @@ const tsuMeetCareLevelReason = (t) => /認定の更新|区分変更/.test(String
 const tsuMeetReasonCompose = (r) => { const t = r.reasonType && r.reasonType !== 'その他' ? r.reasonType : ''; const cl = (tsuMeetCareLevelReason(r.reasonType) && (r.careBefore || r.careAfter)) ? `（${r.careBefore || '　'}→${r.careAfter || '　'}）` : ''; const note = String(r.reasonNote || '').trim(); return [t + cl, note].filter(Boolean).join(' '); };
 const tsuMeetReasonParse = (m) => { if (m && m.reasonType === '初回（新規）のケアプラン作成') m = { ...m, reasonType: '初回（契約・通所開始前）' }; if (m && m.reasonType) return { reasonType: m.reasonType, reasonNote: m.reasonNote || '', careBefore: m.careBefore || '', careAfter: m.careAfter || '' }; const str = String((m && m.reason) || '').trim(); const t = TSU_MEET_REASONS.find(o => o !== 'その他' && str.startsWith(o)); return t ? { reasonType: t, reasonNote: str.slice(t.length).trim(), careBefore: '', careAfter: '' } : { reasonType: str ? 'その他' : '', reasonNote: str, careBefore: '', careAfter: '' }; };
 // カレンダー(scheduleEvents)にその方の担当者会議の予定があれば、その日の開始・終了を返す
-const tsuMeetCalendarTimes = (appData, patientId, date) => { try { const ev = (appData.scheduleEvents || []).find(e => e && e.date === date && e.patientId === patientId && /担当者会議|担会/.test(String(e.title || ''))); return ev && (ev.start || ev.end) ? { timeStart: ev.start || '', timeEnd: ev.end || '' } : null; } catch { return null; } };
+const tsuMeetCalendarTimes = (appData, patientId, date) => { try { const ev = (appData.scheduleEvents || []).find(e => e && !tsuIsMemo(e) && e.date === date && e.patientId === patientId && /担当者会議|担会/.test(String(e.title || ''))); return ev && (ev.start || ev.end) ? { timeStart: ev.start || '', timeEnd: ev.end || '' } : null; } catch { return null; } };
 // ★ 2026-10-17(ユーザー報告「小窓で入力中に再読み込みすると中身が消えた」): 入力途中の下書きを端末(localStorage)に控える。保存・破棄で消す。24時間で無効
 const tsuMeetDraftKey = (pid, mid) => `tsumugi_meet_draft:${pid}:${mid || 'new'}`;
 const tsuMeetDraftSave = (pid, mid, draft) => { try { localStorage.setItem(tsuMeetDraftKey(pid, mid), JSON.stringify({ t: Date.now(), draft })); } catch {} };

@@ -54,7 +54,8 @@ export function planStore({ storeId, events, colorLabels, cfg }, nowMs, sent) {
   if (hm < 7 * 60 || hm >= 20 * 60) return []; // 夜は送らない
   const today = isoOfJst(j); const tmr = new Date(nowMs + JST_OFF + 86400000); const tomorrow = isoOfJst(tmr);
   const off = new Set((Array.isArray(c.offColors) ? c.offColors : []).map(x => String(x).toLowerCase()));
-  const list = (Array.isArray(events) ? events : []).filter(e => e && e.id != null && e.date && !off.has(String(e.color || '').toLowerCase()));
+  // ★ 2026-10-30: 申し送りメモ(kind:'memo')は予定ではないので通知しない
+  const list = (Array.isArray(events) ? events : []).filter(e => e && e.id != null && e.date && e.kind !== 'memo' && !off.has(String(e.color || '').toLowerCase()));
   const byStart = (a, b) => String(a.start || '99').localeCompare(String(b.start || '99'));
   const out = []; const S = sent || {};
   if (c.before !== false) {
