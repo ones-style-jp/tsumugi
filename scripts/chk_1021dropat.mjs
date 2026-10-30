@@ -36,6 +36,8 @@ const plan = (page) => page.evaluate((iso) => JSON.parse(localStorage.getItem('d
 { const page = await open({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }); const ids = await seed(page);
   await page.evaluate(([iso, id]) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const P = d.transportPlans[`${iso}_AM`]; P.dropAt = { [String(id)]: '12:20' }; P.dropAtAuto = { [String(id)]: true }; localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); }, [iso, ids[0]]);
   await page.evaluate((iso) => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'transport', pid: null, date: iso, ampm: 'AM', t: Date.now() })), iso); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2000);
+  await page.getByTestId('tp-drive-ok').click({ timeout: 800 }).catch(() => {}); await page.waitForTimeout(300); // ★ 2026-10-30: スマホの「走行中は見ない」の案内を閉じ、午前に切り替える(10/28 からスマホは午前・午後のどちらか一方だけ)
+  await page.getByTestId('tp-phone-ap-AM').click({ timeout: 800 }).catch(() => {}); await page.waitForTimeout(300);
   const sv = page.locator(`[data-testid="tp-dl-seat-${iso}-AM-c1"], [data-testid="tp-fb-seatview-${iso}-AM"]`).first(); await sv.scrollIntoViewIfNeeded().catch(() => {}); await sv.click({ timeout: 8000 }).catch(e => console.log('sv', e.message.slice(0, 80))); await page.waitForTimeout(800);
   const t = page.getByTestId(`tp-sv-at-${ids[0]}`); r.phoneShows = (await t.count()) === 1 && /12:20/.test(await t.innerText());
   await page.screenshot({ path: `${OUT}/dropat_phone.png` });
