@@ -44903,6 +44903,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   if (!(_np.scheduleAmPm || []).some(Boolean) && !(_np.scheduleChangeHistory || []).length && !_recPids.has(_np.id)) { _np.scheduleAmPm = [..._sc.s]; schedSet++; }
                   else schedKept.push(_np.name || `ID:${_np.id}`);
                 }
+                // ★ 2026-10-30(全列の取込テストで発見): CSVの状態が「休止」でも休止の期間(pauseHistory)が無く、提供記録入力・送迎表に出ていた → 終了日なしの休止が無ければ今日からの休止を足す。状態を変えたら statusUpdatedAt も刻む
+                if (rec.status) { _np.statusUpdatedAt = Date.now(); if (rec.status === '休止' && !(_np.pauseHistory || []).some(h => h && !h.toDate)) _np.pauseHistory = tsuPauseAppend(_np.pauseHistory, { reason: 'CSV取込', fromDate: tsuTodayIso() }); }
                 existing[idx] = _np;
                 updated++;
               } else {
@@ -44912,6 +44914,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 if (np._roomIn) np.addressBuilding = np._roomIn; delete np._roomIn; // ★ 2026-10-29: 部屋番号だけのとき
                 if (_sc.s && !_sc.err) { np.scheduleAmPm = [..._sc.s]; if (_sc.s.some(Boolean)) schedSet++; } // ★ 2026-10-28: 新しく登録する方は基本利用曜日も入れる
                 np = applyEx(np, emName, emRel, emPhone, doctor, emMobile, emEmail, fsPatch);
+                if (np.status === '休止') { np.pauseHistory = tsuPauseAppend(np.pauseHistory, { reason: 'CSV取込', fromDate: tsuTodayIso() }); np.statusUpdatedAt = Date.now(); } // ★ 2026-10-30: 休止には期間を付ける
                 existing.push(np);
                 const k=normName(np.name); if(k) existingByName.set(k,maxId);
                 added++;
