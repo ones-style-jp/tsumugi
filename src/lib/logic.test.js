@@ -7,6 +7,7 @@ import {
   monitoringStatusFromRate,
   exercisePrimaryNumber,
   mergeTpTelDone,
+  mergeTaskDone,
   pickHolidays,
   holidayAmpmOn,
   fullHolidaySet,
@@ -218,5 +219,25 @@ describe('半日休業(holidayAmpmOn・holidayClosesSlots・2026-10-28)', () => 
     expect(holidayClosesSlots('AM', true, true)).toBe(false);
     expect(holidayClosesSlots('PM', false, true)).toBe(true);
     expect(holidayClosesSlots('PM', false, false)).toBe(false);
+  });
+});
+
+describe('カレンダーのタスクの済みの同期(mergeTaskDone)', () => {
+  it('別の端末で別の回を済みにしても両方残る', () => {
+    const a = { id: 't', kind: 'task', _savedAt: 2, done: { '2026-10-30': { by: 'A', at: 200 } } };
+    const b = { id: 't', kind: 'task', _savedAt: 1, done: { '2026-10-29': { by: 'B', at: 100 } } };
+    const m = mergeTaskDone(a, b);
+    expect(Object.keys(m.done).sort()).toEqual(['2026-10-29', '2026-10-30']);
+  });
+  it('同じ回は新しい方(戻したのが後なら戻した方)', () => {
+    const a = { id: 't', kind: 'task', _savedAt: 2, done: { '2026-10-30': { by: 'A', at: 100 } } };
+    const b = { id: 't', kind: 'task', _savedAt: 1, done: { '2026-10-30': { off: true, by: 'B', at: 300 } } };
+    expect(mergeTaskDone(a, b).done['2026-10-30'].off).toBe(true);
+    expect(mergeTaskDone(b, a).done['2026-10-30'].off).toBe(true);
+  });
+  it('足すものが無ければ同じものを返す', () => {
+    const a = { id: 't', kind: 'task', done: { x: { at: 5 } } };
+    expect(mergeTaskDone(a, { id: 't', done: { x: { at: 1 } } })).toBe(a);
+    expect(mergeTaskDone(a, null)).toBe(a);
   });
 });

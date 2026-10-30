@@ -1,7 +1,7 @@
 // Supabase クライアント (Phase 1: 家族認証のみ)
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
-import { sameStateIgnoringMeta, mergeTpTelDone, pickHolidays } from './logic.js';
+import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays } from './logic.js';
 import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
@@ -976,7 +976,8 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
       const k = String(r.id);
       const ex = map.get(k);
       // ローカルの方が新しい(または同点/未スタンプ)なら採用。 クラウドが明確に新しければ残す。
-      if (!ex || (Number(r._savedAt) || 0) >= (Number(ex._savedAt) || 0)) map.set(k, r);
+      if (!ex || (Number(r._savedAt) || 0) >= (Number(ex._savedAt) || 0)) map.set(k, (ex && r.kind === 'task') ? mergeTaskDone(r, ex) : r);
+      else if (r.kind === 'task') map.set(k, mergeTaskDone(ex, r)); // ★ 2026-10-30: タスクの済み(回ごと)は両方の端末の分を日付ごとに新しい方で残す
     });
     return [...map.values()];
   };

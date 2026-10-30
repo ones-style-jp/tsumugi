@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel } from './lib/logic';
 import { PATIENT_TEXT_FL } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL)
 import {
   isSupabaseEnabled,
@@ -13017,7 +13017,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const dow = ['日','月','火','水','木','金','土'][now.getDay()];
-  const todayEvents = (appData.scheduleEvents||[]).filter(e=>e.date===todayStr && !tsuIsMemo(e)).sort((a,b)=>String(a.start||'99').localeCompare(String(b.start||'99')));
+  const todayEvents = (appData.scheduleEvents||[]).filter(e=>e.date===todayStr && !tsuIsMemo(e) && !tsuIsTask(e)).sort((a,b)=>String(a.start||'99').localeCompare(String(b.start||'99')));
   // お知らせ (事業所が投稿したお知らせ) 直近
   const patName = (pid) => (appData.patients||[]).find(p=>p.id===pid)?.name || '';
   // ★ 2026-10-04(ユーザー指示「ここのお知らせもグループ化して」): モニタリングの自動お知らせ(monann_)は月ごとに1行にまとめる(詳細に配信先一覧)
@@ -13125,17 +13125,21 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const ampmText = (ids) => { let a = 0, p = 0, none = 0; ids.forEach(id => { const v = slotToday(id); if (v === '1日') { a++; p++; } else if (v === 'AM') a++; else if (v === 'PM') p++; else none++; }); return { t: `午前 ${a}名・午後 ${p}名`, none }; };
           // ★ 2026-10-26(ユーザー要望「ホームに載せる通知の種類を選べるように。体力測定は要らない、本日の業務にしか出さない など」): systemSettings.homeTasks[種類]={on, todayOnly}
           const ht = ss.homeTasks || {};
-          const _typeOf = (key) => (key.startsWith('tsusho') || key.startsWith('kinou')) ? 'keikaku' : key.startsWith('mon_') ? 'monitoring' : key.startsWith('fitness') ? 'fitness' : key.startsWith('events') ? 'events' : key; // ★ 2026-10-26: 体力測定の鍵は fitness_t/_w/_m(React の key の重複で消えない不具合の対策)
+          const _typeOf = (key) => (key.startsWith('tsusho') || key.startsWith('kinou')) ? 'keikaku' : key.startsWith('mon_') ? 'monitoring' : key.startsWith('fitness') ? 'fitness' : key.startsWith('events') ? 'events' : key.startsWith('task_') ? 'tasks' : key; // ★ 2026-10-26: 体力測定の鍵は fitness_t/_w/_m(React の key の重複で消えない不具合の対策)
           const add = (due, t) => { const c = ht[_typeOf(t.key)] || {}; if (c.on === false) return; const tier = tierOf(due); if (c.todayOnly && tier !== 'today') return; if (due > monthEnd && due > weekEnd) return; tasks[tier].push({ ...t, _due: due }); }; // ★ 2026-10-26: 期限順に並べる
           const _evOn = (ht.events || {}).on !== false;
           // ★ 2026-10-26(ユーザー質問「カレンダーの契約・担会などは今週/今月の業務に出るのか」): 今日より後の予定を「今週」「今月」に出す(今日の分は本日の一覧)
-          if (_evOn) { try { const _evs = (appData.scheduleEvents||[]).filter(e => e && e.date && !tsuIsMemo(e) && String(e.date) > todayIso).map(e => ({ e, d: new Date(String(e.date) + 'T00:00:00') })).filter(x => !isNaN(x.d) && x.d <= monthEnd).sort((a, b) => String(a.e.date).localeCompare(String(b.e.date)) || String(a.e.start||'99').localeCompare(String(b.e.start||'99')));
+          if (_evOn) { try { const _evs = (appData.scheduleEvents||[]).filter(e => e && e.date && !tsuIsMemo(e) && !tsuIsTask(e) && String(e.date) > todayIso).map(e => ({ e, d: new Date(String(e.date) + 'T00:00:00') })).filter(x => !isNaN(x.d) && x.d <= monthEnd).sort((a, b) => String(a.e.date).localeCompare(String(b.e.date)) || String(a.e.start||'99').localeCompare(String(b.e.start||'99')));
             const _pn = (e) => { const p = e.patientId ? (appData.patients||[]).find(x => x.id === e.patientId) : null; return p ? ` ${p.name}様` : ''; };
             const _fmtE = (x) => `${x.d.getMonth()+1}/${x.d.getDate()} ${x.e.title || '予定'}${_pn(x.e)}`;
             // ★ 2026-10-26(ユーザー「何件ではなく1つずつ」): 予定ごとに1行(日付・題名・利用者名・時間)。押すとカレンダー
             _evs.forEach(x => { const e = x.e; const pt = e.patientId ? (appData.patients||[]).find(p => p.id === e.patientId) : null;
               add(x.d, { key: `events_${e.id}`, label: `${_fmtE(x)}${e.start ? `　${e.start}` : ''}`, view: 'schedule', color: e.color || '#6366f1',
                 onOpen: () => openDetail({ id: e.id, badge: '予定', badgeColor: e.color || '#6366f1', date: `${x.d.getMonth()+1}/${x.d.getDate()}`, title: e.title || '予定', body: `時間：${e.start ? `${e.start}${e.end ? `〜${e.end}` : ''}` : '終日'}${pt ? `\n利用者：${pt.name} 様` : ''}${e.note ? `\n\n${e.note}` : ''}`, patientId: e.patientId || undefined, view: 'schedule', _read: false }) }); }); } catch {} } // ★ 2026-10-27(ユーザー): 予定を押したら詳細(担当者会議の記録・利用者マスタ・カレンダーへ)
+          // ★ 2026-10-30: カレンダーのタスク(kind:'task')。済んでいない回を期日で 本日(期限切れを含む)/今週/今月 に。左の四角で済みにする
+          try { const _toIso = isoOf(weekEnd > monthEnd ? weekEnd : monthEnd); tsuTaskOpenOccurrences(appData, tsuIsoAdd(todayIso, -31), _toIso, todayIso).forEach(({ t, iso }) => { const d = new Date(`${iso}T00:00:00`); const pt = (t.patientId !== '' && t.patientId != null) ? (appData.patients||[]).find(p => p.id === t.patientId) : null; const md = `${d.getMonth()+1}/${d.getDate()}`;
+            add(d, { key: `task_${t.id}_${iso}`, label: `${iso > todayIso ? `${md} ` : ''}${t.title || 'タスク'}${pt ? ` ${pt.name}様` : ''}${t.start ? `　${t.start}` : ''}`, sub2: iso < todayIso ? `期限切れ（${md}）` : '', color: TSU_TASK_COLOR, view: 'schedule',
+              check: onSave ? () => tsuTaskToggle(appData, onSave, t, iso, true) : null, onOpen: () => { try { sessionStorage.setItem('tsumugiSchDay', iso); } catch {} navigateTo('schedule'); } }); }); } catch {}
           // 日誌(午前/午後の未入力・未確認)=本日。休業日/定休日のコマは出さない
           if (!(diarySlotKyugyo(appData, todayIso, dowN, 'AM') && diarySlotKyugyo(appData, todayIso, dowN, 'PM'))) {
             const seg = (ap) => { if (diarySlotKyugyo(appData, todayIso, dowN, ap)) return null; const l = (appData.diaryLogs||{})[`${todayIso}_${ap}`]; const it = diaryPendingItems(l, todayIso, appData.diarySettings?.cars, appData); const missing = !l; return (missing || (it && it.length)) ? `${ap === 'AM' ? '午前' : '午後'}${missing ? '（未入力）' : `（${it.join('・')} 未確認）`}` : null; };
@@ -13173,11 +13177,20 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           // ★ 2026-10-25(ユーザー): 「来週の送迎表 未作成」はホームに出さない(確定の廃止とあわせて)
           const _ph3 = tsuViewW() < 640;
           const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'white',border:'1px solid rgba(255,255,255,0.6)',borderRadius:12,padding: _ph3 ? '6px 8px' : '6px 14px',color:'#1e293b',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto',boxShadow:'0 1px 3px rgba(0,0,0,0.15)'}}><div style={{fontSize:11,color:'#4f46e5',fontWeight:'bold',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</div><div style={{fontSize: _ph3 ? 20 : 22,fontWeight:'bold',lineHeight:1.15,color:'#1e293b'}}>{value}</div>{sub && <div style={{fontSize:10,color:'#64748b',whiteSpace: _ph3 ? 'normal' : 'nowrap',lineHeight:1.35}}>{sub}</div>}</button>; // ★ 2026-10-27: スマホは3つを1行に(下の小さい字は折り返す・文字はそのまま)
-          const taskBtn = (t, big) => (
+          const _taskBtnPlain = (t, big) => (
             <button key={t.key} type="button" data-testid={`home-task-${t.key}`} title={t.sub || ''} onClick={() => { if (t.onOpen) { t.onOpen(); return; } try { if (t.jump) sessionStorage.setItem('tsumugiTpJump', t.jump); if (t.ss) sessionStorage.setItem(t.ss[0], t.ss[1]); } catch {} navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>
               <span style={{fontSize: big ? 14 : 12.5,fontWeight:'bold',color:'#1e293b'}}>{t.label}</span>{/* ★ 2026-10-27(ユーザー): 「開く →」は不要(押せば飛ぶと分かる) */}
               {/* ★ 2026-10-26(ユーザー「下の字は不要」): 説明は出さない(title の吹き出しだけ) */}
             </button>);
+          // ★ 2026-10-30: タスクは左に四角(押すと済み・ホームから消える)。右は押すとカレンダーのその日
+          const taskBtn = (t, big) => !t.check ? _taskBtnPlain(t, big) : (
+            <div key={t.key} data-testid={`home-task-${t.key}`} style={{display:'flex',alignItems:'stretch',width:'100%',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,overflow:'hidden'}}>
+              <button type="button" role="checkbox" aria-checked="false" data-testid={`home-task-check-${t.key}`} onClick={t.check} title="済んだら押します" style={{flex:'none',width:_ph3?48:40,minHeight:_ph3?44:0,display:'flex',alignItems:'center',justifyContent:'center',background:'transparent',border:'none',borderRight:'1px solid #f1f5f9',cursor:'pointer',padding:0}}><span style={{width:20,height:20,border:`2px solid ${TSU_TASK_COLOR}`,borderRadius:5,display:'block',background:'white'}}/></button>
+              <button type="button" onClick={() => t.onOpen && t.onOpen()} style={{flex:1,minWidth:0,textAlign:'left',background:'transparent',border:'none',padding: big ? '8px 12px' : '6px 10px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1}}>
+                <span style={{fontSize: big ? 14 : 12.5,fontWeight:'bold',color:'#1e293b',overflowWrap:'anywhere'}}>{t.label}</span>
+                {t.sub2 && <span style={{fontSize:11,fontWeight:'bold',color:'#c2410c'}}>{t.sub2}</span>}
+              </button>
+            </div>);
           const section = (tier, title, tid, big) => (
             <div key={tier} data-testid={tid} style={{flex: big ? '1 1 100%' : '1 1 240px',minWidth:0}}>
               <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:6,paddingBottom:4,borderBottom:`2px solid ${tier === 'today' ? '#f59e0b' : tier === 'week' ? '#93c5fd' : '#cbd5e1'}`}}>
@@ -13197,9 +13210,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 </div>
               )}
               {tasks[tier].length === 0 ? (tier === 'today' && _evOn && todayEvents.length ? null : <div style={{fontSize:12,color:'#94a3b8'}}>なし</div>) : (
-                (() => { const L = tasks[tier].slice().sort((a, b) => { const ea = (tier === 'week' && !String(a.key).startsWith('events_') && a._due >= weekEnd) ? 1 : 0, eb = (tier === 'week' && !String(b.key).startsWith('events_') && b._due >= weekEnd) ? 1 : 0; return (ea - eb) || (a._due - b._due) || 0; }); const LIM = 5; const more = L.length - LIM; const show = htMore[tier] || more <= 0 ? L : L.slice(0, LIM);
+                (() => { const L = tasks[tier].slice().sort((a, b) => { const _dated = (k) => String(k).startsWith('events_') || String(k).startsWith('task_'); const ea = (tier === 'week' && !_dated(a.key) && a._due >= weekEnd) ? 1 : 0, eb = (tier === 'week' && !_dated(b.key) && b._due >= weekEnd) ? 1 : 0; return (ea - eb) || (a._due - b._due) || 0; }); const LIM = 5; const more = L.length - LIM; const show = htMore[tier] || more <= 0 ? L : L.slice(0, LIM);
                   // ★ 2026-10-26(ユーザー「今週の業務は曜日ごとに分けると見やすい」): 今週は日付(曜日)ごとに見出しを付ける。期限が「今週中」(日曜)のもの(体力測定など)は最後に「今週中」
-                  const _gk = (t) => (tier === 'week') ? ((!String(t.key).startsWith('events_') && t._due >= weekEnd) ? '今週中' : `${t._due.getMonth()+1}/${t._due.getDate()}（${'日月火水木金土'[t._due.getDay()]}）`) : '';
+                  const _gk = (t) => (tier === 'week') ? ((!(String(t.key).startsWith('events_') || String(t.key).startsWith('task_')) && t._due >= weekEnd) ? '今週中' : `${t._due.getMonth()+1}/${t._due.getDate()}（${'日月火水木金土'[t._due.getDay()]}）`) : '';
                   const _rows = []; let _lastG = null; show.forEach(t => { const g = _gk(t); if (g && g !== _lastG) { _rows.push(<div key={`g_${g}`} data-testid="home-week-day" style={{fontSize:11,fontWeight:'bold',color:'#1e40af',marginTop:_rows.length ? 4 : 0}}>{g}</div>); _lastG = g; } _rows.push(taskBtn(t, big)); });
                   return (
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>{_rows}
@@ -13210,7 +13223,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           );
           const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
-                      {[['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                      {[['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
                           <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
                           {k !== 'diary' && k !== 'events' && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
@@ -13508,6 +13521,60 @@ const tsuMemoCopyNext = (appData, onSave, m) => {
   const ev = { id: `memo_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, kind: 'memo', color: TSU_MEMO_COLOR, date: next, title: m.title || '', patientId: m.patientId ?? '', by: m.by || '', at: new Date().toISOString(), copyOf: m.copyOf || m.id, fromDate: m.fromDate || m.date, copiedBy: getActiveRecorderName() || '', _savedAt: syncNow() };
   onSave({ ...appData, scheduleEvents: [...(appData.scheduleEvents || []), ev] }, { manual: true, message: `✓ ${tsuMemoDayLabel(next, true)}にも出します` });
 };
+// ★ 2026-10-30(ユーザー提案「カレンダーに予定＋タスク。チェックを押せば完了・押さなければずっと残る・日常業務や月末業務も」): タスク(kind:'task')
+//   ・カレンダーの予定と同じ scheduleEvents に入れる(id ごとのまとめ方・墓石)。済みは回(日付)ごとに done[日付]={by,at}、戻すと {off:true,by,at}
+//   ・別の端末で別の回を済みにしても消えないよう、同期のまとめ方(supabase.js mergeById・取り込みの保持)で done を日付ごとに新しい方でまとめる(logic.js mergeTaskDone)
+//   ・済んでいない回は、期日が今日まで(期限切れ)ならホームの本日の業務、今週・今月はそれぞれの欄。繰り返しの期限切れは31日前まで・繰り返しなしはずっと残る
+//   ・繰り返しに「毎月（最終営業日）」(monthly_lastbiz・定休日と1日の休業日を除いた月の最後の日)。タスクの「毎日」は営業日だけ
+const TSU_TASK_COLOR = '#059669';
+const tsuIsTask = (e) => !!e && e.kind === 'task';
+const tsuIsBizIso = (appData, iso) => { const closed = appData?.systemSettings?.facilityInfo?.closedDays || [0]; const d = new Date(`${iso}T00:00:00`); if (closed.includes(d.getDay())) return false; return !fullHolidaySet(appData?.holidays).has(iso); };
+const tsuLastBizOfMonth = (appData, y, m) => { for (let d = new Date(y, m, 0).getDate(); d >= 1; d--) { const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`; if (tsuIsBizIso(appData, iso)) return iso; } return null; };
+// カレンダー(ScheduleView)の繰り返しの判定と同じ＋毎月（最終営業日）・タスクの毎日は営業日だけ
+const tsuOccursOn = (e, dstr, appData) => {
+  if (!e || !e.date) return false;
+  if (e.date === dstr) return true;
+  if (!e.repeat || e.repeat === 'none') return false;
+  if (dstr < e.date) return false;
+  if (e.repeatUntil && dstr > e.repeatUntil) return false;
+  const every = Math.max(1, Number(e.repeatEvery) || 1);
+  const [y1, m1, d1] = e.date.split('-').map(Number);
+  const [y2, m2, d2] = dstr.split('-').map(Number);
+  const base = new Date(y1, m1 - 1, d1), cur = new Date(y2, m2 - 1, d2);
+  if (e.repeat === 'daily') { const diff = Math.round((cur - base) / 86400000); if (!(diff > 0 && diff % every === 0)) return false; return tsuIsTask(e) ? tsuIsBizIso(appData, dstr) : true; }
+  if (e.repeat === 'weekly') { const diff = Math.round((cur - base) / 86400000); return diff > 0 && diff % (7 * every) === 0; }
+  if (e.repeat === 'monthly') { if (d1 !== d2) return false; const mo = (y2 - y1) * 12 + (m2 - m1); return mo > 0 && mo % every === 0; }
+  if (e.repeat === 'monthly_lastbiz') { const mo = (y2 - y1) * 12 + (m2 - m1); if (!(mo > 0 && mo % every === 0)) return false; return tsuLastBizOfMonth(appData, y2, m2) === dstr; }
+  if (e.repeat === 'yearly') { if (m1 !== m2 || d1 !== d2) return false; const yr = y2 - y1; return yr > 0 && yr % every === 0; }
+  if (e.repeat === 'monthly_nth') { // 第◯曜日(例: 第2・第4 火曜日)。 曜日は開始日から。
+    if (cur.getDay() !== base.getDay()) return false;
+    const nth = Math.floor((d2 - 1) / 7) + 1;
+    const lastDom = new Date(y2, m2, 0).getDate();
+    const isLast = d2 + 7 > lastDom;
+    const weeks = e.monthlyNthWeeks || [];
+    return weeks.includes(nth) || (isLast && weeks.includes('last'));
+  }
+  return false;
+};
+const tsuTaskDoneOn = (t, iso) => { const d = t && t.done && t.done[iso]; return !!d && !d.off; };
+const tsuTaskToggle = (appData, onSave, t, iso, on) => {
+  const list = Array.isArray(appData.scheduleEvents) ? appData.scheduleEvents : []; const cur = list.find(e => e.id === t.id); if (!cur) return;
+  const me = getActiveRecorderName() || ''; const now = syncNow();
+  const nt = { ...cur, done: { ...(cur.done || {}), [iso]: on ? { by: me, at: now } : { off: true, by: me, at: now } }, _savedAt: now };
+  onSave({ ...appData, scheduleEvents: list.map(e => e.id === t.id ? nt : e) }, { manual: true, message: on ? `✓ 「${cur.title || 'タスク'}」を済みにしました` : `「${cur.title || 'タスク'}」を済んでいないに戻しました` });
+};
+// 済んでいない回(fromIso〜toIso)。繰り返しなしは期日が toIso までならいつでも(ずっと残る)
+//   繰り返しは 今日までの済んでいない回すべて＋先の回は次の1回だけ(「毎日」は先の回を出さない・今週/今月の欄が毎日の分で埋まらないように)
+const tsuTaskOpenOccurrences = (appData, fromIso, toIso, todayIso) => {
+  const out = []; const today = todayIso || tsuTodayIso();
+  (Array.isArray(appData?.scheduleEvents) ? appData.scheduleEvents : []).filter(tsuIsTask).forEach(t => {
+    if (!t.date || t.date > toIso) return;
+    if (!t.repeat || t.repeat === 'none') { if (!tsuTaskDoneOn(t, t.date)) out.push({ t, iso: t.date }); return; }
+    let iso = t.date > fromIso ? t.date : fromIso; let guard = 0;
+    while (iso <= toIso && guard++ < 400) { if (tsuOccursOn(t, iso, appData)) { if (iso > today) { if (t.repeat !== 'daily' && !tsuTaskDoneOn(t, iso)) out.push({ t, iso }); break; } if (!tsuTaskDoneOn(t, iso)) out.push({ t, iso }); } iso = tsuIsoAdd(iso, 1); }
+  });
+  return out.sort((a, b) => a.iso.localeCompare(b.iso) || String(a.t.start || '99').localeCompare(String(b.t.start || '99')));
+};
 function TsuMemoEditor({ appData, onSave, init, onClose }) {
   useTsuBackLock(true);
   const _ph = tsuViewW() < 640; const _touch = tsuTouchDev(); const today = tsuTodayIso();
@@ -13637,7 +13704,10 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   const [curMonth, setCurMonth] = useState(`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`);
-  const [selDay, setSelDay] = useState(todayStr);
+  // ★ 2026-10-30: ホームのタスクから開いたときはその日(sessionStorage tsumugiSchDay・1回だけ読む)
+  const _schJumpRef = React.useRef(undefined); if (_schJumpRef.current === undefined) { let v = null; try { v = sessionStorage.getItem('tsumugiSchDay'); if (v) sessionStorage.removeItem('tsumugiSchDay'); } catch {} _schJumpRef.current = (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? v : null; }
+  const [selDay, setSelDay] = useState(_schJumpRef.current || todayStr);
+  React.useEffect(() => { if (_schJumpRef.current) setCurMonth(_schJumpRef.current.slice(0, 7)); }, []);
   const [modal, setModal] = useState(null); // {id?, date, start, end, title, note, color, repeat, repeatUntil}
   const [labelEditorOpen, setLabelEditorOpen] = useState(false); // ラベル編集モーダル(ヘッダから・色/名前/追加)
   // ★ ラベル編集は自動保存をやめ下書き+保存/キャンセル方式に(2026-08-28 店舗要望)
@@ -13708,7 +13778,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
     if (!modal.title || !modal.title.trim()) { alert('予定のタイトルを入力してください'); return; }
     if (!modal.date) { alert('日付を選んでください'); return; }
     const evId = modal.id || `ev_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
-    const ev = { ...modal, id: evId, title: modal.title.trim(), _savedAt: syncNow() };
+    const ev = { ...modal, id: evId, title: modal.title.trim(), ...(modal.kind === 'task' ? { kind: 'task', color: TSU_TASK_COLOR, end: '', notify: false } : {}), _savedAt: syncNow() }; if (ev.kind !== 'task') delete ev.kind; // ★ 2026-10-30: タスク
     const list = modal.id ? events.map(e=>e.id===modal.id?ev:e) : [...events, ev];
     // ★ お知らせ配信: 利用者を選び「お知らせとして配信」ON → その利用者(ご家族)＋担当ケアマネの閲覧画面のお知らせに掲載
     const annId = `schednews_${evId}`;
@@ -13731,29 +13801,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
     setModal(null);
   };
   // ★ 繰り返し予定の展開: e.date と一致、または 繰り返し(毎週/毎月/毎年・N間隔)がその日に当たる
-  const occursOn = (e, dstr) => {
-    if (e.date === dstr) return true;
-    if (!e.repeat || e.repeat === 'none') return false;
-    if (dstr < e.date) return false;
-    if (e.repeatUntil && dstr > e.repeatUntil) return false;
-    const every = Math.max(1, Number(e.repeatEvery)||1);
-    const [y1,m1,d1] = e.date.split('-').map(Number);
-    const [y2,m2,d2] = dstr.split('-').map(Number);
-    const base = new Date(y1,m1-1,d1), cur = new Date(y2,m2-1,d2);
-    if (e.repeat === 'daily') { const diff = Math.round((cur-base)/86400000); return diff>0 && diff%every===0; }
-    if (e.repeat === 'weekly') { const diff = Math.round((cur-base)/86400000); return diff>0 && diff%(7*every)===0; }
-    if (e.repeat === 'monthly') { if(d1!==d2) return false; const mo=(y2-y1)*12+(m2-m1); return mo>0 && mo%every===0; }
-    if (e.repeat === 'yearly') { if(m1!==m2||d1!==d2) return false; const yr=y2-y1; return yr>0 && yr%every===0; }
-    if (e.repeat === 'monthly_nth') { // 第◯曜日(例: 第2・第4 火曜日)。 曜日は開始日から。
-      if (cur.getDay() !== base.getDay()) return false;
-      const nth = Math.floor((d2-1)/7)+1;
-      const lastDom = new Date(y2, m2, 0).getDate();
-      const isLast = d2+7 > lastDom;
-      const weeks = e.monthlyNthWeeks || [];
-      return weeks.includes(nth) || (isLast && weeks.includes('last'));
-    }
-    return false;
-  };
+  // ★ 2026-10-30: 判定は tsuOccursOn(ホームのタスクと同じ・毎月（最終営業日）・タスクの毎日は営業日だけ)
+  const occursOn = (e, dstr) => tsuOccursOn(e, dstr, appData);
   const nthOfMonth = (dstr) => { const d=Number(dstr.slice(8,10)); return Math.floor((d-1)/7)+1; };
   const dowLabel = (dstr) => ['日','月','火','水','木','金','土'][(()=>{const [y,m,d]=dstr.split('-').map(Number);return new Date(y,m-1,d).getDay();})()];
   // 繰り返しの内容を短い日本語に
@@ -13810,7 +13859,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const todayEvents = evOf(todayStr);
   const selEvents = evOf(selDay);
   const dow = ['日','月','火','水','木','金','土'];
-  const openNew = (dstr) => setModal({ date: dstr || selDay, start:'', end:'', title:'', note:'', color: COLORS[0] });
+  const openNew = (dstr, kind) => setModal({ date: dstr || selDay, start:'', end:'', title:'', note:'', color: kind === 'task' ? TSU_TASK_COLOR : COLORS[0], ...(kind === 'task' ? { kind: 'task' } : {}) });
   const fmtJp = (dstr) => { const [y,m,dd]=dstr.split('-').map(Number); const w=new Date(y,m-1,dd).getDay(); return `${m}月${dd}日(${dow[w]})`; };
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
@@ -13842,7 +13891,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                   <div style={{display:'flex',alignItems:'center',gap:10}}>
                     <button onClick={()=>shiftMonth(-1)} style={navBtn}>‹ 前月</button>
                     <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b'}}>{cy}年{cm}月</div>
-                    <button onClick={()=>shiftMonth(1)} style={navBtn}>翌月 ›</button>
+                    <button data-testid="sch-next-month" onClick={()=>shiftMonth(1)} style={navBtn}>翌月 ›</button>
                   </div>
                 ) : (
                   <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -13866,7 +13915,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                   const closed = isClosedDate(dstr);
                   const bg = isSel ? '#eef2ff' : (holi ? '#fef2f2' : (closed ? '#f8fafc' : 'white'));
                   return (
-                    <div key={dstr} data-testid={isToday?'sch-today':undefined} data-sel={isSel?'1':undefined} onClick={()=>setSelDay(dstr)}
+                    <div key={dstr} data-testid={isToday?'sch-today':undefined} data-ds={dstr} data-sel={isSel?'1':undefined} onClick={()=>setSelDay(dstr)}
                       onDragOver={dragEvId?ev=>ev.preventDefault():undefined}
                       onDrop={dragEvId?()=>{ const be=events.find(x=>x.id===dragEvId); if(be) moveEvent(be,dstr); setDragEvId(null); }:undefined}
                       style={_schPhone
@@ -13885,7 +13934,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                       {evs.slice(0,4).map(e=>{ const drg = !e._occ && (!e.repeat||e.repeat==='none'); return (
                         <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?ev=>{setDragEvId(e.id);}:undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation(); setEvDetail(e);}}
                           title={`${e.title}${patName(e)?'／'+patName(e):''}`}
-                          style={{fontSize:10,fontWeight:'bold',color:'white',background:e.color||'#6366f1',borderRadius:_schPhone?3:4,padding:_schPhone?'1px 2px':'1px 4px',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',overflowWrap:'anywhere',lineHeight:1.25,maxWidth:'100%',cursor:drg?'grab':'pointer'}}>{_schPhone
+                          style={{fontSize:10,fontWeight:'bold',color:tsuIsTask(e)?TSU_TASK_COLOR:'white',background:tsuIsTask(e)?'white':(e.color||'#6366f1'),...(tsuIsTask(e)?{border:`1px solid ${TSU_TASK_COLOR}`,textDecoration:tsuTaskDoneOn(e,dstr)?'line-through':'none',opacity:tsuTaskDoneOn(e,dstr)?0.6:1}:{}),borderRadius:_schPhone?3:4,padding:_schPhone?'1px 2px':'1px 4px',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',overflowWrap:'anywhere',lineHeight:1.25,maxWidth:'100%',cursor:drg?'grab':'pointer'}}>{tsuIsTask(e) ? (tsuTaskDoneOn(e, dstr) ? '✓' : '□') : null}{_schPhone
                             ? <>{e.start ? <span style={{whiteSpace:'nowrap'}}>{String(e.start).replace(/^0(\d)/,'$1')} </span> : null}{e.title}{patName(e)?`／${patName(e)}`:''}</>
                             : <>{e.repeat&&e.repeat!=='none'?'[繰]':''}{e.start?`${e.start} `:''}{e.title}{patName(e)?`／${patName(e)}`:''}</>}</div>
                       );})}
@@ -13961,17 +14010,22 @@ function ScheduleView({ appData, onSave, navigateTo }) {
             <div style={_schPhone ? {background:'white',borderTop:'1px solid #e2e8f0',borderBottom:'1px solid #e2e8f0',padding:'12px 12px'} : {background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',padding:16}}>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
                 <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>{fmtJp(selDay)} の予定</div>
-                <button onClick={()=>openNew(selDay)} style={{whiteSpace:'nowrap',background:'#6366f1',color:'white',border:'none',borderRadius:8,padding:'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>追加</button>
+                <div style={{display:'flex',gap:6}}>
+                <button type="button" data-testid="sch-task-add" onClick={()=>openNew(selDay, 'task')} style={{whiteSpace:'nowrap',background:'white',color:'#047857',border:`1px solid ${TSU_TASK_COLOR}`,borderRadius:8,padding:_schPhone?'10px 12px':'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>＋ タスク</button>
+                <button onClick={()=>openNew(selDay)} style={{whiteSpace:'nowrap',background:'#6366f1',color:'white',border:'none',borderRadius:8,padding:_schPhone?'10px 12px':'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>追加</button>
+                </div>
               </div>
               {selEvents.length===0 ? (
                 <div style={{fontSize:13,color:'#64748b',padding:'12px 0'}}>この日の予定はありません。「追加」から登録できます。</div>
               ) : (
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                  {selEvents.map(e=>(
-                    <div key={e.id} style={{display:'flex',alignItems:'center',gap:_schPhone?6:10,flexWrap:_schPhone?'wrap':'nowrap',background:'#f8fafc',border:'1px solid #e2e8f0',borderLeft:`5px solid ${e.color||'#6366f1'}`,borderRadius:10,padding:_schPhone?'8px 10px':'8px 12px'}}>
-                      <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b',minWidth:_schPhone?0:96,fontVariantNumeric:'tabular-nums'}}>{timeLabel(e)}</span>
+                  {selEvents.map(e=>{ const _tk = tsuIsTask(e); const _bid = e._occ ? e._baseId : e.id; const _dn = _tk && tsuTaskDoneOn(e, selDay); const _dI = _tk && e.done && e.done[selDay]; return (
+                    <div key={e.id} data-testid={_tk ? `sch-task-${_bid}` : undefined} style={{display:'flex',alignItems:'center',gap:_schPhone?6:10,flexWrap:_schPhone?'wrap':'nowrap',background:'#f8fafc',border:'1px solid #e2e8f0',borderLeft:`5px solid ${e.color||'#6366f1'}`,borderRadius:10,padding:_schPhone?'8px 10px':'8px 12px'}}>
+                      {_tk && <button type="button" role="checkbox" aria-checked={_dn} data-testid={`sch-task-check-${_bid}`} onClick={()=>tsuTaskToggle(appData, onSave, { id: _bid }, selDay, !_dn)} title={_dn ? '済んでいないに戻す' : '済みにする'} style={{flexShrink:0,width:_schPhone?44:32,height:_schPhone?44:32,display:'flex',alignItems:'center',justifyContent:'center',background:'transparent',border:'none',cursor:'pointer',padding:0}}><span style={{width:22,height:22,borderRadius:6,border:`2px solid ${TSU_TASK_COLOR}`,background:_dn?TSU_TASK_COLOR:'white',color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:'bold',lineHeight:1}}>{_dn?'✓':''}</span></button>}
+                      <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b',minWidth:_schPhone?0:(_tk?64:96),fontVariantNumeric:'tabular-nums'}}>{_tk ? (e.start || 'タスク') : timeLabel(e)}</span>
                       <div style={{flex:_schPhone?'1 1 60%':1,minWidth:0}}>
-                        <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>{e.title}{patName(e)?<span style={{fontSize:12,color:'#6366f1',marginLeft:6}}>／{patName(e)} 様</span>:null}</div>
+                        <div style={{fontSize:14,fontWeight:'bold',color:_dn?'#94a3b8':'#1e293b',textDecoration:_dn?'line-through':'none'}}>{e.title}{patName(e)?<span style={{fontSize:12,color:'#6366f1',marginLeft:6}}>／{patName(e)} 様</span>:null}</div>
+                        {_tk && _dn && <div data-testid={`sch-task-done-${_bid}`} style={{fontSize:11,color:'#047857',fontWeight:'bold'}}>済み{_dI && _dI.by ? `（${_dI.by}）` : ''}</div>}
                         {e.patientId && (()=>{ const p=(appData.patients||[]).find(x=>x.id===e.patientId); return p ? <div style={{fontSize:11,color:'#4338ca',fontWeight:'bold'}}>
                           {/* ★ 利用者名タップで利用者マスタへ(2026-08-28) */}
                           <button type="button" onClick={()=>_goMaster(p.id)} title="利用者マスタを開く" style={{background:'none',border:'none',padding:0,color:'#4338ca',fontWeight:'bold',fontSize:11,cursor:'pointer',textDecoration:'underline'}}>{p.name}</button>
@@ -13982,8 +14036,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                         style={{background:'#2563eb',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'white',cursor:'pointer',whiteSpace:'nowrap'}}>担当者会議を記録</button>}
                       <button onClick={()=>editEvent(e)} style={{whiteSpace:'nowrap',background:'#e2e8f0',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'#334155',cursor:'pointer'}}>編集</button>
                       <button onClick={()=>delEvent(e)} style={{whiteSpace:'nowrap',background:'#fee2e2',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'#b91c1c',cursor:'pointer'}}>削除</button>
-                    </div>
-                  ))}
+                    </div>); })}
                 </div>
               )}
               {/* ★ 2026-10-30: この日の申し送り(ホームの「今日の申し送り」と同じもの。過ぎた日の分もここに残る) */}
@@ -14003,7 +14056,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
       {memoEd && <TsuMemoEditor appData={appData} onSave={onSave} init={memoEd} onClose={()=>setMemoEd(null)} />}
       {/* 予定 追加/編集モーダル */}
       {/* ★ 予定の確認ポップアップ: クリック→内容確認→編集/削除(2026-08-21) */}
-      {evDetail && (()=>{ const e=evDetail; const REP={daily:'毎日',weekly:'毎週',monthly:'毎月(同じ日)',monthly_nth:'毎月(第◯曜日)',yearly:'毎年'}; return (
+      {evDetail && (()=>{ const e=evDetail; const REP={daily:'毎日',weekly:'毎週',monthly:'毎月(同じ日)',monthly_nth:'毎月(第◯曜日)',monthly_lastbiz:'毎月(最終営業日)',yearly:'毎年'}; return (
         <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>setEvDetail(null)}>
           {/* ★ ポップアップ拡大(2026-08-28 店舗要望): 幅560・文字/ボタンを大きく */}
           <div onClick={ev=>ev.stopPropagation()} style={{background:'white',borderRadius:18,width:560,maxWidth:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.3)',overflow:'hidden'}}>
@@ -14024,6 +14077,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               {e.patientId && <button type="button" onClick={()=>{ setEvDetail(null); _goMeeting(e.patientId); }}
                 style={{background:'#2563eb',border:'none',color:'white',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer',marginRight:'auto'}}>担当者会議を記録</button>}
               {!e.patientId && <span style={{marginRight:'auto'}}/>}
+              {tsuIsTask(e) && (() => { const _dn = tsuTaskDoneOn(e, e.date); return <button type="button" data-testid="sch-evd-task-toggle" onClick={()=>{ tsuTaskToggle(appData, onSave, { id: e._occ ? e._baseId : e.id }, e.date, !_dn); setEvDetail(null); }} style={{whiteSpace:'nowrap',background:_dn?'white':TSU_TASK_COLOR,border:`1px solid ${TSU_TASK_COLOR}`,color:_dn?'#047857':'white',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>{_dn ? '済んでいないに戻す' : '済みにする'}</button>; })()}
               <button onClick={()=>{ delEvent(e); setEvDetail(null); }} style={{whiteSpace:'nowrap',background:'#fef2f2',border:'1px solid #fecaca',color:'#dc2626',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>削除</button>
               <button onClick={()=>{ setEvDetail(null); editEvent(e); }} style={{whiteSpace:'nowrap',background:'#4f46e5',border:'none',color:'white',borderRadius:10,padding:'11px 22px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>編集</button>
               <button onClick={()=>setEvDetail(null)} style={{whiteSpace:'nowrap',background:'#f1f5f9',border:'none',color:'#475569',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>閉じる</button>
@@ -14035,27 +14089,32 @@ function ScheduleView({ appData, onSave, navigateTo }) {
         <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.55)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>{/* ★ 外側タップでは閉じない(入力が消えるため・キャンセルのみ) 2026-09-27 */}
           <div className="tsu-cap-dvh" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,width:440,maxWidth:'100%',maxHeight:'90vh',overflow:'auto',padding:20,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
             {/* ★ Googleカレンダー風(2026-08-21): タイトルを最上部の大きな下線入力に、日付と時刻を1行に */}
-            <div style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',marginBottom:6}}>{modal.id?'予定を編集':'予定を追加'}</div>
-            <input value={modal.title} onChange={e=>setModal(m=>({...m,title:e.target.value}))} placeholder="タイトルを追加"
+            {/* ★ 2026-10-30: 予定かタスクかを選ぶ(タスク=チェックで済み・済むまでホームに残る) */}
+            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+              <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',marginRight:'auto'}}>{modal.kind==='task' ? (modal.id?'タスクを編集':'タスクを追加') : (modal.id?'予定を編集':'予定を追加')}</span>
+              {[['', '予定'], ['task', 'タスク']].map(([k, l]) => { const on = (modal.kind || '') === k; return <button key={l} type="button" data-testid={`sch-kind-${k || 'event'}`} onClick={()=>setModal(m=>({ ...m, kind: k || undefined, ...(k === 'task' ? { end: '', notify: false } : {}) }))} style={{fontSize:13,fontWeight:'bold',padding:'6px 14px',borderRadius:16,border:on?`2px solid ${k?TSU_TASK_COLOR:'#6366f1'}`:'1px solid #e2e8f0',background:on?(k?'#ecfdf5':'#eef2ff'):'white',color:on?(k?'#047857':'#4338ca'):'#64748b',cursor:'pointer'}}>{l}</button>; })}
+            </div>
+            <input value={modal.title} onChange={e=>setModal(m=>({...m,title:e.target.value}))} placeholder={modal.kind==='task' ? 'やること（例: 月末の請求の確認）' : 'タイトルを追加'}
               style={{width:'100%',boxSizing:'border-box',padding:'6px 2px 8px',border:'none',borderBottom:'2px solid #c7d2fe',fontSize:20,fontWeight:'bold',color:'#1e293b',outline:'none',marginBottom:14,background:'transparent'}}/>
             {/* ★ 日時は必ず横一列(2026-08-21): 幅を明示し折り返し禁止。 狭い画面では各入力が縮む */}
             <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,flexWrap:'nowrap',minWidth:0}}>
               <Clock size={16} style={{color:'#64748b',flexShrink:0}}/>
               <input type="date" value={modal.date} onChange={e=>setModal(m=>({...m,date:e.target.value}))} style={{flex:'1 1 120px',minWidth:0,maxWidth:150,boxSizing:'border-box',padding:'7px 6px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',background:'#f8fafc'}}/>
               <input type="time" value={modal.start||''} onChange={e=>setModal(m=>({...m,start:e.target.value}))} style={{flex:'0 1 84px',minWidth:0,boxSizing:'border-box',padding:'7px 4px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',background:'#f8fafc'}}/>
-              <span style={{color:'#94a3b8',fontWeight:'bold',flexShrink:0}}>〜</span>
-              <input type="time" value={modal.end||''} onChange={e=>setModal(m=>({...m,end:e.target.value}))} style={{flex:'0 1 84px',minWidth:0,boxSizing:'border-box',padding:'7px 4px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',background:'#f8fafc'}}/>
+              {modal.kind!=='task' && <span style={{color:'#94a3b8',fontWeight:'bold',flexShrink:0}}>〜</span>}
+              {modal.kind!=='task' && <input type="time" value={modal.end||''} onChange={e=>setModal(m=>({...m,end:e.target.value}))} style={{flex:'0 1 84px',minWidth:0,boxSizing:'border-box',padding:'7px 4px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',background:'#f8fafc'}}/>}
             </div>
             {/* ★ 所要時間で終了を自動セット (開始時刻が必要) */}
-            <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:12,marginTop:-4}}>
+            {modal.kind==='task' && <div style={{fontSize:11,color:'#64748b',marginBottom:12,marginTop:-4}}>時刻は決めなくてもかまいません。済むまで、ホームの「本日の業務」に残ります。</div>}
+            {modal.kind!=='task' && <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:12,marginTop:-4}}>
               <span style={{fontSize:11,fontWeight:'bold',color:'#64748b'}}>終了を自動:</span>
               {[['30分',30],['1時間',60],['1時間半',90],['2時間',120]].map(([lbl,mins])=>(
                 <button key={mins} type="button" disabled={!modal.start} onClick={()=>setModal(m=>({...m,end:addMin(m.start,mins)}))}
                   style={{fontSize:11,fontWeight:'bold',padding:'4px 10px',borderRadius:14,border:'1px solid #c7d2fe',background:modal.start?'#eef2ff':'#f1f5f9',color:modal.start?'#4338ca':'#cbd5e1',cursor:modal.start?'pointer':'default'}}>{lbl}</button>
               ))}
-            </div>
+            </div>}
             {/* ★ 担当者会議など: 対象の利用者を任意で紐付け → 担当ケアマネ事業所・担当者を表示 */}
-            <label style={{fontSize:12,fontWeight:'bold',color:'#475569',display:'block',marginBottom:4}}>対象の利用者（任意・担当者会議など）</label>
+            <label style={{fontSize:12,fontWeight:'bold',color:'#475569',display:'block',marginBottom:4}}>{modal.kind==='task' ? '対象の利用者（任意）' : '対象の利用者（任意・担当者会議など）'}</label>
             <select value={modal.patientId||''} onChange={e=>setModal(m=>({...m,patientId:e.target.value?Number(e.target.value):undefined}))} style={{width:'100%',boxSizing:'border-box',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',marginBottom:8,background:'white'}}>
               <option value="">— なし —</option>
               {/* ★ 休止中でも担当者会議等で予定を組むことがあるため、利用中と休止中の両方を選べるようにする(退所は除外) */}
@@ -14066,28 +14125,29 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                 担当ケアマネ：<b>{p.cmOffice||'（事業所未登録）'}</b>{p.cmName?` / ${p.cmName} 様`:''}{(() => { const _f = tsumugiCmContact(p, appData).fax; return _f ? `　FAX ${_f}` : ''; })()}
               </div>
             ); })()}
-            {modal.patientId && (
+            {modal.patientId && modal.kind!=='task' && (
               <label style={{display:'flex',alignItems:'flex-start',gap:8,background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'8px 10px',marginBottom:12,cursor:'pointer'}}>
                 <input type="checkbox" checked={!!modal.notify} onChange={e=>setModal(m=>({...m,notify:e.target.checked}))} style={{width:16,height:16,marginTop:1}}/>
                 <span style={{fontSize:12,fontWeight:'bold',color:'#4338ca',lineHeight:1.5}}>この予定を<b>お知らせとして配信</b>する<br/><span style={{fontSize:10,fontWeight:'normal',color:'#64748b'}}>ご家族・関係者・担当ケアマネの画面に日時入りで載ります</span></span>
               </label>
             )}
             <label style={{fontSize:12,fontWeight:'bold',color:'#475569',display:'block',marginBottom:4}}>メモ（任意）</label>
-            <textarea value={modal.note||''} onChange={e=>setModal(m=>({...m,note:e.target.value}))} rows={3} placeholder="場所・持ち物・参加者など" style={{width:'100%',boxSizing:'border-box',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',resize:'vertical',marginBottom:12}}/>
+            <textarea value={modal.note||''} onChange={e=>setModal(m=>({...m,note:e.target.value}))} rows={3} placeholder={modal.kind==='task' ? '手順・気をつけることなど' : '場所・持ち物・参加者など'} style={{width:'100%',boxSizing:'border-box',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',resize:'vertical',marginBottom:12}}/>
             <label style={{fontSize:12,fontWeight:'bold',color:'#475569',display:'block',marginBottom:4}}>繰り返し</label>
             <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:8,flexWrap:'wrap'}}>
-              <select value={modal.repeat||'none'} onChange={e=>setModal(m=>{ const rep=e.target.value; const upd={...m, repeat:rep, repeatEvery:m.repeatEvery||1}; if(rep==='monthly_nth' && (!m.monthlyNthWeeks||!m.monthlyNthWeeks.length) && m.date){ upd.monthlyNthWeeks=[nthOfMonth(m.date)]; } return upd; })} style={{padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',background:'white'}}>
+              <select value={modal.repeat||'none'} onChange={e=>setModal(m=>{ const rep=e.target.value; const upd={...m, repeat:rep, repeatEvery:m.repeatEvery||1}; if(rep==='monthly_lastbiz' && m.date){ const [yy,mm]=m.date.split('-').map(Number); const lb=tsuLastBizOfMonth(appData,yy,mm); if(lb) upd.date=lb; } /* ★ 2026-10-30: 毎月（最終営業日）はその月の最終営業日から */ if(rep==='monthly_nth' && (!m.monthlyNthWeeks||!m.monthlyNthWeeks.length) && m.date){ upd.monthlyNthWeeks=[nthOfMonth(m.date)]; } return upd; })} style={{padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',background:'white'}}>
                 <option value="none">なし</option>
                 <option value="daily">毎日</option>
                 <option value="weekly">毎週</option>
                 <option value="monthly">毎月（同じ日）</option>
                 <option value="monthly_nth">毎月（第◯曜日）</option>
+                <option value="monthly_lastbiz">毎月（最終営業日）</option>
                 <option value="yearly">毎年</option>
               </select>
               {modal.repeat && modal.repeat!=='none' && modal.repeat!=='monthly_nth' && (
                 <div style={{display:'flex',alignItems:'center',gap:4}}>
                   <input type="number" min={1} max={99} value={modal.repeatEvery||1} onChange={e=>setModal(m=>({...m,repeatEvery:Math.max(1,Math.min(99,Number(e.target.value)||1))}))} style={{width:54,boxSizing:'border-box',padding:'8px 8px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',textAlign:'center'}}/>
-                  <span style={{fontSize:12,color:'#475569',fontWeight:'bold'}}>{modal.repeat==='daily'?'日':modal.repeat==='weekly'?'週':modal.repeat==='monthly'?'月':'年'}ごと</span>
+                  <span style={{fontSize:12,color:'#475569',fontWeight:'bold'}}>{modal.repeat==='daily'?'日':modal.repeat==='weekly'?'週':(modal.repeat==='monthly'||modal.repeat==='monthly_lastbiz')?'月':'年'}ごと</span>
                 </div>
               )}
             </div>
@@ -14102,8 +14162,10 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                 </div>
               </div>
             )}
+            {modal.repeat==='monthly_lastbiz' && <div data-testid="sch-lastbiz-note" style={{fontSize:11,color:'#047857',marginBottom:6}}>毎月、定休日と休業日を除いた月の最後の日に出ます（今の期日: {modal.date ? fmtJp(modal.date) : '-'}）</div>}
+            {modal.kind==='task' && modal.repeat==='daily' && <div style={{fontSize:11,color:'#047857',marginBottom:6}}>タスクの「毎日」は営業日だけ出ます（定休日・休業日は出ません）</div>}
             {modal.repeat && modal.repeat!=='none' && <div style={{fontSize:10,color:'#64748b',marginBottom:12}}>例:「2」＋「週ごと」で隔週。<b>終了・削除</b>は右上の <b>繰り返し設定</b> から（編集はすべての回に反映）。</div>}
-            <label style={{fontSize:12,fontWeight:'bold',color:'#475569',display:'block',marginBottom:6}}>色・分類（押すとタイトルに入ります）</label>
+            {modal.kind!=='task' && <><label style={{fontSize:12,fontWeight:'bold',color:'#475569',display:'block',marginBottom:6}}>色・分類（押すとタイトルに入ります）</label>
             <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>
               {colorLabels.map((cl,i)=>{
                 const selected = modal.color===cl.color;
@@ -14115,12 +14177,13 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                   </button>
                 );
               })}
-            </div>
+            </div></>}
+            {modal.kind==='task' && <div style={{marginBottom:12}}/>}
             <div style={{display:'flex',gap:8}}>
               {modal.id && <button onClick={()=>del(modal.id)} style={{whiteSpace:'nowrap',background:'#fee2e2',border:'none',color:'#b91c1c',borderRadius:8,padding:'10px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>削除</button>}
               <div style={{flex:1}}/>
               <button onClick={()=>setModal(null)} style={{whiteSpace:'nowrap',background:'#e2e8f0',border:'none',color:'#334155',borderRadius:8,padding:'10px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
-              <button onClick={upsert} style={{whiteSpace:'nowrap',background:'#6366f1',border:'none',color:'white',borderRadius:8,padding:'10px 18px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>保存</button>
+              <button data-testid="sch-modal-save" onClick={upsert} style={{whiteSpace:'nowrap',background:'#6366f1',border:'none',color:'white',borderRadius:8,padding:'10px 18px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>保存</button>
             </div>
           </div>
         </div>
@@ -21945,7 +22008,8 @@ export default function App() {
                   if (_tomb[String(r.id)]) return;                 // 削除済みは復活させない
                   const _ex = _map.get(String(r.id));
                   if (!_ex) { _map.set(String(r.id), r); _kept++; return; }       // クラウドに無い=push未達 → 保持
-                  if ((Number(r._savedAt)||0) > (Number(_ex._savedAt)||0)) { _map.set(String(r.id), r); _kept++; } // 端末内が新しい → 保持
+                  if ((Number(r._savedAt)||0) > (Number(_ex._savedAt)||0)) { _map.set(String(r.id), (r.kind === 'task') ? mergeTaskDone(r, _ex) : r); _kept++; } // 端末内が新しい → 保持
+                  else if (r.kind === 'task') { const _w = mergeTaskDone(_ex, r); if (_w !== _ex) { _map.set(String(r.id), _w); _kept++; } } // ★ 2026-10-30: タスクの済み(回ごと)は端末内の新しい分も残す
                 });
                 if (_kept > 0) { merged[_key] = [..._map.values()]; _mergedForPush = merged; syncLog('pull-preserve', { key: _key, kept: _kept }); }
               } catch (e) { console.warn('[pull preserve] ' + _key + ' failed', e); }
@@ -61394,7 +61458,7 @@ const tsuMeetCareLevelReason = (t) => /認定の更新|区分変更/.test(String
 const tsuMeetReasonCompose = (r) => { const t = r.reasonType && r.reasonType !== 'その他' ? r.reasonType : ''; const cl = (tsuMeetCareLevelReason(r.reasonType) && (r.careBefore || r.careAfter)) ? `（${r.careBefore || '　'}→${r.careAfter || '　'}）` : ''; const note = String(r.reasonNote || '').trim(); return [t + cl, note].filter(Boolean).join(' '); };
 const tsuMeetReasonParse = (m) => { if (m && m.reasonType === '初回（新規）のケアプラン作成') m = { ...m, reasonType: '初回（契約・通所開始前）' }; if (m && m.reasonType) return { reasonType: m.reasonType, reasonNote: m.reasonNote || '', careBefore: m.careBefore || '', careAfter: m.careAfter || '' }; const str = String((m && m.reason) || '').trim(); const t = TSU_MEET_REASONS.find(o => o !== 'その他' && str.startsWith(o)); return t ? { reasonType: t, reasonNote: str.slice(t.length).trim(), careBefore: '', careAfter: '' } : { reasonType: str ? 'その他' : '', reasonNote: str, careBefore: '', careAfter: '' }; };
 // カレンダー(scheduleEvents)にその方の担当者会議の予定があれば、その日の開始・終了を返す
-const tsuMeetCalendarTimes = (appData, patientId, date) => { try { const ev = (appData.scheduleEvents || []).find(e => e && !tsuIsMemo(e) && e.date === date && e.patientId === patientId && /担当者会議|担会/.test(String(e.title || ''))); return ev && (ev.start || ev.end) ? { timeStart: ev.start || '', timeEnd: ev.end || '' } : null; } catch { return null; } };
+const tsuMeetCalendarTimes = (appData, patientId, date) => { try { const ev = (appData.scheduleEvents || []).find(e => e && !tsuIsMemo(e) && !tsuIsTask(e) && e.date === date && e.patientId === patientId && /担当者会議|担会/.test(String(e.title || ''))); return ev && (ev.start || ev.end) ? { timeStart: ev.start || '', timeEnd: ev.end || '' } : null; } catch { return null; } };
 // ★ 2026-10-17(ユーザー報告「小窓で入力中に再読み込みすると中身が消えた」): 入力途中の下書きを端末(localStorage)に控える。保存・破棄で消す。24時間で無効
 const tsuMeetDraftKey = (pid, mid) => `tsumugi_meet_draft:${pid}:${mid || 'new'}`;
 const tsuMeetDraftSave = (pid, mid, draft) => { try { localStorage.setItem(tsuMeetDraftKey(pid, mid), JSON.stringify({ t: Date.now(), draft })); } catch {} };

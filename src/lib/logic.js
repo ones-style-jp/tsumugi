@@ -208,6 +208,20 @@ export const holidayClosesSlots = (ap, comingAM, comingPM) => {
   return (!comingAM || ap === 'AM') && (!comingPM || ap === 'PM');
 };
 export const holidayAmpmLabel = (ap) => ap === 'AM' ? '午前のみ' : ap === 'PM' ? '午後のみ' : '';
+// ★ 2026-10-30: カレンダーのタスクの済み(done[日付] = {by, at} / 戻したら {off:true, by, at})を、日付ごとに新しい方(at)でまとめる。
+//   win(全体で新しい方)を基に、lose にしかない日付・lose の方が新しい日付を足す。変わらなければ win をそのまま返す
+export const mergeTaskDone = (win, lose) => {
+  const b = lose && lose.done;
+  if (!win || !b || typeof b !== 'object') return win;
+  const out = { ...((win.done && typeof win.done === 'object') ? win.done : {}) };
+  let changed = false;
+  Object.keys(b).forEach(k => {
+    const y = b[k], x = out[k];
+    const ty = (y && typeof y === 'object' && Number(y.at)) || 0, tx = (x && typeof x === 'object' && Number(x.at)) || 0;
+    if (y && typeof y === 'object' && (!x || ty > tx)) { out[k] = y; changed = true; }
+  });
+  return changed ? { ...win, done: out } : win;
+};
 export const mergeTpTelDone = (win, lose) => {
   const b = lose && lose._telDone;
   if (!win || !b || typeof b !== 'object') return win;
