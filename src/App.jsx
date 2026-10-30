@@ -10764,13 +10764,23 @@ const getPauseReasonOnDate = (p, dateStr) => {
     const _ymd = (v) => { if (v instanceof Date) return isNaN(v.getTime()) ? '' : `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}-${String(v.getDate()).padStart(2,'0')}`; const str = String(v || '').trim(); const m = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/); if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`; const d = new Date(str); return isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
     const target = _ymd(dateStr); if (!target) return null;
     const sorted = [...p.pauseHistory].sort((a, b) => new Date(b.fromDate) - new Date(a.fromDate));
-    const match = sorted.find(h => {
-        const f = _ymd(h.fromDate); if (!f || f > target) return false;
-        if (h.toDate) { const e = _ymd(h.toDate); return !e || target <= e; }
-        return p.status === '休止';
-    });
-    return match ? { reason: match.reason, fromDate: match.fromDate } : null;
+    // ★ 2026-10-30(ユーザー報告「休止の終了日を10/26にしたのに、30日になっても休止のまま(連絡帳などに出ない)」):
+    //   休止を新しく付けるとき、前の終了日なしの休止がそのまま残っていた。最新の休止の終了日を過ぎても、その古い終了日なしの休止に
+    //   「今の状態が休止」で当たってしまい、ずっと休止になっていた。→ 終了日のある休止は期間どおり。終了日なしの休止は、その日までに始まった中で
+    //   いちばん新しいものだけ(古い終了日なしの残骸は見ない)。最新の休止が終了日を過ぎていれば、古い休止へは落ちない
+    const cands = sorted.filter(h => { const f = _ymd(h.fromDate); return !!f && f <= target; });
+    if (!cands.length) return null;
+    const closed = cands.find(h => { if (!h.toDate) return false; const e = _ymd(h.toDate); return !e || target <= e; });
+    if (closed) return { reason: closed.reason, fromDate: closed.fromDate };
+    const top = cands[0];
+    return (!top.toDate && p.status === '休止') ? { reason: top.reason, fromDate: top.fromDate } : null;
 };
+// ★ 2026-10-30: 休止の履歴に新しい休止を足すとき、終了日のない前の休止は「新しい休止の前日」で閉じる(終了日なしの残骸を残さない)。
+//   再開のときも、終了日のない休止はすべて閉じる(前は最後の1件だけ閉じていた)
+const tsuPauseClose = (hist, toIso) => (Array.isArray(hist) ? hist : []).map(h => (h && !h.toDate && h.fromDate) ? { ...h, toDate: (toIso < String(h.fromDate)) ? String(h.fromDate) : toIso } : h);
+const tsuPauseAppend = (hist, entry) => { const f = String(entry && entry.fromDate || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return [...(Array.isArray(hist) ? hist : []), entry];
+  const d = new Date(`${f}T00:00:00`); d.setDate(d.getDate() - 1); const prev = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return [...tsuPauseClose(hist, prev), entry]; };
 
 // ★ 2026-10-23(ユーザー報告「しばらく休みの方の次回が、欠席になっている10/28のまま・時間が未入力」): 連絡帳の次回の上書き(nextDateOverride)が、
 //   その後に欠席・休止(記録／月間表のシフト／休止期間)になった日を指している=古い上書きなら、自動計算(次の来所日)に戻す
@@ -26418,7 +26428,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       const updatedPatients = (appData.patients||[]).map(pt => {
         if (pt.id !== targetPatientId) return pt;
         const newEntry = { reason: reason || '休止', fromDate: pauseFromDate || selectedDate, ...(pauseToDate?{toDate: pauseToDate}:{}) };
-        const newHistory = [...(pt.pauseHistory||[]), newEntry];
+        const newHistory = tsuPauseAppend(pt.pauseHistory, newEntry); // ★ 2026-10-30: 前の終了日なしの休止は閉じる
         return { ...pt, status: '休止', pauseHistory: newHistory, statusUpdatedAt: Date.now() };
       });
       // ★ その日の提供記録(ticketRecord)も「休止」にする → 分析で出席扱いにならず欠席と同等に集計される
@@ -42533,7 +42543,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const cancelPause = () => setPauseModal({ isOpen: false, reason: "", fromDate: "" });
   const submitPause = () => {
     if (!localPatient || !pauseModal.reason || !pauseModal.fromDate) return;
-    const newHistory = [...(localPatient.pauseHistory || []), { reason: pauseModal.reason, fromDate: pauseModal.fromDate }];
+    const newHistory = tsuPauseAppend(localPatient.pauseHistory, { reason: pauseModal.reason, fromDate: pauseModal.fromDate }); // ★ 2026-10-30: 前の終了日なしの休止は閉じる
     commitLP({ status: '休止', pauseHistory: newHistory }, '✓ 休止にしました（保存済み）');
     setPauseModal({ isOpen: false, reason: "", fromDate: "" });
   };
@@ -44364,10 +44374,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 if (!rd) { alert('再開日を入力してください'); return; }
                 const d = new Date(rd); d.setDate(d.getDate()-1);
                 const toIso = d.toISOString().split('T')[0];
-                const hist = [...(localPatient.pauseHistory || [])];
-                for (let i = hist.length - 1; i >= 0; i--) {
-                  if (!hist[i].toDate) { hist[i] = { ...hist[i], toDate: (hist[i].fromDate && toIso < hist[i].fromDate) ? hist[i].fromDate : toIso }; break; }
-                }
+                const hist = tsuPauseClose(localPatient.pauseHistory, toIso); // ★ 2026-10-30: 終了日のない休止はすべて閉じる(前は最後の1件だけ)
                 // ★ 再開日が未来なら status は「休止」のまま(それまでは休止扱い)。 終了日を過ぎると
                 //   表示ステータスが自動で「利用中」に切り替わる。 今日以前なら即「利用中」。
                 const _todayIso = new Date().toISOString().split('T')[0];
@@ -45990,7 +45997,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 // ★ status='休止' も必ずセット (これが無いと pauseHistory だけ入って表示は利用中のままになる)。
                 //   最新の pauseHistory に追記し、commitLP で即クラウド保存(submitPause と同じ扱い)。
                 const _curHist = ((appData.patients||[]).find(p=>p.id===localPatient.id)?.pauseHistory) || localPatient.pauseHistory || [];
-                commitLP({ status: '休止', pauseHistory: [...(_curHist||[]), entry] }, '✓ 休止にしました（保存済み）');
+                commitLP({ status: '休止', pauseHistory: tsuPauseAppend(_curHist, entry) }, '✓ 休止にしました（保存済み）'); // ★ 2026-10-30: 前の終了日なしの休止は閉じる
                 // ★ 2026-09-11(店舗要望): その日の提供記録も休止+理由で上書き(古い欠席理由を残さない・保存ボタンで反映)
                 {
                   const _fd0 = new Date(pauseFromCellModal.fromDate);
