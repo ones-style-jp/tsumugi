@@ -279,3 +279,25 @@ describe('休止の終了日を過ぎた方の状態を利用中に(healPausedSt
     expect(healPausedStatus(pats, 'x').patients).toBe(pats);
   });
 });
+
+import { normalizeInsuranceNo, healInsuranceNo } from './logic';
+describe('被保険者番号を10桁に(2026-10-30)', () => {
+  it('前に0を足す・全角や空白も直す・10桁以上や記号入りは触らない', () => {
+    expect(normalizeInsuranceNo('123456')).toBe('0000123456');
+    expect(normalizeInsuranceNo('１２３４５６７８９')).toBe('0123456789');
+    expect(normalizeInsuranceNo(' 1234 5678 ')).toBe('0012345678');
+    expect(normalizeInsuranceNo('H12345')).toBe('H000012345');
+    expect(normalizeInsuranceNo('h123456789')).toBe('H123456789');
+    expect(normalizeInsuranceNo('0123456789')).toBe('0123456789');
+    expect(normalizeInsuranceNo('12345678901')).toBe('12345678901');
+    expect(normalizeInsuranceNo('12-34/56')).toBe('12-34/56'.replace('-', ''));
+    expect(normalizeInsuranceNo('')).toBe(''); expect(normalizeInsuranceNo(null)).toBe('');
+  });
+  it('healInsuranceNo は直した方だけ新しい参照', () => {
+    const pats = [{ id: 1, insuranceNo: '98765' }, { id: 2, insuranceNo: '0000098765' }, { id: 3 }, { id: 4, insuranceNo: 'H1' }];
+    const r = healInsuranceNo(pats);
+    expect(r.fixed).toEqual([{ id: 1, from: '98765', to: '0000098765' }, { id: 4, from: 'H1', to: 'H000000001' }]);
+    expect(r.patients[1]).toBe(pats[1]); expect(r.patients[2]).toBe(pats[2]); expect(r.patients[0].insuranceNo).toBe('0000098765');
+    expect(healInsuranceNo(r.patients).fixed).toEqual([]);
+  });
+});
