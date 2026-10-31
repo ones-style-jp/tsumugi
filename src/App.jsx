@@ -45391,6 +45391,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       })()}
       {personalFileModal && (
         <PersonalFileModal
+          key={personalFileModal.patient.id}
           patient={personalFileModal.patient}
           appData={appData}
           initialTab={personalFileModal.initialTab}
@@ -45399,6 +45400,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           onClose={()=>setPersonalFileModal(null)}
           navigateTo={navigateTo}
           onPatientChange={onPatientChange}
+          onSwitchPatient={(p)=>{ /* ★ 2026-11-01: 個人ファイル内の利用者切替(同じ項目のまま) */ setPersonalFileModal({ patient: p, initialTab: _pfTabRef.current || personalFileModal.initialTab || 'cat_1' }); try { onPatientChange && onPatientChange(p.id); } catch {} }}
         />
       )}
       {familyShareModal && (() => {
@@ -59932,7 +59934,47 @@ function OfficeAssessmentCard({ patientId, assessment, onSaveAssessment }) {
   );
 }
 
-function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, navigateTo, onPatientChange, initialTab, focusSection }) {
+// ★ 2026-11-01(ユーザー要望「個人ファイルで別の人を見たいとき、×を押して利用者マスタから選び直すのが手間。個人ファイル内でも利用者名を検索できるように」):
+//   見出しの名前を押すと小窓が開き、名前・ふりがなで絞り込んで選ぶとその人の個人ファイルに切り替わる(同じ項目のまま)。退所・終了の方は末尾の「退所・終了」にまとめる
+function TsuPfPatientSwitch({ patient, patients, onPick }) {
+  const [open, setOpen] = useState(false); const [q, setQ] = useState('');
+  const inputRef = React.useRef(null);
+  React.useEffect(() => { if (open) { setQ(''); setTimeout(() => { try { inputRef.current && inputRef.current.focus(); } catch {} }, 50); } }, [open]);
+  const nq = tsuSearchNorm(q);
+  const hit = (p) => !nq || tsuSearchNorm(p.name).includes(nq) || tsuSearchNorm(p.kana).includes(nq);
+  const all = (patients || []).filter(p => p && p.id !== patient.id && hit(p));
+  const groups = groupPatientsByKanaRow(all.filter(isPatientListable));
+  const gone = sortPatientsByKana(all.filter(p => !isPatientListable(p)));
+  if (gone.length) groups.push({ label: '退所・終了', items: gone });
+  const pick = (p) => { setOpen(false); onPick && onPick(p); };
+  return (
+    <div className="relative min-w-0">
+      <button type="button" data-testid="pf-pt-switch" onClick={() => setOpen(o => !o)} aria-expanded={open} title="別の利用者の個人ファイルを開く" className="max-w-full flex items-center gap-1 text-xs text-slate-600 mt-0.5 px-2 py-1 -ml-2 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200">
+        <span className="truncate">{patient.name} 様 ({patient.kana || ''})</span><span aria-hidden="true" className="shrink-0 text-slate-400">▾</span>
+      </button>
+      {open && (<>
+        <div data-tsu-nolock="1" className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
+        <div data-testid="pf-pt-pop" className="absolute left-0 top-full mt-1 z-[61] w-[min(92vw,320px)] bg-white border border-slate-200 rounded-xl shadow-xl p-2">
+          <input ref={inputRef} data-testid="pf-pt-search" value={q} onChange={e => setQ(e.target.value)} placeholder="名前・ふりがなで探す" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-green-500" />
+          <div className="mt-2 max-h-[55vh] overflow-y-auto">
+            {groups.length === 0 && <div className="text-xs text-slate-500 px-2 py-3">見つかりません</div>}
+            {groups.map(g => (
+              <div key={g.label} className="mb-1">
+                <div className="text-[11px] font-bold text-slate-400 px-2 py-1">{g.label}</div>
+                {g.items.map(p => (
+                  <button key={p.id} type="button" data-testid={`pf-pt-pick-${p.id}`} onClick={() => pick(p)} className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-green-50 text-sm font-bold text-slate-800 flex items-baseline gap-2">
+                    <span className="truncate">{p.name}</span><span className="text-xs font-normal text-slate-500 truncate">{p.kana || ''}</span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </>)}
+    </div>
+  );
+}
+function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, navigateTo, onPatientChange, initialTab, focusSection, onSwitchPatient }) {
   // ★ 個人ファイルを開いている間はクラウドポーリング(4秒)を止める。 pull は patients を丸ごと置換するため、
   //   書類の削除や添付の保存(push)が完了する前に pull が走ると、その操作が古いクラウド値で消える。
   //   (フェイスシートのモーダルと同じ扱い。 閉じたら解除)
@@ -60487,7 +60529,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 ゴミ箱{trashItems.length>0?` (${trashItems.length})`:''}
               </button>
             </div>
-            <div className="text-xs text-slate-500 mt-0.5 truncate">{patient.name} 様 ({patient.kana || ''})</div>
+            {onSwitchPatient ? <TsuPfPatientSwitch patient={patient} patients={appData.patients || []} onPick={onSwitchPatient} /> : <div className="text-xs text-slate-500 mt-0.5 truncate">{patient.name} 様 ({patient.kana || ''})</div>}
           </div>
           {/* ★ 2026-10-29(ユーザー「個人ファイルの項目名がダブっていて画面が狭い・左上の行の右が空いていてもったいない」): iPad・PC は選んでいる見出しと説明をここに(中の見出しの段はなくした) */}
           <div data-testid="pf-cat-head" className="hidden md:block flex-1 min-w-0 border-l border-slate-200 pl-4">
