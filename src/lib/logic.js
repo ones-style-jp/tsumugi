@@ -295,3 +295,28 @@ export const healInsuranceNo = (patients) => {
   const out = patients.map(p => { if (!p || typeof p !== 'object') return p; const v = p.insuranceNo; if (v == null || v === '') return p; const n = normalizeInsuranceNo(v); if (!n || n === String(v)) return p; fixed.push({ id: p.id, from: String(v), to: n }); return { ...p, insuranceNo: n }; });
   return { patients: fixed.length ? out : patients, fixed };
 };
+// ★ 2026-11-01(10/30 柴又店の件の続き・ユーザー了承): 「休止中に保存された記録」の残骸。休止の期間が終わっても、休止中に自動保存された先の日の記録が
+//   状態=休止のまま残り、日誌・分析・月間などがそれをそのまま読んで休み扱いにしていた。開いたときに、
+//   ・状態が休止 ・日付が今日以降(先の日だけ。過去の記録は履歴なので触らない・上限は今日から maxDays)
+//   ・その日に休止していない(isPausedOn) ・その日が基本利用日/月間の予定日(isScheduledOn)
+//   ・記録の状態を書いてから graceMs 以上たっている(付けたばかりの休止は、他の端末の休止設定がまだ届いていないだけかもしれないので触らない)
+//   の記録を 出席 に戻す(特記が休止の書き込みなら消す)。戻すのは呼び出し側で obsMarkRecEditRec + _savedAt を付けて保存する
+export const healStalePauseRecords = (records, patients, todayIso, isPausedOn, isScheduledOn, opts) => {
+  const o = { graceMs: 15 * 60 * 1000, maxDays: 62, now: Date.now(), ...(opts || {}) };
+  const fixed = []; if (!Array.isArray(records) || !Array.isArray(patients) || !/^\d{4}-\d{2}-\d{2}$/.test(String(todayIso || ''))) return { records, fixed };
+  const byId = new Map(patients.filter(p => p && p.id != null).map(p => [String(p.id), p]));
+  const recIso = (r) => { const m = String(r && r.date || '').match(/(\d+)月(\d+)日/); if (!m || !r.year) return ''; return `${r.year}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`; };
+  const lim = (() => { const d = new Date(`${todayIso}T00:00:00`); d.setDate(d.getDate() + o.maxDays); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const out = records.map(r => {
+    if (!r || r.status !== '休止' || r.id == null) return r;
+    const iso = recIso(r); if (!iso || iso < todayIso || iso > lim) return r;
+    const p = byId.get(String(r.patientId)); if (!p) return r;
+    const ts = Number((r._fieldTs && r._fieldTs.status) || r._savedAt || 0); if (ts && o.now - ts < o.graceMs) return r;
+    if (isPausedOn(p, iso)) return r;
+    if (isScheduledOn && !isScheduledOn(p, iso)) return r;
+    const tk = String(r.tokki || ''); const dropTk = !tk || /休止/.test(tk) || /（\d{4}\/\d{1,2}\/\d{1,2}〜）\s*$/.test(tk);
+    fixed.push({ id: r.id, patientId: r.patientId, iso, tokkiCleared: dropTk && !!tk });
+    return { ...r, status: '出席', ...(dropTk ? { tokki: '' } : {}) };
+  });
+  return { records: fixed.length ? out : records, fixed };
+};

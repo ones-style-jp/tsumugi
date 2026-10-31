@@ -319,3 +319,34 @@ describe('カレンダーのタスクの済みの同期(mergeTaskDone)', () => {
     expect(mergeTaskDone(a, null)).toBe(a);
   });
 });
+
+import { healStalePauseRecords } from './logic';
+describe('休止中に保存された先の日の記録を出席に戻す(healStalePauseRecords・2026-11-01)', () => {
+  const today = '2026-11-01'; const now = Date.parse('2026-11-01T09:00:00+09:00'); const old = now - 3600 * 1000;
+  const pats = [
+    { id: 1, status: '利用中', pauseHistory: [{ reason: '入院', fromDate: '2026-10-10', toDate: '2026-10-26' }] },   // 休止は終わった
+    { id: 2, status: '休止', pauseHistory: [{ reason: '入院', fromDate: '2026-10-20', toDate: '2026-11-20' }] },     // 休止中
+  ];
+  const paused = (p, iso) => (p.pauseHistory || []).some(h => h.fromDate <= iso && (!h.toDate || iso <= h.toDate));
+  const sched = (p, iso) => iso !== '2026-11-09'; // 11/9 だけ予定なし
+  const rec = (id, pid, iso, extra) => ({ id, patientId: pid, date: `${Number(iso.slice(5, 7))}月${Number(iso.slice(8, 10))}日`, year: Number(iso.slice(0, 4)), status: '休止', tokki: '', _savedAt: old, ...(extra || {}) });
+  it('休止が終わった方の今日以降・予定日の休止記録だけ出席に戻す(過去・休止中の方・予定なし・付けたばかり・遠すぎる先は触らない)', () => {
+    const recs = [
+      rec('a', 1, '2026-11-08', { tokki: '休止（2026/10/10〜）' }), // 対象: 特記も消す
+      rec('b', 1, '2026-11-01', { tokki: '家族の都合' }),           // 対象(今日): 特記は休止の書き込みでないので残す
+      rec('c', 1, '2026-10-25'),                                   // 過去 → 触らない
+      rec('d', 2, '2026-11-08'),                                   // 休止中 → 触らない
+      rec('e', 1, '2026-11-09'),                                   // 予定なし → 触らない
+      rec('f', 1, '2026-11-15', { _savedAt: now - 60 * 1000 }),    // 付けたばかり → 触らない
+      rec('g', 1, '2027-02-01'),                                   // 62日より先 → 触らない
+      { id: 'h', patientId: 1, date: '11月8日', year: 2026, status: '出席', _savedAt: old }, // 休止でない
+    ];
+    const r = healStalePauseRecords(recs, pats, today, paused, sched, { now });
+    expect(r.fixed.map(f => f.id)).toEqual(['a', 'b']);
+    const by = Object.fromEntries(r.records.map(x => [x.id, x]));
+    expect(by.a.status).toBe('出席'); expect(by.a.tokki).toBe(''); expect(by.b.status).toBe('出席'); expect(by.b.tokki).toBe('家族の都合');
+    ['c', 'd', 'e', 'f', 'g', 'h'].forEach(k => expect(by[k]).toBe(recs.find(x => x.id === k)));
+    expect(healStalePauseRecords(r.records, pats, today, paused, sched, { now }).fixed).toEqual([]);
+  });
+  it('直す物がなければ同じ配列を返す', () => { const recs = [rec('d', 2, '2026-11-08')]; expect(healStalePauseRecords(recs, pats, today, paused, sched, { now }).records).toBe(recs); });
+});
