@@ -23,7 +23,7 @@ const S = await page.evaluate(() => { const d = JSON.parse(localStorage.getItem(
   set('D', 3, '休止', [{ reason: '体調', fromDate: '2026-09-01', toDate: '2026-10-26' }, { reason: '予定', fromDate: '2026-12-01' }]);
   set('E', 4, '利用中', [{ reason: '入院', fromDate: '2026-06-01' }]);
   set('F', 5, '休止', [{ reason: '入院', fromDate: '2026-09-01', toDate: '2026-10-26' }]);
-  const n7 = new Date(t); n7.setDate(n7.getDate() + 7); const iso7 = `${n7.getFullYear()}-${String(n7.getMonth() + 1).padStart(2, '0')}-${String(n7.getDate()).padStart(2, '0')}`;
+  const n7 = new Date(t); n7.setDate(n7.getDate() + 7); if (n7.getDay() === 0) n7.setDate(n7.getDate() + 1); // ★ 2026-11-01: 日曜は送迎表が翌日に飛ぶので月曜にずらす(台本の都合) const iso7 = `${n7.getFullYear()}-${String(n7.getMonth() + 1).padStart(2, '0')}-${String(n7.getDate()).padStart(2, '0')}`;
   d.ticketRecords.push({ id: `tk_chk_f_${Date.now()}`, patientId: act[5].id, date: `${n7.getMonth() + 1}月${n7.getDate()}日`, year: n7.getFullYear(), status: '休止', tokki: '入院（9/1〜）', recorder: '', _savedAt: Date.now() - 86400000 * 10 });
   d.ticketRecords.push({ id: `tk_chk_f0_${Date.now()}`, patientId: act[5].id, date: `${t.getMonth() + 1}月${t.getDate()}日`, year: t.getFullYear(), status: '出席', tokki: '', recorder: '', nextDateOverride: `${n7.getMonth() + 1}月${n7.getDate()}日`, _savedAt: Date.now() - 3600000 }); // 今日の記録: 次回=来週
   act.slice(6).forEach(p => { p.scheduleAmPm = ['', '', '', '', '', '', '']; });

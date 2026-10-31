@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords } from './lib/logic';
 import { PATIENT_TEXT_FL } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL)
 import {
   isSupabaseEnabled,
@@ -23485,6 +23485,32 @@ export default function App() {
     const _msg = [h.fixed.length ? `日付の書き方 ${h.fixed.length}か所` : '', h2.fixed.length ? `休止の終了日を過ぎた方を利用中に ${h2.fixed.length}名` : '', h3.fixed.length ? `被保険者番号を10桁に ${h3.fixed.length}名` : ''].filter(Boolean).join('・');
     handleSaveToCloud({ ...appData, patients: h3.patients }, { manual: true, message: `✓ 利用者の情報をそろえました（${_msg}）` });
   } catch (e) { try { console.warn('[利用者の修復] 失敗', e); } catch {} } }, [appData && appData.patients, staffSession]);
+  // ★ 2026-11-01(ユーザー了承・10/30 柴又店の件の続き「日誌や分析が休止中に保存された記録をそのまま読む」): 休止の期間が終わった方の、
+  //   今日以降の『状態=休止』の記録(休止中に自動保存された残骸)を開いたときに出席へ戻す。判定は logic.js の healStalePauseRecords
+  //   (今日〜62日先・その日に休止していない・基本利用日/月間の予定日・状態を書いてから15分以上)。過去の記録は履歴なので触らない。
+  //   保存は提供記録の編集と同じ道(obsMarkRecEditRec で項目の刻印を許し、_savedAt を付けて handleSaveToCloud)
+  const _healedRecsRef = React.useRef(null);
+  React.useEffect(() => { try {
+    if (!staffSession && String(import.meta.env.VITE_E2E_DEMO || '') !== '1') return;
+    const recs = appData && appData.ticketRecords; const pats = appData && appData.patients;
+    if (!Array.isArray(recs) || !recs.length || !Array.isArray(pats) || !pats.length || _healedRecsRef.current === recs) return;
+    _healedRecsRef.current = recs;
+    const _isPausedOn = (p, iso) => !!getPauseReasonOnDate(p, iso) || (p.status === '休止' && !(p.pauseHistory || []).length);
+    const _isScheduledOn = (p, iso) => { // 基本利用日(その日時点)か、月間スケジュールの 〇/臨時/振替 の印
+      try { const d = new Date(`${iso}T00:00:00`); const base = String((getScheduleOnDate(p, iso) || [])[d.getDay()] || '');
+        const sh = (appData.monthlyShifts || {})[iso.slice(0, 7)]?.[p.id] || {}; const dn = d.getDate(); const mA = sh[`${dn}_AM`], mP = sh[`${dn}_PM`];
+        const on = (v) => v === '〇' || v === '臨時' || v === '振替' || (typeof v === 'string' && v.startsWith('振'));
+        if (on(mA) || on(mP)) return true; if (!base) return false;
+        const baseA = base === 'AM' || base === '1日', baseP = base === 'PM' || base === '1日';
+        return (baseA && mA !== '空欄') || (baseP && mP !== '空欄'); } catch { return false; } };
+    const h = healStalePauseRecords(recs, pats, tsuTodayIso(), _isPausedOn, _isScheduledOn);
+    if (!h.fixed.length) return;
+    const ids = new Set(h.fixed.map(f => String(f.id)));
+    const nowTs = syncNow();
+    const next = h.records.map(r => { if (!r || !ids.has(String(r.id))) return r; obsMarkRecEditRec(r, 'status'); if (h.fixed.find(f => String(f.id) === String(r.id))?.tokkiCleared) obsMarkRecEditRec(r, 'tokki'); return { ...r, _savedAt: nowTs }; });
+    try { console.warn('[提供記録の修復] 休止の残骸→出席', h.fixed.map(f => `${f.patientId}:${f.iso}`).join(' / ')); } catch {}
+    handleSaveToCloud({ ...appData, ticketRecords: next }, { manual: true, message: `✓ 休止が終わった方の先の記録を出席に戻しました（${h.fixed.length}件）` });
+  } catch (e) { try { console.warn('[提供記録の修復] 失敗', e); } catch {} } }, [appData && appData.ticketRecords, appData && appData.patients, staffSession]);
   const handleSaveToCloud = (newData, options = {}) => {
     // ★ 古い端末のpushで新しいデータが巻き戻る問題への対策:
     //   「変更された利用者マスタ」「編集された月間シフト」にだけ更新時刻を刻む。
