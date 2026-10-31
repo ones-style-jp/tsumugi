@@ -771,7 +771,7 @@ HTML ファイルをブラウザで開き、
             return (
               <div className="border border-slate-200 rounded-lg p-2 bg-slate-50">
                 <div className="flex items-center gap-2 mb-2">
-                  <input type="text" value={patientSearchQ} onChange={e=>setPatientSearchQ(e.target.value)} placeholder="検索"
+                  <input {...TSU_NOFILL} type="text" value={patientSearchQ} onChange={e=>setPatientSearchQ(e.target.value)} placeholder="検索"
                     className="flex-1 px-2 py-1 bg-white border border-slate-300 rounded text-xs outline-none"/>
                   <button onClick={()=>{
                     if (allSelected) setSelectedPatientIds(ids => ids.filter(id => !patients.find(p=>p.id===id)));
@@ -1539,6 +1539,9 @@ const toKatakana = (s) => (s||'')
 
 // ★ 検索の表記ゆれ吸収(2026-10-06 ユーザー要望: ひらがなで打っても利用者が出るように・全ての検索欄)。
 //   全角半角(NFKC)・ひらがな→カタカナ・大文字小文字・空白をそろえてから部分一致。 「しさく」でフリガナ「シサク キヨシ」に一致
+// ★ 2026-11-01(ユーザー指示「検索の欄にブラウザの自動入力(住所や会社名の候補)が出る。名前検索・各種設定など全部の検索で出ないように」):
+//   検索欄には必ずこれを付ける({...TSU_NOFILL})。autoComplete=off に加え、パスワード管理ツール向けの印と、住所/氏名と誤認されない name を付ける
+const TSU_NOFILL = { autoComplete: 'off', autoCorrect: 'off', autoCapitalize: 'off', spellCheck: false, name: 'tsu-q', 'data-form-type': 'other', 'data-lpignore': 'true', 'data-1p-ignore': 'true', 'aria-autocomplete': 'list' };
 const tsuSearchNorm = (s) => toKatakana(String(s ?? '')).toLowerCase().replace(/[\s\u3000]+/g, '');
 const tsuSearchHit = (q, ...fields) => { const nq = tsuSearchNorm(q); if (!nq) return true; return fields.some(f => f != null && tsuSearchNorm(f).includes(nq)); };
 
@@ -12435,7 +12438,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
                 <div style={{padding:'8px 8px 4px'}}>
                   <div style={{display:'flex',alignItems:'center',gap:6,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px'}}>
                     <Search size={14} color="#94a3b8"/>
-                    <input autoFocus={!tsuTouchDev()} type="text" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
+                    <input {...TSU_NOFILL} autoFocus={!tsuTouchDev()} type="text" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
                       placeholder="氏名・フリガナで検索..." style={{border:'none',background:'transparent',outline:'none',fontSize:tsuTouchDev() ? 16 : 13,fontWeight:'bold',flex:1,width:0}}/>
                     {patSearch && <button onClick={()=>setPatSearch('')} style={{color:'#64748b',lineHeight:1}}><X size={13}/></button>}
                   </div>
@@ -12462,7 +12465,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
         </div>}
         {/* ★ 検索欄を同じ行に(2026-09-29 ユーザー指示: 利用者を選択 → 検索 → ログイン画面を開く の順) */}
         {!patient && (
-          <input type="text" placeholder="氏名・フリガナ・ID で検索" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
+          <input {...TSU_NOFILL} type="text" placeholder="氏名・フリガナ・ID で検索" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
             className="flex-1 min-w-0 sm:min-w-[180px] px-3 sm:px-4 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-emerald-400" />
         )}
         {/* 内部タブ切替を同じ行に (利用者選択時のみ) */}
@@ -20566,7 +20569,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,gap:10,flexWrap:'wrap'}}>
             <div style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>登録店舗一覧 ({stores.length}店舗)</div>
             {/* ★ 法人名・事業所名で検索(店舗が増えた時用) */}
-            <input value={storeQuery} onChange={e=>setStoreQuery(e.target.value)} placeholder="法人名・事業所名で検索" style={{flex:1,minWidth:180,maxWidth:320,padding:'8px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:12,fontWeight:'bold',outline:'none'}}/>
+            <input {...TSU_NOFILL} value={storeQuery} onChange={e=>setStoreQuery(e.target.value)} placeholder="法人名・事業所名で検索" style={{flex:1,minWidth:180,maxWidth:320,padding:'8px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:12,fontWeight:'bold',outline:'none'}}/>
             <button onClick={()=>setShowAddStore(true)} style={{padding:'8px 14px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>+ 店舗を追加</button>
           </div>
           {loading ? (
@@ -27886,7 +27889,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <div className="absolute inset-0 bg-slate-900/40" onClick={() => setRecJump(null)} />
           <div className="relative bg-white border-b border-slate-300 shadow-xl flex flex-col" style={{ maxHeight: '70vh' }}>
             <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200">
-              <input type="search" value={recJump.q} onChange={e => { const v = e.target.value; setRecJump(o => o ? { ...o, q: v } : o); }} placeholder="名前で探す" data-testid="rec-jump-q" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-[16px] outline-none" />
+              <input {...TSU_NOFILL} type="search" value={recJump.q} onChange={e => { const v = e.target.value; setRecJump(o => o ? { ...o, q: v } : o); }} placeholder="名前で探す" data-testid="rec-jump-q" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-[16px] outline-none" />
               <button type="button" onClick={() => setRecJump(null)} className="whitespace-nowrap shrink-0 px-3 py-2 rounded-lg bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button>
             </div>
             {attCounts && (() => { const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']].filter(([l]) => (attCounts[l]||0) > 0); if (!defs.length) return null; return (
@@ -29621,7 +29624,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         <div className="max-w-5xl mx-auto p-6 tsu-ph-cards tsu-wide">
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
             {/* ★ スマホで自動的にキーボードが出てしまうため autoFocus は付けない */}
-            <input type="text" placeholder="氏名・フリガナ・ID で検索" value={patientSearch}
+            <input {...TSU_NOFILL} type="text" placeholder="氏名・フリガナ・ID で検索" value={patientSearch}
               onChange={e=>setPatientSearch(e.target.value)}
               className="w-full mb-3 px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold outline-none focus:border-blue-400" />
             {/* 行ジャンプボタン */}
@@ -34999,7 +35002,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 <div style={{padding:'8px 8px 4px'}}>
                   <div style={{display:'flex',alignItems:'center',gap:6,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px'}}>
                     <Search size={14} color="#94a3b8"/>
-                    <input autoFocus={!tsuTouchDev()} type="text" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
+                    <input {...TSU_NOFILL} autoFocus={!tsuTouchDev()} type="text" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
                       placeholder="氏名で検索..." style={{border:'none',background:'transparent',outline:'none',fontSize:tsuTouchDev() ? 16 : 13,fontWeight:'bold',flex:1,width:0}}/>
                     {patSearch && <button onClick={()=>setPatSearch('')} style={{color:'#64748b',lineHeight:1}}><X size={13}/></button>}
                   </div>
@@ -37501,7 +37504,7 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
                   <div className="lg:col-span-2">
                     {true && (
                       <div className="bg-violet-50 border border-violet-200 rounded-xl p-3">
-                        <div className="flex items-center gap-2 mb-2"><input type="search" value={pvQ} onChange={e=>setPvQ(e.target.value)} placeholder="氏名で絞り込み" className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none flex-1"/><span className="text-[11px] text-slate-500">空欄＝共通の表示文字「{item.value || '—'}」</span></div>
+                        <div className="flex items-center gap-2 mb-2"><input {...TSU_NOFILL} type="search" value={pvQ} onChange={e=>setPvQ(e.target.value)} placeholder="氏名で絞り込み" className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none flex-1"/><span className="text-[11px] text-slate-500">空欄＝共通の表示文字「{item.value || '—'}」</span></div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1">
                           {patients.filter(pt => tsuSearchHit(pvQ, pt.name, pt.kana)).map(pt => (
                             <div key={pt.id} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-2 py-1">
@@ -41448,7 +41451,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
           <div className="px-2 py-1.5 border-b border-slate-200 bg-white shrink-0">
             <div className="relative">
               <Search className="absolute left-2 top-1.5 text-slate-400" size={12} />
-              <input type="text" placeholder="検索..." value={nameSearch} onChange={e => setNameSearch(e.target.value)}
+              <input {...TSU_NOFILL} type="text" placeholder="検索..." value={nameSearch} onChange={e => setNameSearch(e.target.value)}
                 className="w-full pl-7 pr-6 py-2 bg-slate-100 border border-slate-200 rounded-lg text-[14px] font-bold outline-none" />
               {nameSearch && <button onClick={() => setNameSearch('')} className="absolute right-1.5 top-1.5 text-slate-400"><X size={12} /></button>}
             </div>
@@ -46664,7 +46667,7 @@ function TsuSettingsSearch({ tabs, onPick }) {
   const hits = t ? TSU_SETTINGS_INDEX.filter(([tab, title, kw]) => (tabs || []).some(x => x.id === tab) && (title.includes(t) || kw.includes(t) || tabLabel(tab).includes(t))).slice(0, 10) : [];
   return (
     <div className="relative" data-testid="settings-search">
-      <input type="search" value={q} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder="設定を検索（例: 事業所番号・端末名・運動）" autoComplete="off" name="tsu-settings-q" data-testid="settings-search-input" className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-sm outline-none bg-white" />
+      <input {...TSU_NOFILL} type="search" value={q} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder="設定を検索（例: 事業所番号・端末名・運動）" autoComplete="off" name="tsu-settings-q" data-testid="settings-search-input" className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-sm outline-none bg-white" />
       {open && t && (
         <div data-testid="settings-search-list" className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-300 rounded-xl shadow-xl overflow-hidden">
           {hits.length === 0 ? <div className="px-3 py-2 text-xs text-slate-500">見つかりません（別の言葉で）</div> : hits.map(([tab, title, kw], i) => (
@@ -52413,7 +52416,7 @@ function KeikakuPatientSelect({ patients, pid, onChange }) {
       {open && (
         <div className="absolute left-0 top-full mt-1 z-50 w-72 max-w-[85vw] bg-white border border-slate-300 rounded-xl shadow-xl overflow-hidden" data-testid="kk-patient-pop">
           <div className="p-2 border-b border-slate-100">
-            <input ref={inRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setOpen(false); if (e.key === 'Enter' && hits.length && !e.nativeEvent.isComposing) pick(hits[0].id); }}
+            <input {...TSU_NOFILL} ref={inRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setOpen(false); if (e.key === 'Enter' && hits.length && !e.nativeEvent.isComposing) pick(hits[0].id); }}
               data-testid="kk-patient-q" placeholder="名前・ふりがなで検索" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-400"/>
           </div>
           <div className="max-h-[55vh] overflow-y-auto py-1" role="listbox">
@@ -52766,7 +52769,7 @@ function LifeDiseaseSearch({ onPick }) {
   };
   return (
     <div className="relative flex-1 min-w-[220px]">
-      <input value={q} onChange={e=>search(e.target.value)} onFocus={()=>{ if(hits.length) setOpen(true); else if(!q.trim()) showCommon(); }} onBlur={()=>setTimeout(()=>setOpen(false),200)}
+      <input {...TSU_NOFILL} value={q} onChange={e=>search(e.target.value)} onFocus={()=>{ if(hits.length) setOpen(true); else if(!q.trim()) showCommon(); }} onBlur={()=>setTimeout(()=>setOpen(false),200)}
         placeholder="病名・キーワードで検索（例: 脳・腰・こつそしょう）" className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs outline-none"/>
       {open && (
         <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-xl max-h-56 overflow-auto">
@@ -57542,7 +57545,7 @@ ${optionsDesc}
               <div style={{fontSize:10,fontWeight:'bold',color:'#64748b',marginBottom:4}}>氏名</div>
               <div style={{display:'flex',alignItems:'center',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'4px 8px',gap:5,marginBottom:8}}>
                 <Search size={12} style={{color:'#64748b',flexShrink:0}}/>
-                <input type="text" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="氏名で絞り込み" className="mon-search"
+                <input {...TSU_NOFILL} type="text" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="氏名で絞り込み" className="mon-search"
                   style={{background:'transparent',border:'none',outline:'none',color:'#1e293b',fontSize:12,fontWeight:'bold',flex:1,minWidth:0}}/>
                 {searchQuery && <button type="button" onClick={()=>setSearchQuery('')} style={{background:'none',border:'none',color:'#64748b',cursor:'pointer',padding:0,lineHeight:1}}><X size={12}/></button>}
               </div>
@@ -58201,7 +58204,7 @@ function FaxHistoryListModal({ history, typeLabel, patients, onDelete, onClose }
           <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'white',width:30,height:30,borderRadius:'50%',cursor:'pointer',fontSize:16}}>✕</button>
         </div>
         <div style={{padding:'12px 20px',borderBottom:'1px solid #e2e8f0'}}>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="送付先・FAX番号・利用者名で検索"
+          <input {...TSU_NOFILL} value={search} onChange={e=>setSearch(e.target.value)} placeholder="送付先・FAX番号・利用者名で検索"
             className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none"/>
         </div>
         <div style={{flex:1,overflow:'auto',padding:'8px 0'}}>
@@ -59949,13 +59952,14 @@ function TsuPfPatientSwitch({ patient, patients, onPick }) {
   const pick = (p) => { setOpen(false); onPick && onPick(p); };
   return (
     <div className="relative min-w-0">
-      <button type="button" data-testid="pf-pt-switch" onClick={() => setOpen(o => !o)} aria-expanded={open} title="別の利用者の個人ファイルを開く" className="max-w-full flex items-center gap-1 text-xs text-slate-600 mt-0.5 px-2 py-1 -ml-2 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200">
-        <span className="truncate">{patient.name} 様 ({patient.kana || ''})</span><span aria-hidden="true" className="shrink-0 text-slate-400">▾</span>
+      {/* ★ 2026-11-01(ユーザー「ふりがなが見切れる。ふりがなはなしで名前を大きく」): 名前だけを大きめに(ふりがなは小窓の一覧に出る) */}
+      <button type="button" data-testid="pf-pt-switch" onClick={() => setOpen(o => !o)} aria-expanded={open} title="別の利用者の個人ファイルを開く" className="max-w-full flex items-center gap-1.5 text-base font-bold text-slate-800 mt-0.5 px-2 py-1 -ml-2 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200">
+        <span className="truncate">{patient.name} 様</span><span aria-hidden="true" className="shrink-0 text-xs text-slate-400">▾</span>
       </button>
       {open && (<>
         <div data-tsu-nolock="1" className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
         <div data-testid="pf-pt-pop" className="absolute left-0 top-full mt-1 z-[61] w-[min(92vw,320px)] bg-white border border-slate-200 rounded-xl shadow-xl p-2">
-          <input ref={inputRef} data-testid="pf-pt-search" value={q} onChange={e => setQ(e.target.value)} placeholder="名前・ふりがなで探す" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-green-500" />
+          <input {...TSU_NOFILL} ref={inputRef} data-testid="pf-pt-search" value={q} onChange={e => setQ(e.target.value)} placeholder="利用者を探す（ふりがなでも）" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-green-500" />
           <div className="mt-2 max-h-[55vh] overflow-y-auto">
             {groups.length === 0 && <div className="text-xs text-slate-500 px-2 py-3">見つかりません</div>}
             {groups.map(g => (
@@ -60922,7 +60926,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800">この利用者に送った<b>休み連絡・各種連絡の送付履歴</b>を確認できます。「作成・出力へ」から書類を作成・印刷できます。件名・宛先・内容で検索できます。</div>
                 {/* 書類検索 */}
                 <div className="relative">
-                  <input type="text" value={renrakuSearch} onChange={e=>setRenrakuSearch(e.target.value)} placeholder="件名・宛先・内容・日付で検索…" className="w-full pl-3 pr-8 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-400"/>
+                  <input {...TSU_NOFILL} type="text" value={renrakuSearch} onChange={e=>setRenrakuSearch(e.target.value)} placeholder="件名・宛先・内容・日付で検索…" className="w-full pl-3 pr-8 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-400"/>
                   {renrakuSearch && <button onClick={()=>setRenrakuSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm">✕</button>}
                 </div>
                 {_q && <div className="text-[11px] text-slate-500">「{renrakuSearch}」で絞り込み中（休み{absHist.length}件・各種{genHist.length}件・モニタリング{monHist.length}件）</div>}
