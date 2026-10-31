@@ -1,4 +1,4 @@
-// 2026-10-26 試験版 trial411: ①本部: 確認コードで入れると hq_trust が端末に残り、次のログインは hq_trust を送ってコードなしで入れる ②事業所: ログアウト10分以内は「○○さんとして続ける／別の人」 ③同じ名前で役職が複数 → PIN のあとに役職を選ぶ
+// 2026-10-26 試験版 trial411: ①本部: 確認コードで入れると hq_trust が端末に残り、次のログインは hq_trust を送ってコードなしで入れる ②事業所: 「○○さんとして続ける」は出ない(2026-10-31 に廃止・控えは消える) ③同じ名前で役職が複数 → PIN のあとに役職を選ぶ
 import { chromium } from 'playwright';
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i >= 0 ? process.argv[i + 1] : '4173'; })();
 const b = await chromium.launch(); const r = {};
@@ -21,26 +21,13 @@ const ctx = async () => { const c = await b.newContext({ viewport: { width: 420,
   r.secondTrustSent = calls.length === 1 && calls[0].hq_trust === 'TRUST1';
   const sess = await page.evaluate(() => window.__tsumugiE2E && window.__tsumugiE2E.staffSession); r.secondNoCode = !!(sess && sess.token === 'tok2') && (await page.getByTestId('hq-code').count()) === 0;
   await page.context().close(); }
-// ② 事業所の「続ける」
+// ② 事業所の「続ける」 ★ 2026-10-31(trial487): 10/26 の「○○さんとして続ける／別の人」はやめた。控え(tsumugiRelogin)が端末に残っていても箱は出ず、開いたときに消える
 { const page = await ctx(); await page.goto(`http://localhost:${PORT}/#stafflogin`, { waitUntil: 'networkidle' });
   const ticket = { at: Date.now() - 3 * 60 * 1000, session: { staffId: 's1', username: 'store1', role: 'staff', storeId: 'st1', storeName: 'テスト店', displayName: 'テスト店', token: 'tokS', kind: 'store', memberId: null, hasPin: false }, recorder: { id: 'm1', name: '見本 花子', roleLabel: '介護職員' } };
   await page.evaluate((t) => localStorage.setItem('tsumugiRelogin', JSON.stringify(t)), ticket); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(500);
-  const box = page.getByTestId('relogin-box'); r.boxShown = (await box.count()) === 1 && /見本 花子 さんとして続ける/.test(await box.innerText());
-  await page.getByTestId('relogin-continue').click(); await page.waitForTimeout(400);
-  const st = await page.evaluate(() => ({ sess: window.__tsumugiE2E && window.__tsumugiE2E.staffSession, rec: sessionStorage.getItem('tsumugiActiveRecorder'), left: localStorage.getItem('tsumugiRelogin') }));
-  r.continued = !!(st.sess && st.sess.token === 'tokS') && /見本 花子/.test(st.rec || '') && !st.left;
-  // 別の人: 担当者は復元しない
-  await page.evaluate((t) => localStorage.setItem('tsumugiRelogin', JSON.stringify(t)), ticket); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(500);
-  await page.getByTestId('relogin-other').click(); await page.waitForTimeout(400);
-  const st2 = await page.evaluate(() => ({ sess: window.__tsumugiE2E && window.__tsumugiE2E.staffSession, rec: sessionStorage.getItem('tsumugiActiveRecorder') }));
-  r.other = !!(st2.sess && st2.sess.token === 'tokS') && !st2.rec;
-  // 11分前の控えは出ない
-  await page.evaluate((t) => localStorage.setItem('tsumugiRelogin', JSON.stringify({ ...t, at: Date.now() - 11 * 60 * 1000 })), ticket); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(500);
-  r.expiredHidden = (await page.getByTestId('relogin-box').count()) === 0;
-  // 本人ログインの「別の人」はふつうのログイン画面のまま
-  await page.evaluate((t) => localStorage.setItem('tsumugiRelogin', JSON.stringify({ ...t, at: Date.now(), recorder: null, session: { ...t.session, kind: 'person', memberId: 'm1', displayName: '見本 花子', hasPin: true } })), ticket); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(500);
-  r.personBox = /見本 花子 さんとして続ける/.test(await page.getByTestId('relogin-box').innerText()); await page.evaluate(() => { window.__tsumugiE2E.staffSession = null; }); await page.getByTestId('relogin-other').click(); await page.waitForTimeout(300);
-  r.personOther = (await page.getByTestId('relogin-box').count()) === 0 && (await page.locator('button[type=submit]').count()) === 1 && !(await page.evaluate(() => window.__tsumugiE2E.staffSession));
+  const body = await page.evaluate(() => document.body.innerText);
+  r.noBox = (await page.getByTestId('relogin-box').count()) === 0 && !/として続ける|さっきログアウト/.test(body) && (await page.locator('button[type=submit]').count()) === 1;
+  r.ticketCleared = await page.evaluate(() => localStorage.getItem('tsumugiRelogin') === null);
   await page.context().close(); }
 // ③ 役職の選択
 { const page = await ctx(); await page.goto(`http://localhost:${PORT}/#picker`, { waitUntil: 'networkidle' }); await page.waitForTimeout(500);

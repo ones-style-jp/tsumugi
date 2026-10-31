@@ -17083,7 +17083,7 @@ function FamilyView() {
             </div>
             {(()=>{ try{ return sessionStorage.getItem('tsumugiIdleLogout')==='1'; }catch{ return false; } })() && (
               <div style={{background:'#fffbeb',border:'1px solid #fde68a',color:'#92400e',fontSize:12,fontWeight:'bold',borderRadius:10,padding:'8px 12px',marginBottom:12,textAlign:'center'}}>
-                20分間操作がなかったため、自動保存してログアウトしました。
+                しばらく操作がなかったため、自動保存してログアウトしました。
               </div>
             )}
             {loginForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center'}}>{loginForm.error}</div>}
@@ -20927,16 +20927,12 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
 const _tsumugiIsIOSLike = () => { try { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); } catch { return false; } };
 const _tsumugiIsStandalone = () => { try { return navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); } catch { return false; } };
 const _tsumugiOsLabel = () => { try { const ua = navigator.userAgent; const m = ua.match(/OS (\d+)[_.](\d+)/); if (m && /iPhone|iPad/.test(ua)) return `iOS ${m[1]}.${m[2]}`; const v = ua.match(/Version\/(\d+\.\d+)/); return v ? `Safari ${v[1]}` : ''; } catch { return ''; } };
-const TSU_RELOGIN_MS = 10 * 60 * 1000; // ★ 2026-10-26(ユーザー決定): 事業所のログアウト後に「続ける」が出る時間(10分)
-function tsuReloginTicket() { try { const j = JSON.parse(localStorage.getItem('tsumugiRelogin') || 'null'); if (!j || !j.session || !j.session.token || !j.at || Date.now() - j.at > TSU_RELOGIN_MS) return null; return j; } catch { return null; } }
+// ★ 2026-10-31(ユーザー決定): ログアウト後10分の「○○さんとして続ける」(2026-10-26 trial411)はやめた。押すと「どなたですか」に戻ってしまい、
+//   ログアウト直後にそのまま入れるなら無操作ログアウトを長くするのと同じ、という判断。代わりに無操作ログアウトを 30分→40分(体操の30分で切れないように)。
+//   端末に残っている古い控え(tsumugiRelogin)はここで消す
 function tsuReloginClear() { try { localStorage.removeItem('tsumugiRelogin'); } catch {} }
 function StaffLoginGate({ onLogin }) {
-  const [relogin, setRelogin] = useState(() => tsuReloginTicket()); // ★ 2026-10-26: ログアウトから10分以内の「○○さんとして続ける／別の人」
-  useEffect(() => { if (!relogin) return; const left = Math.max(0, relogin.at + TSU_RELOGIN_MS - Date.now()); const t = setTimeout(() => setRelogin(null), left + 50); return () => clearTimeout(t); }, [relogin]);
-  const continueAs = (withRecorder) => { const j = tsuReloginTicket(); tsuReloginClear(); setRelogin(null); if (!j) return;
-    if (!withRecorder && j.session.kind === 'person') return; // 本人ログインの「別の人」= ふつうのログインへ
-    try { sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(j.session)); if (withRecorder && j.recorder) sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify(j.recorder)); else sessionStorage.removeItem('tsumugiActiveRecorder'); sessionStorage.setItem('tsumugiNoResume', '1'); } catch {}
-    onLogin(j.session); };
+  useEffect(() => { tsuReloginClear(); }, []); // ★ 2026-10-31: 「続ける」の控えは使わない(古い端末に残っていれば消す)
   const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false, code:'', needCode:false, hint:'', sent:false, sentAt:'', mailErr:'' }); // ★ 2026-10-19: 本部の2段階認証(code) ★ 2026-10-26: 送信済み(時刻)・送れなかった理由
   // ★ 2026-10-26(ユーザー「まだメールが送られない。送ったら送信済みとわかるように」): サーバーの返事(送れた・宛先・時刻・理由)をそのまま画面に
   const _hhmm = (s) => { try { const d = s ? new Date(s) : new Date(); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; } catch { return ''; } };
@@ -21007,7 +21003,6 @@ function StaffLoginGate({ onLogin }) {
   };
   const finishLogin = async (staff) => {
     {
-      tsuReloginClear(); // ★ 2026-10-26: ふつうにログインしたら「続ける」の控えは要らない
       const session = tsuBuildStaffSession(staff); // ★ 2026-10-19 段階4: kind(store/person)・memberId・hasPin も持つ
       sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session));
       // ★ 2026-10-08(店舗報告: iPhoneでIDとパスワードを入力してログインした直後、画面の一部が白いまま。スクロールしても戻らず、押すと反応する):
@@ -21027,18 +21022,7 @@ function StaffLoginGate({ onLogin }) {
   return (
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'linear-gradient(135deg,#d4e7a5 0%,#f0f7e0 100%)',padding:24,boxSizing:'border-box'}}>
       <div style={{width:'100%',maxWidth:420,background:'white',borderRadius:24,padding:'32px 28px',boxShadow:'0 12px 40px rgba(125,170,61,0.25)',boxSizing:'border-box'}}>
-        {relogin && (
-          <div data-testid="relogin-box" style={{marginBottom:18,padding:'14px 16px',background:'#f0f7e0',border:'1px solid #c5dea0',borderRadius:14}}>
-            <div style={{fontSize:12,color:'#5e8030',fontWeight:'bold',marginBottom:6}}>{relogin.session.storeName || '事業所'}　さっきログアウトしました（10分以内）</div>
-            {relogin.recorder || relogin.session.kind === 'person' ? (
-              <button type="button" data-testid="relogin-continue" onClick={() => continueAs(true)} style={{width:'100%',padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer'}}>{(relogin.recorder && relogin.recorder.name) || relogin.session.displayName} さんとして続ける</button>
-            ) : (
-              <button type="button" data-testid="relogin-continue" onClick={() => continueAs(false)} style={{width:'100%',padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer'}}>この店舗で続ける（担当者を選ぶ）</button>
-            )}
-            <button type="button" data-testid="relogin-other" onClick={() => continueAs(false)} style={{width:'100%',marginTop:8,padding:'10px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:12,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{relogin.session.kind === 'person' ? '別の人でログインする' : '別の人（担当者を選び直す）'}</button>
-          </div>
-        )}{/* ★ 2026-10-26(ユーザー決定): 事業所はログアウトから10分以内なら確認だけで戻れる。別の人へは「どなたですか」(PIN あり)を通る */}
-        {/* 紡ぎ ロゴ: 家族ログインと同じものをそのまま使用 */}
+                {/* 紡ぎ ロゴ: 家族ログインと同じものをそのまま使用 */}
         <div style={{textAlign:'center',marginBottom:20}}>
           <img src="/preview/tsumugi-logo-full-transparent.png" alt="つむぎ Tsumugi" style={{width:'100%',maxWidth:200,height:'auto',display:'block',margin:'0 auto',objectFit:'contain'}}/>
           <div style={{fontSize:18,fontWeight:'bold',marginTop:6,color:'#3d5021',fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",letterSpacing:'3px'}}>事業所スタッフ専用ログイン</div>
@@ -22989,8 +22973,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    // ★ 2026-10-26(ユーザー決定「事業所はログアウトから10分以内なら○○さんとして続ける／別の人の確認だけ」): 店舗のログインと今の担当者を10分だけ端末に控える(本部は対象外=30分の信頼の印で代わり)
-    try { if (staffSession && staffSession.token && staffSession.role !== 'super_admin') localStorage.setItem('tsumugiRelogin', JSON.stringify({ at: Date.now(), session: staffSession, recorder: activeRecorder && activeRecorder.id !== 'hq_viewer' ? activeRecorder : null })); } catch {}
+    // ★ 2026-10-31(ユーザー決定): ログアウト後の「○○さんとして続ける」(10/26)はやめた(控えを残さない)。代わりに無操作ログアウトを40分に
     sessionStorage.removeItem('tsumugiStaffSession');
     sessionStorage.removeItem('tsumugiActiveRecorder');
     // ★ 2026-10-26(ユーザー報告「ログアウトしてログインするとホームでなく事業所情報になる」): 見ていた画面の控え(今すぐ更新用)はログアウトでは使わない
@@ -23383,7 +23366,7 @@ export default function App() {
   // 完全ログアウト: 最後の操作から logoutHours 経ったら(端末を閉じていた時間も含む)ログアウト。「なし」なら何もしない
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.token || staffSession.role === 'super_admin') return;
-    const _pinWall = (staffSession.kind === 'person') ? !!staffSession.hasPin : !!_sec.pinRequired; if (!_pinWall) return; // PIN の壁が無い＝既存の30分ログアウトが働く
+    const _pinWall = (staffSession.kind === 'person') ? !!staffSession.hasPin : !!_sec.pinRequired; if (!_pinWall) return; // PIN の壁が無い＝既存の無操作ログアウト(40分)が働く
     const hours = Math.min(Math.max(Number(_sec.logoutHours) || 168, 24), 168); // 24時間〜7日(「なし」は無い)
     const KEY = 'tsumugiLastActive'; const touch = () => { try { localStorage.setItem(KEY, String(Date.now())); } catch {} };
     const check = () => { try { const t = Number(localStorage.getItem(KEY)) || 0; if (t && Date.now() - t > hours * 3600 * 1000) { handleStaffLogout(); } } catch {} };
@@ -23424,15 +23407,15 @@ export default function App() {
   // ★ 無操作が続いたら自動ログアウト (離席時の情報保護)。 ログアウト前に現在の入力画面を自動保存してから閉じる。
   useEffect(() => {
     if (!staffSession) return; // スタッフ/本部ログイン中のみ
-    // ★ 30分 無操作で自動ログアウト(2026-10-02 に 20分→30分)。 setTimeout はスリープ中に止まり判定漏れするため、
+    // ★ 40分 無操作で自動ログアウト(2026-10-02 に 20分→30分・2026-10-31 に 30分→40分: 体操などで30分さわらないことがあるため)。 setTimeout はスリープ中に止まり判定漏れするため、
     //   「最終操作時刻(壁時計)」を保持し、 30秒ごと + 復帰時(visibilitychange/focus) に経過をチェックする。
-    //   → 画面が暗くなってスリープしても、30分経過後に復帰した時点で必ず強制ログアウトされる。
+    //   → 画面が暗くなってスリープしても、40分経過後に復帰した時点で必ず強制ログアウトされる。
     // ★ 2026-10-19 段階4(ユーザー確認「ID・パスワードの壁が無くなるのでは」): 壁は「置き換え」にする。
     //   ・PIN 必須の店舗(全員が本人 PIN を持つ)＝無操作で「どなたですか」(PIN)に戻る(ロックまでの分数は設定)。ID・パスワードは 完全ログアウト(24時間〜7日)で要求
     //   ・本人ログインで PIN がある ＝ 無操作で PIN の画面(自分の PIN で再開)
-    //   ・それ以外(店舗共通ログインで PIN 必須でない・PIN の無い本人)＝ いままでどおり 30分で完全ログアウト(ID・パスワードから)
+    //   ・それ以外(店舗共通ログインで PIN 必須でない・PIN の無い本人)＝ 40分で完全ログアウト(ID・パスワードから)
     const _pinWall = (staffSession.kind === 'person') ? !!staffSession.hasPin : !!_sec.pinRequired;
-    const IDLE_MS = (_pinWall ? Math.min(Math.max(Number(_sec.lockMin) || 30, 10), 60) : 30) * 60 * 1000; // ★ 2026-10-02 ユーザー指示: 20分→30分
+    const IDLE_MS = (_pinWall ? Math.min(Math.max(Number(_sec.lockMin) || TSU_IDLE_MIN_DEFAULT, 10), 60) : TSU_IDLE_MIN_DEFAULT) * 60 * 1000; // ★ 2026-10-02: 20分→30分 ★ 2026-10-31: 30分→40分(TSU_IDLE_MIN_DEFAULT)
     const refMap = {
       record: [recordDirtyRef, recordSaveFnRef], master: [masterDirtyRef, masterSaveFnRef],
       settings: [settingsDirtyRef, settingsSaveFnRef], print: [printDirtyRef, printSaveFnRef],
@@ -42143,8 +42126,9 @@ function InfoRow({ label, children }) {
     </div>
   );
 }
-// ★ 2026-10-19 段階4: 店舗ごとのログインとロックの設定(各種設定→システム)。無ければ既定(ロック30分・完全ログアウト7日・PIN任意・店舗IDは有効)
-const TSU_SECURITY_DEFAULT = { lockMin: 30, logoutHours: 168, pinRequired: false, storeLoginDisabled: false };
+// ★ 2026-10-19 段階4: 店舗ごとのログインとロックの設定(各種設定→システム)。無ければ既定(ロック40分・完全ログアウト7日・PIN任意・店舗IDは有効)
+const TSU_IDLE_MIN_DEFAULT = 40; // ★ 2026-10-31(ユーザー決定): 無操作でログアウト/ロックまでの既定は40分(体操などで30分さわらないことがある)
+const TSU_SECURITY_DEFAULT = { lockMin: TSU_IDLE_MIN_DEFAULT, logoutHours: 168, pinRequired: false, storeLoginDisabled: false };
 const tsuSecurity = (appData) => ({ ...TSU_SECURITY_DEFAULT, ...((appData && appData.systemSettings && appData.systemSettings.security) || {}) });
 // ★ 初回ご利用報告が未報告の利用者ID(初回通所日が今日以前 かつ initialReports 未登録)。利用者マスタのバッジと各種設定「導入時の書類整理」で共通
 function tsuPendingInitialReportSet(appData) {
@@ -42216,7 +42200,7 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
           <div className="grid gap-3">
             <div className="text-xs text-slate-600 leading-5 bg-slate-50 rounded-lg p-2">「PIN を必須にする」と、さわらない時間が過ぎると <b>「どなたですか」(PIN)</b> に戻ります。ID・パスワードは「完全にログアウトするまで」の時間で求めます。</div>
             <div className="flex items-center justify-between gap-3"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">記録者の選択(PIN)に戻るまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、操作が無いとき。画面から利用者情報が消えます</div></div>
-              <div className="shrink-0"><Sel value={Math.min(Number(sec.lockMin) || 30, 60)} opts={[[10,'10分'],[30,'30分'],[60,'60分']]} onChange={v => setSec({ lockMin: v })}/></div></div>
+              <div className="shrink-0"><Sel value={Math.min(Number(sec.lockMin) || TSU_IDLE_MIN_DEFAULT, 60)} opts={[[10,'10分'],[30,'30分'],[40,'40分'],[60,'60分']]} onChange={v => setSec({ lockMin: v })}/></div></div>
             <div className="flex items-center justify-between gap-3"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">完全にログアウトするまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、端末を使わなかった時間。次に使うときは ID・パスワードから</div></div>
               <div className="shrink-0"><Sel value={Math.min(Number(sec.logoutHours) || 168, 168)} opts={[[24,'24時間'],[168,'7日間']]} onChange={v => setSec({ logoutHours: v })}/></div></div>
             <label data-testid="sec-row-pin" className="flex items-center justify-between gap-3 cursor-pointer"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}。間違いが続くと PIN を止めます</div></div>
