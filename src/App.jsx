@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels } from './lib/logic';
 import { PATIENT_TEXT_FL } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL)
 import {
   isSupabaseEnabled,
@@ -52904,7 +52904,9 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
       const pi = list.findIndex(r => r.id === _prevRec.id);
       if (pi >= 0) list[pi] = { ...list[pi], ...prevEvalPatch, _savedAt: syncNow() };
     }
-    onSave({ ...appData, kinouKeikakuRecords: list }, { manual:true, message: close ? '✓ 個別機能訓練計画書を保存しました' : '✓ 一時保存しました' });
+    // ★ 2026-11-01: 計画書で選んだ自立度を、フェイスシート(LIFE・各計画書の保存先)が空のときだけ書き戻す(完成で保存したときだけ)
+    const _ptsBf = close ? backfillFaceSheetLevels(appData.patients, pid, { adlLevel: rec.jiritsuBody, dementiaLevel: rec.jiritsuDementia }) : null;
+    onSave({ ...appData, ...(_ptsBf ? { patients: _ptsBf } : {}), kinouKeikakuRecords: list }, { manual:true, message: close ? (_ptsBf ? '✓ 個別機能訓練計画書を保存しました（自立度をフェイスシートにも入れました）' : '✓ 個別機能訓練計画書を保存しました') : '✓ 一時保存しました' });
     setPrevEvalPatch(null);
     if (dirtyRef) dirtyRef.current = false;
     if (close) setEditing(null);
@@ -54058,7 +54060,9 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
       const pi = list.findIndex(r => r.id === _prevRec.id);
       if (pi >= 0) list[pi] = { ...list[pi], ...prevEvalPatch, _savedAt: syncNow() };
     }
-    onSave({...appData, tsushoKeikakuRecords:list}, {manual:true, message: close ? '✓ 通所介護計画書を保存しました' : '✓ 一時保存しました'});
+    // ★ 2026-11-01: 計画書で選んだ自立度を、フェイスシート(LIFE・各計画書の保存先)が空のときだけ書き戻す(完成で保存したときだけ)
+    const _ptsBf = close ? backfillFaceSheetLevels(appData.patients, pid, { adlLevel: rec.adlLevel, dementiaLevel: rec.demLevel }) : null;
+    onSave({...appData, ...(_ptsBf ? { patients: _ptsBf } : {}), tsushoKeikakuRecords:list}, {manual:true, message: close ? (_ptsBf ? '✓ 通所介護計画書を保存しました（自立度をフェイスシートにも入れました）' : '✓ 通所介護計画書を保存しました') : '✓ 一時保存しました'});
     setPrevEvalPatch(null);
     if(dirtyRef) dirtyRef.current=false;
     if(close) setEditing(null);
@@ -62696,7 +62700,26 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               <div className="text-right"><CharCount value={fs.kiou} max={300}/></div>
             </Field>
             <Field label="留意点（申し送り）"><textarea rows={2} maxLength={200} value={fs.ryui} onChange={e=>update('ryui', e.target.value.slice(0, 200))} placeholder="送迎・介助・対応上の申し送り事項など（提供記録の画面にも表示されます）" className={textareaCls}/><div className="text-right"><CharCount value={fs.ryui} max={200}/></div></Field>
-            {/* ★ 2026-10-03 ユーザー指示: 服薬状況(お薬手帳のコピーで代替)・アレルギー感染症(既往歴に記載)・ADL/認知症自立度(加算書類で記載)は廃止 */}
+            {/* ★ 2026-10-03 ユーザー指示: 服薬状況(お薬手帳のコピーで代替)・アレルギー感染症(既往歴に記載)は廃止 */}
+            {/* ★ 2026-11-01(ユーザー指摘「フェイスシートに自立度の欄がない」): 日常生活自立度はここ(personalFile.faceSheet)が保存先で、LIFEのCSV・計画書(3-3/3-4)の自動取込が読む。
+                  10/3 に欄を外したあと Excel/CSV の取込以外に入れる手段がなく、LIFE が「自立度(フェイスシート)が未設定」になっていたため戻す。計画書で選んだ値は空のときだけここへ書き戻る(backfillFaceSheetLevels) */}
+            <div data-fs-sec="level" className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="障害高齢者の日常生活自立度">
+                <select data-testid="fs-adl-level" value={normalizeAdlLevel(fs.adlLevel)} onChange={e=>update('adlLevel', e.target.value)} className={inputCls}>
+                  <option value="">（未設定）</option>
+                  {TK_ADL_OPTS.map(o=><option key={o} value={o}>{o}</option>)}
+                  {fs.adlLevel && !TK_ADL_OPTS.includes(normalizeAdlLevel(fs.adlLevel)) && <option value={normalizeAdlLevel(fs.adlLevel)}>{fs.adlLevel}</option>}
+                </select>
+              </Field>
+              <Field label="認知症高齢者の日常生活自立度">
+                <select data-testid="fs-dem-level" value={normalizeDemLevel(fs.dementiaLevel)} onChange={e=>update('dementiaLevel', e.target.value)} className={inputCls}>
+                  <option value="">（未設定）</option>
+                  {TK_DEM_OPTS.map(o=><option key={o} value={o}>{o}</option>)}
+                  {fs.dementiaLevel && !TK_DEM_OPTS.includes(normalizeDemLevel(fs.dementiaLevel)) && <option value={normalizeDemLevel(fs.dementiaLevel)}>{fs.dementiaLevel}</option>}
+                </select>
+              </Field>
+              <div className="sm:col-span-2 text-[11px] text-slate-500 -mt-1">LIFEの提出と計画書（通所介護・個別機能訓練）はここの値を使います。計画書で先に選んだ場合は、ここが空のときだけ自動で入ります。</div>
+            </div>
           </div>
           {/* ⑥ ケアマネジメント関連 */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">

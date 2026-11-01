@@ -353,3 +353,28 @@ describe('休止中に保存された先の日の記録を出席に戻す(healSt
   });
   it('直す物がなければ同じ配列を返す', () => { const recs = [rec('d', 2, '2026-11-08')]; expect(healStalePauseRecords(recs, pats, today, paused, sched, { now }).records).toBe(recs); });
 });
+
+import { backfillFaceSheetLevels } from './logic';
+describe('計画書の自立度をフェイスシートへ書き戻す(backfillFaceSheetLevels・2026-11-01)', () => {
+  const pats = [
+    { id: 1, name: 'A', personalFile: { faceSheet: { kiou: '高血圧' } } },
+    { id: 2, name: 'B', personalFile: { faceSheet: { adlLevel: 'B1', dementiaLevel: 'Ⅱa' } } },
+    { id: 3, name: 'C' },
+  ];
+  it('空のときだけ入る・ほかの方と既存の項目は変わらない', () => {
+    const out = backfillFaceSheetLevels(pats, 1, { adlLevel: 'A2', dementiaLevel: 'Ⅲa' });
+    expect(out).not.toBeNull();
+    expect(out[0].personalFile.faceSheet).toEqual({ kiou: '高血圧', adlLevel: 'A2', dementiaLevel: 'Ⅲa' });
+    expect(out[1]).toBe(pats[1]); expect(out[2]).toBe(pats[2]);
+  });
+  it('フェイスシートに値があるときは触らない(null)', () => {
+    expect(backfillFaceSheetLevels(pats, 2, { adlLevel: 'A1', dementiaLevel: 'Ⅰ' })).toBeNull();
+  });
+  it('片方だけ空なら片方だけ入る・personalFile が無い方にも作れる・値が無ければ null', () => {
+    const out = backfillFaceSheetLevels([{ id: 2, personalFile: { faceSheet: { adlLevel: 'B1' } } }], 2, { adlLevel: 'A1', dementiaLevel: 'Ⅰ' });
+    expect(out[0].personalFile.faceSheet).toEqual({ adlLevel: 'B1', dementiaLevel: 'Ⅰ' });
+    expect(backfillFaceSheetLevels(pats, 3, { adlLevel: 'J1' })[2].personalFile.faceSheet).toEqual({ adlLevel: 'J1' });
+    expect(backfillFaceSheetLevels(pats, 3, { adlLevel: '', dementiaLevel: '' })).toBeNull();
+    expect(backfillFaceSheetLevels(pats, 99, { adlLevel: 'J1' })).toBeNull();
+  });
+});

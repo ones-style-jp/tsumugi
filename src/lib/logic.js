@@ -320,3 +320,26 @@ export const healStalePauseRecords = (records, patients, todayIso, isPausedOn, i
   });
   return { records: fixed.length ? out : records, fixed };
 };
+
+// ★ 2026-11-01(ユーザー指摘「フェイスシートに自立度の欄がない」): 日常生活自立度の保存先は personalFile.faceSheet(LIFE・計画書が読む)。
+//   10/3 にフェイスシートの画面から欄を外したあと、Excel/CSV の取込以外に入れる手段がなくなっていた。
+//   計画書(3-3/3-4)で選んだ自立度を、フェイスシートが空のときだけ書き戻す(空でないときは触らない=フェイスシートが正)。
+//   変わらなければ null を返す(呼び出し側は患者の配列を差し替えない)。
+export const backfillFaceSheetLevels = (patients, patientId, levels) => {
+  if (!Array.isArray(patients) || patientId == null) return null;
+  const adl = String((levels && levels.adlLevel) || '').trim(), dem = String((levels && levels.dementiaLevel) || '').trim();
+  if (!adl && !dem) return null;
+  let changed = false;
+  const out = patients.map(p => {
+    if (!p || String(p.id) !== String(patientId)) return p;
+    const pf = (p.personalFile && typeof p.personalFile === 'object') ? p.personalFile : {};
+    const fs = (pf.faceSheet && typeof pf.faceSheet === 'object') ? pf.faceSheet : {};
+    const patch = {};
+    if (adl && !String(fs.adlLevel || '').trim()) patch.adlLevel = adl;
+    if (dem && !String(fs.dementiaLevel || '').trim()) patch.dementiaLevel = dem;
+    if (!Object.keys(patch).length) return p;
+    changed = true;
+    return { ...p, personalFile: { ...pf, faceSheet: { ...fs, ...patch } } };
+  });
+  return changed ? out : null;
+};
