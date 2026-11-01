@@ -21014,10 +21014,14 @@ const _tsumugiOsLabel = () => { try { const ua = navigator.userAgent; const m = 
 function tsuReloginClear() { try { localStorage.removeItem('tsumugiRelogin'); } catch {} }
 function StaffLoginGate({ onLogin }) {
   useEffect(() => { tsuReloginClear(); }, []); // ★ 2026-10-31: 「続ける」の控えは使わない(古い端末に残っていれば消す)
-  const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false, code:'', needCode:false, hint:'', sent:false, sentAt:'', mailErr:'' }); // ★ 2026-10-19: 本部の2段階認証(code) ★ 2026-10-26: 送信済み(時刻)・送れなかった理由
+  const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false, code:'', needCode:false, hint:'', sent:false, sentAt:'', mailErr:'', pkBusy:'' }); // ★ 2026-10-19: 本部の2段階認証(code) ★ 2026-10-26: 送信済み(時刻)・送れなかった理由 ★ 2026-11-01 trial497: pkBusy=指紋・顔のあと「ログインしています…」
+  // ★ 2026-11-01 trial497(ユーザー「自動入力のパスキーで指紋が通ったあと、何も入力されていないログイン画面がしばらく出てからログインされる。ラグをなくすか、ログインしていますと回る印を」):
+  //   指紋・顔が終わった瞬間(サーバーの確認の前)から画面全体に「ログインしています…」(回る印)。iPhone/iPad はログイン後に読み込み直す(2026-10-08 の白画面対策)ので、
+  //   その間も同じ表示が続くよう sessionStorage に印(tsumugiLoginSplash)を置き、index.html が React より先に同じ画面を描く
+  const _pkAuthed = () => setForm(f=>({...f, loading:true, error:'', pkBusy:'ログインしています…'}));
   // ★ 2026-10-26(ユーザー「まだメールが送られない。送ったら送信済みとわかるように」): サーバーの返事(送れた・宛先・時刻・理由)をそのまま画面に
   const _hhmm = (s) => { try { const d = s ? new Date(s) : new Date(); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; } catch { return ''; } };
-  const _toCode = (st, extraErr) => setForm(f=>({...f, loading:false, needCode:true, hint: st._hint || '', code:'', sent: !!st._sent, sentAt: st._sent ? _hhmm(st._sentAt) : '', mailErr: st._sent ? '' : (st._mailErr || '理由が分かりません'), error: extraErr || ''}));
+  const _toCode = (st, extraErr) => setForm(f=>({...f, loading:false, pkBusy:'', needCode:true, hint: st._hint || '', code:'', sent: !!st._sent, sentAt: st._sent ? _hhmm(st._sentAt) : '', mailErr: st._sent ? '' : (st._mailErr || '理由が分かりません'), error: extraErr || ''}));
   const resendCode = async () => {
     if (form.loading) return; setForm(f=>({...f, loading:true, error:''}));
     try { const st = await supabaseStaffLogin({ username: form.username, password: form.password, code: '' }); if (st && st._needCode) { _toCode(st, ''); return; } await finishLogin(st); }
@@ -21057,9 +21061,9 @@ function StaffLoginGate({ onLogin }) {
       if (staff && staff._needCode) { // ★ 本部: 確認コードの入力へ
         if (_tryPk && staff._passkeyFirst) {
           _condStop();
-          try { const st2 = await supabaseHqPasskeyLogin(); await finishLogin(st2); return; }
+          try { const st2 = await supabaseHqPasskeyLogin({ onAuth: _pkAuthed }); await finishLogin(st2); return; }
           catch (e2) { // パスキーを取り消した・使えない → メールを送ってコード入力へ
-            _condStart();
+            _condStart(); setForm(f=>({...f, pkBusy:''}));
             const _cancel = !!(e2 && e2.name === 'NotAllowedError');
             if (!_cancel) { try { localStorage.removeItem('tsumugiHqPasskeyDev'); } catch {} } // ★ 2026-10-26: この端末のパスキーでは入れなかった → 次からは自動で試さない(メールが先)
             let st3; try { st3 = await supabaseStaffLogin({ username: form.username, password: form.password, code: '' }); }
@@ -21074,23 +21078,23 @@ function StaffLoginGate({ onLogin }) {
       const msg = err?.message || 'ログインに失敗しました';
       // 接続情報を付加してデバッグしやすく
       const debug = msg.includes('fetch') ? ` [接続先: ${sbUrlShort}]` : '';
-      setForm(f=>({...f, loading:false, error: msg + debug}));
+      setForm(f=>({...f, loading:false, pkBusy:'', error: msg + debug}));
     }
   };
   // ★ 2026-10-23 本部のパスキー(Touch ID・Face ID): ID・パスワード・確認コードなしで入る(登録は管理局の「パスキー」から)
   const passkeyLogin = async () => {
     if (!isSupabaseEnabled) { setForm(f=>({...f, error:'Supabase が未接続です'})); return; }
     setForm(f=>({...f, loading:true, error:''})); _condStop();
-    try { const staff = await supabaseHqPasskeyLogin(); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} await finishLogin(staff); } // ★ 2026-10-26: パスキーで入れた端末に印(次からは自動)
-    catch (err) { _condStart(); setForm(f=>({...f, loading:false, error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした')})); }
+    try { const staff = await supabaseHqPasskeyLogin({ onAuth: _pkAuthed }); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} await finishLogin(staff); } // ★ 2026-10-26: パスキーで入れた端末に印(次からは自動)
+    catch (err) { _condStart(); setForm(f=>({...f, loading:false, pkBusy:'', error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした')})); }
   };
   // ★ 2026-11-01 従業員のパスキー: この端末で職員が登録した(または入れたことがある)ときだけ、ID・パスワードなしの「パスキーで入る」を出す(印 tsumugiStaffPasskeyDev)
   const _staffPkDev = (() => { try { return localStorage.getItem('tsumugiStaffPasskeyDev') === '1'; } catch { return false; } })();
   const passkeyLoginStaff = async () => {
     if (!isSupabaseEnabled && String(import.meta.env.VITE_E2E_DEMO || '') !== '1') { setForm(f=>({...f, error:'Supabase が未接続です'})); return; } // (自動テストの見本ビルドでは API を模擬)
     setForm(f=>({...f, loading:true, error:''})); _condStop();
-    try { const staff = await supabaseHqPasskeyLogin(); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} await finishLogin(staff); }
-    catch (err) { _condStart(); setForm(f=>({...f, loading:false, error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした。ID とパスワードで入ってください')})); }
+    try { const staff = await supabaseHqPasskeyLogin({ onAuth: _pkAuthed }); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} await finishLogin(staff); }
+    catch (err) { _condStart(); setForm(f=>({...f, loading:false, pkBusy:'', error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした。ID とパスワードで入ってください')})); }
   };
   // ★ 2026-11-01 trial496(ユーザー「他のサイトは ID を自動入力する時点で顔認証が出る。つむぎは ID・パスワードを打ってログインしてから認証で手間が多い」):
   //   パスキーの「自動入力」(WebAuthn conditional UI)。ログイン画面を開いた時点でブラウザに「つむぎのパスキーがあれば ID 欄で出して」と頼んでおく。
@@ -21108,14 +21112,15 @@ function StaffLoginGate({ onLogin }) {
       if (gen !== c.gen) return;
       const ac = new AbortController(); c.ac = ac;
       c.timer = setTimeout(() => { if (gen === c.gen) _condStart(); }, 19 * 60 * 1000);
-      const staff = await supabaseHqPasskeyLogin({ conditional: true, signal: ac.signal });
+      const staff = await supabaseHqPasskeyLogin({ conditional: true, signal: ac.signal, onAuth: () => { if (gen === c.gen) _pkAuthed(); } });
       if (gen !== c.gen) return;
       _condStop();
       try { localStorage.setItem(staff && staff.role === 'super_admin' ? 'tsumugiHqPasskeyDev' : 'tsumugiStaffPasskeyDev', '1'); } catch {}
-      setForm(f=>({...f, loading:true, error:''}));
+      _pkAuthed();
       await finishLogin(staff);
     } catch (err) {
       if (gen !== c.gen || (err && err.name === 'AbortError')) return;
+      setForm(f=>({...f, loading:false, pkBusy:''}));
       // 候補を出したが選ばなかった・取り消した(NotAllowedError) → また出せるように作り直す。ただし「候補なし」で即座に戻るブラウザもあるので、間隔を空け(1.5秒→3→6→12秒)・4回で打ち切る(連打でサーバーを叩かない)
       c.fails = (c.fails || 0) + 1; if (c.fails > 4) return;
       if (!(err && err.name === 'NotAllowedError')) setForm(f=>({...f, loading:false, error: `パスキーで入れませんでした（${(err && err.message) || ''}）。ID とパスワードで入ってください`}));
@@ -21136,6 +21141,7 @@ function StaffLoginGate({ onLogin }) {
         const vv = window.visualViewport; const t0 = Date.now();
         await new Promise(res => { const tick = () => { const ok = !vv || vv.height >= window.innerHeight - 40; if (ok || Date.now() - t0 > 1200) return res(); setTimeout(tick, 80); }; setTimeout(tick, 120); });
         try { window.scrollTo(0, 0); } catch {}
+        try { sessionStorage.setItem('tsumugiLoginSplash', '1'); } catch {} // ★ 2026-11-01 trial497: 読み込み直しの間も「ログインしています…」(index.html が描く)
         try { window.location.reload(); return; } catch {}
       }
       onLogin(session);
@@ -21143,6 +21149,16 @@ function StaffLoginGate({ onLogin }) {
   };
   return (
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'linear-gradient(135deg,#d4e7a5 0%,#f0f7e0 100%)',padding:24,boxSizing:'border-box'}}>
+      {form.pkBusy && (
+        <div data-testid="login-busy" role="status" aria-live="polite" style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'linear-gradient(135deg,#d4e7a5 0%,#f0f7e0 100%)',padding:24,boxSizing:'border-box'}}>
+          <div style={{width:'100%',maxWidth:360,background:'white',borderRadius:24,padding:'36px 28px',boxShadow:'0 12px 40px rgba(125,170,61,0.25)',textAlign:'center',boxSizing:'border-box'}}>
+            <div style={{width:44,height:44,margin:'0 auto 16px',border:'4px solid #d7e3c4',borderTopColor:'#7daa3d',borderRadius:'50%',animation:'tsumugiSpin 0.9s linear infinite'}}/>
+            <div style={{fontSize:17,fontWeight:'bold',color:'#3d5021'}}>{form.pkBusy}</div>
+            <div style={{fontSize:12,color:'#64748b',marginTop:8,lineHeight:1.7}}>指紋・顔の確認ができました。画面が切り替わるまでそのままお待ちください。</div>
+            <style>{`@keyframes tsumugiSpin{to{transform:rotate(360deg)}}`}</style>
+          </div>
+        </div>
+      )}{/* ★ 2026-11-01 trial497: 指紋・顔のあと、サーバーの確認〜読み込み直しの間に空のログイン画面が見えないように */}
       <div style={{width:'100%',maxWidth:420,background:'white',borderRadius:24,padding:'32px 28px',boxShadow:'0 12px 40px rgba(125,170,61,0.25)',boxSizing:'border-box'}}>
                 {/* 紡ぎ ロゴ: 家族ログインと同じものをそのまま使用 */}
         <div style={{textAlign:'center',marginBottom:20}}>

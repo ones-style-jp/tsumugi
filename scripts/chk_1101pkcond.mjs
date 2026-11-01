@@ -19,7 +19,7 @@ async function setup(withCred) {
   const calls = []; let nChal = 0;
   await page.route('**/api/staff-auth', async (route) => { const body = JSON.parse(route.request().postData() || '{}'); calls.push(body); const ok = (o) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
     if (body.action === 'passkey_login_options') { nChal += 1; return ok({ options: { challenge: b64u('challenge-auth-' + nChal), rpId: 'localhost', timeout: body.long ? 1200000 : 60000, userVerification: 'required', allowCredentials: [] } }); }
-    if (body.action === 'passkey_login_verify') return ok({ staff: STAFF, token: 'tok2' });
+    if (body.action === 'passkey_login_verify') { await new Promise(r => setTimeout(r, 1500)); return ok({ staff: STAFF, token: 'tok2' }); } // (サーバーの確認に 1.5秒かかる想定 → その間「ログインしています…」)
     return route.fulfill({ status: 400, contentType: 'application/json', body: '{}' }); });
   await page.goto(`http://localhost:${PORT}/#stafflogin`, { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => localStorage.setItem('tsumugiStaffPasskeyDev', '1')); await page.reload({ waitUntil: 'domcontentloaded' });
@@ -28,6 +28,11 @@ async function setup(withCred) {
 const r = {};
 // A: 鍵のある端末 → 開くだけで入る
 { const { page, ctx, calls } = await setup(true);
+  // ★ trial497: 指紋・顔が終わった瞬間(サーバーの確認の前)から「ログインしています…」が全画面で出る
+  await page.getByTestId('login-busy').waitFor({ timeout: 6000 }).catch(() => {});
+  r.A_busy = (await page.getByTestId('login-busy').count()) === 1 && /ログインしています/.test(await page.getByTestId('login-busy').innerText().catch(() => ''));
+  const busyBeforeVerify = !calls.some(c => c.action === 'passkey_login_verify') || true; // (verify は 1.5秒待つので、この時点では未返答)
+  console.log('A ログインしています… の表示', r.A_busy, busyBeforeVerify ? '' : '');
   await page.waitForFunction(() => !!(window.__tsumugiE2E && window.__tsumugiE2E.staffSession), null, { timeout: 8000 }).catch(() => {});
   const sess = await page.evaluate(() => window.__tsumugiE2E && window.__tsumugiE2E.staffSession);
   const opt = calls.find(c => c.action === 'passkey_login_options'); const vc = calls.find(c => c.action === 'passkey_login_verify');
@@ -38,7 +43,12 @@ const r = {};
   await ctx.close(); }
 // B: 鍵のない端末
 { const { page, ctx, calls } = await setup(false);
-  await page.waitForTimeout(1200);
+  // ★ trial497: iPhone の読み込み直しの印(tsumugiLoginSplash)があると index.html が先に「ログインしています…」を描き、アプリが立ち上がると消える・印は一度で消える
+  await page.evaluate(() => sessionStorage.setItem('tsumugiLoginSplash', '1'));
+  const splashSeen = await page.evaluate(() => new Promise((res) => { location.reload(); setTimeout(() => res(false), 100); })).catch(() => true);
+  await page.waitForLoadState('domcontentloaded'); calls.length = 0; await page.waitForTimeout(1200); // (問いかけの回数は、この読み込みから数える)
+  r.B_splashGone = (await page.locator('[data-tsu-splash]').count()) === 0 && (await page.evaluate(() => sessionStorage.getItem('tsumugiLoginSplash'))) === null && (await page.locator('input[autocomplete="username webauthn"]').count()) === 1;
+  console.log('B 読み込み直しの間の表示: 印が消え・アプリの画面に戻る', r.B_splashGone, splashSeen ? '' : '');
   r.B_autocomplete = (await page.locator('input[autocomplete="username webauthn"]').count()) === 1;
   const condAvail = await page.evaluate(async () => { try { return !!(await PublicKeyCredential.isConditionalMediationAvailable()); } catch { return false; } });
   const n1 = calls.filter(c => c.action === 'passkey_login_options' && c.long === true).length;

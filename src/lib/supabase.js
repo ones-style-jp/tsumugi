@@ -2069,9 +2069,10 @@ export async function supabaseHqPasskeyRegister(token) {
 }
 // ★ 2026-11-01 trial496(ユーザー「他のサイトのように ID を自動入力する時点で顔・指紋が出てほしい」): conditional=true で「自動入力」の問いかけ
 //   (ブラウザが ID 欄のそばに、この端末・iCloud キーチェーンにあるつむぎのパスキーを出す。選ぶと顔・指紋 → ログイン)。signal で中止できる(ボタンを押したとき・画面を離れるとき)
-export async function supabaseHqPasskeyLogin({ conditional = false, signal } = {}) {
+export async function supabaseHqPasskeyLogin({ conditional = false, signal, onAuth } = {}) {
   const { options } = await staffApi({ action: 'passkey_login_options', ...(conditional ? { long: true } : {}) });
   const cred = await navigator.credentials.get({ ...(conditional ? { mediation: 'conditional' } : {}), ...(signal ? { signal } : {}), publicKey: { ...options, challenge: _pkU2B(options.challenge), allowCredentials: [] } });
+  try { if (onAuth) onAuth(); } catch {} // ★ 2026-11-01 trial497: 指紋・顔が終わった瞬間(サーバーの確認の前)に画面へ「ログインしています…」を出すため
   const r = cred.response;
   const j = await staffApi({ action: 'passkey_login_verify', device: _devName(), credential: { id: _pkB2U(cred.rawId), type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), authenticatorData: _pkB2U(r.authenticatorData), signature: _pkB2U(r.signature), userHandle: r.userHandle ? _pkB2U(r.userHandle) : '' } } });
   if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp);
