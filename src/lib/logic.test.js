@@ -300,6 +300,9 @@ describe('被保険者番号を10桁に(2026-10-30)', () => {
     expect(r.fixed).toEqual([{ id: 1, from: '98765', to: '0000098765' }, { id: 4, from: 'H1', to: 'H000000001' }]);
     expect(r.patients[1]).toBe(pats[1]); expect(r.patients[2]).toBe(pats[2]); expect(r.patients[0].insuranceNo).toBe('0000098765');
     expect(healInsuranceNo(r.patients).fixed).toEqual([]);
+  });
+});
+
 describe('カレンダーのタスクの済みの同期(mergeTaskDone)', () => {
   it('別の端末で別の回を済みにしても両方残る', () => {
     const a = { id: 't', kind: 'task', _savedAt: 2, done: { '2026-10-30': { by: 'A', at: 200 } } };
