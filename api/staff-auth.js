@@ -469,6 +469,21 @@ export default async function handler(req, res) {
       const m = await sendInviteMail(req, sid, inv);
       return res.status(200).json({ mailed: m.ok, mail_err: m.err, sent_at: m.ok ? new Date().toISOString() : null, email });
     }
+    if (action === 'invite_mail_status') {
+      // ★ 2026-11-01: 招待メールが届いたか(Brevo の配信記録: 受付→配信済み/ブロック/エラー/遅延)。管理者が自店の招待の宛先だけ見られる
+      const sid = String(body.store_id || t.store_id || ''); if (!sid || !canManageStore(sid)) return res.status(403).json({ error: '権限がありません' });
+      const mid = String(body.member_id || ''); if (!mid) return res.status(400).json({ error: 'member_id' });
+      const rows = await sb(`staff_invites?select=email,created_at&store_id=eq.${encodeURIComponent(sid)}&member_id=eq.${encodeURIComponent(mid)}&order=created_at.desc&limit=1`);
+      const inv = Array.isArray(rows) ? rows[0] : null; const email = String(body.email || (inv && inv.email) || '').trim();
+      if (!/@/.test(email)) return res.status(404).json({ error: '宛先のメールアドレスがありません' });
+      const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key'); if (!apiKey) return res.status(200).json({ email, events: [], reason: '送信の部品(BREVO_API_KEY)が設定されていません' });
+      let events = [], reason = '';
+      try { const r = await fetch(`https://api.brevo.com/v3/smtp/statistics/events?email=${encodeURIComponent(email)}&limit=100&sort=desc`, { headers: { accept: 'application/json', 'api-key': apiKey } });
+        const j = await r.json().catch(() => ({})); if (!r.ok) reason = `Brevo ${r.status} ${JSON.stringify(j).slice(0, 160)}`;
+        events = (j.events || []).filter(e => /本人登録/.test(String(e.subject || ''))).slice(0, 20).map(e => ({ at: e.date, event: e.event, reason: e.reason || '', subject: e.subject || '', messageId: e.messageId || '' }));
+      } catch (e) { reason = 'Brevo に接続できません(' + ((e && e.message) || '') + ')'; }
+      return res.status(200).json({ email, events, reason });
+    }
     if (action === 'pin_reset') {
       // ★ 2026-11-01(10/23 ユーザー決定): PIN を忘れた職員には、管理者が新しい乱数4桁を作る(返事で一度だけ渡す・本人は変えられない)
       const target = await sb(`staff?select=id,store_id,kind,is_active,deleted_at,display_name&id=eq.${encodeURIComponent(String(body.staff_id || ''))}&limit=1`); const row = Array.isArray(target) ? target[0] : null;
