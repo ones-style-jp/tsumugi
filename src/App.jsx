@@ -50,7 +50,7 @@ import {
   supabaseListSyncDiag, supabaseClaimDeviceName, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧・端末名の自動付与
   deviceIdentityReady, kvSet, lsSetSmall, deviceStorageStatus, // ★ 2026-10-18: 端末ID・端末名の第2・第3の保存先(IndexedDB・Cookie)と保存の状態
   setFilesContext, // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名はサーバー(/api/files)で
-  supabaseStaffInviteCreate, supabaseStaffInviteLookup, supabaseStaffInviteAccept, supabaseStaffPinSet, supabaseStaffPinVerify, supabaseStaffMembersStatus, supabaseStaffSetActive, supabaseStaffLoginsList, supabaseStaffInviteMail, supabaseStaffPinReset, // ★ 2026-10-19 段階4・2026-11-01 招待メール/PIN作り直し
+  supabaseStaffInviteCreate, supabaseStaffInviteLookup, supabaseStaffInviteAccept, supabaseStaffPinSet, supabaseStaffPinVerify, supabaseStaffMembersStatus, supabaseStaffSetActive, supabaseStaffLoginsList, supabaseStaffInviteMail, supabaseStaffPinReset, supabaseStaffInviteMailStatus, // ★ 2026-10-19 段階4・2026-11-01 招待メール/PIN作り直し/届いたか
   supabaseStaffSharedDevice, supabaseStaffRenew, tsuTokenExp, supabaseStaffPinLogin, supabaseStaffPinUnlock, supabaseStaffPinGuardStatus, // ★ 2026-10-19 段階4 続き
   cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
@@ -25550,12 +25550,18 @@ export default function App() {
               const url = inv ? `${location.origin}${location.pathname}?staffinvite=${inv.code}` : '';
               const _email = staffAddForm.inviteEmail !== undefined ? staffAddForm.inviteEmail : ((inv && inv.email) || '');
               const _setF = (patch) => setStaffAddForm(f => ({ ...f, ...patch }));
-              const _mailNote = (r) => _setF({ mailMsg: r && r.mailed ? `送信済み（${_email}・${new Date(r.sent_at || Date.now()).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}）` : `メールを送れませんでした${r && r.mail_err ? `（${r.mail_err}）` : ''}。URL をコピーして渡してください` });
+              const _mailNote = (r) => _setF({ mailMsg: r && r.mailed ? `送信済み（${_email}・${new Date(r.sent_at || Date.now()).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}）。届いたかは1〜2分後に「届いたか確認」で` : `メールを送れませんでした${r && r.mail_err ? `（${r.mail_err}）` : ''}。URL をコピーして渡してください` });
               const issue = async () => { if (!tsuAdminGate(issue, '招待コードの発行')) return; /* ★ 2026-10-26(ユーザー): 招待を出せるのは管理者だけ */ try { const r = await supabaseStaffInviteCreate(staffSession.token, { storeId: staffSession.storeId, memberId: mid, name: nm, role: staffAddForm.role === '管理者' ? 'manager' : 'member', email: _email.trim() }); await _reloadStaffAcct(); if (_email.trim()) _mailNote(r); else _setF({ mailMsg: '' }); } catch (e) { alert(e?.message || '招待を発行できませんでした'); } };
               // ★ 2026-11-01: 招待メールを送る(送り直し)。宛先はその場で入れられる
               const mail = async () => { if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(_email.trim())) { alert('メールアドレスを入力してください'); return; } if (!tsuAdminGate(mail, '招待メールの送信')) return; _setF({ mailMsg: '送信中…' }); try { const r = await supabaseStaffInviteMail(staffSession.token, { storeId: staffSession.storeId, memberId: mid, email: _email.trim() }); _mailNote(r); await _reloadStaffAcct(); } catch (e) { _setF({ mailMsg: `メールを送れませんでした（${e?.message || ''}）` }); } };
               // ★ 2026-11-01(10/23 ユーザー決定): PIN を忘れた職員には管理者が新しい乱数4桁を作る(一度だけ表示)
               const resetPin = async () => { if (!acct) return; if (!tsuAdminGate(resetPin, 'PIN の作り直し')) return; if (!window.confirm(`「${acct.name}」の PIN を作り直します。今までの PIN は使えなくなり、新しい4桁がこの画面に一度だけ表示されます。よろしいですか？`)) return; try { const r = await supabaseStaffPinReset(staffSession.token, acct.staff_id); _setF({ newPin: r.pin || '' }); await _reloadStaffAcct(); } catch (e) { alert(e?.message || 'PIN を作り直せませんでした'); } };
+              // ★ 2026-11-01(実機で判明: Brevo は受け付けたのに Google が『送信元の共有IPが迷惑メールの名簿(spamcop)に載っている』と拒否していた): 届いたかを Brevo の配信記録で確かめる
+              const mailStatus = async () => { _setF({ mailMsg: '配信記録を確認中…' }); try { const r = await supabaseStaffInviteMailStatus(staffSession.token, { storeId: staffSession.storeId, memberId: mid, email: _email.trim() }); const ev = (r.events || [])[0];
+                  const jp = (e) => { if (!e) return `まだ送った記録がありません（${r.email || _email}）`; const t = new Date(e.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); const why = /spamcop|blocked using|blacklist|bl\./i.test(e.reason || '') ? '送信元（メール配信サービスの共有の送信元）が迷惑メールの名簿に載っていて、相手のメールサーバーが受け取りを拒否しました。しばらくして送り直すか、URLをコピーして渡してください' : (e.reason || '');
+                    if (e.event === 'delivered') return `配信済み（${t}・相手のサーバーが受け取りました）`; if (e.event === 'opened' || e.event === 'clicks') return `開封済み（${t}）`; if (e.event === 'requests') return `送信中（${t}・配信の結果待ち。1〜2分後にもう一度押してください）`; if (e.event === 'deferred') return `配信を再試行中（${t}）`;
+                    return `届いていません（${t}・${e.event}）。${why}`; };
+                  _setF({ mailMsg: jp(ev) + (r.reason ? `（${r.reason}）` : '') }); } catch (e) { _setF({ mailMsg: `確認できませんでした（${e?.message || ''}）` }); } };
               const emailInput = <input type="email" value={_email} onChange={e => _setF({ inviteEmail: e.target.value })} placeholder="本人のメールアドレス（招待メールの宛先）" autoComplete="off" className="w-full sm:w-72 px-3 py-2 border border-slate-300 rounded-lg text-sm"/>;
               const toggle = async () => { if (!acct) return; if (!window.confirm(acct.is_active ? `「${acct.name}」を退職にしますか？\n（この人のログインはすぐに使えなくなります。記録に残っている名前はそのままです）` : `「${acct.name}」を復帰にしますか？`)) return; try { await supabaseStaffSetActive(staffSession.token, acct.staff_id, !acct.is_active); await _reloadStaffAcct(); } catch (e) { alert(e?.message || '変更できませんでした'); } };
               return (
@@ -25587,8 +25593,8 @@ export default function App() {
                         <button type="button" onClick={() => { try { navigator.clipboard.writeText(url); tsuPopNotice('招待URLをコピーしました'); } catch {} }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">URLをコピー</button>
                         <button type="button" onClick={issue} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">コードを発行し直す</button>
                       </div>
-                      <div className="flex gap-2 mt-2 flex-wrap items-center">{emailInput}<button type="button" data-testid="member-invite-mail" onClick={mail} className="px-3 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white">招待メールを送る</button></div>
-                      {staffAddForm.mailMsg && <div data-testid="member-invite-mailmsg" className={`text-xs font-bold mt-1 ${/送信済み/.test(staffAddForm.mailMsg) ? 'text-emerald-700' : 'text-amber-700'}`}>{staffAddForm.mailMsg}</div>}
+                      <div className="flex gap-2 mt-2 flex-wrap items-center">{emailInput}<button type="button" data-testid="member-invite-mail" onClick={mail} className="px-3 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white">招待メールを送る</button><button type="button" data-testid="member-invite-mailstatus" onClick={mailStatus} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">届いたか確認</button></div>
+                      {staffAddForm.mailMsg && <div data-testid="member-invite-mailmsg" className={`text-xs font-bold mt-1 leading-5 ${/送信済み|配信済み|開封済み/.test(staffAddForm.mailMsg) ? 'text-emerald-700' : 'text-amber-700'}`}>{staffAddForm.mailMsg}</div>}
                       <div className="text-xs text-slate-500 mt-1">メールで送るか、このURL（またはコード）を本人に渡します。本人がID・パスワードを決めると登録完了です。PIN はつむぎが自動で決め、本人の画面に一度だけ表示されます。</div>
                     </div>
                   ) : (

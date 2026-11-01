@@ -2002,6 +2002,7 @@ const _devName = () => { try { return localStorage.getItem('tsumugiDeviceName') 
 export const hashPin = (pin) => hashPassword('pin:' + String(pin || ''));
 export async function supabaseStaffInviteCreate(token, { storeId, memberId, name, role, email }) { const j = await staffApi({ action: 'invite_create', token, store_id: storeId, member_id: memberId, name, role, email: email || '' }); return { ...(j.invite || {}), mailed: !!j.mailed, mail_err: j.mail_err || '', sent_at: j.sent_at || null }; } // ★ 2026-11-01: メールの結果も返す
 export async function supabaseStaffInviteMail(token, { storeId, memberId, email }) { return staffApi({ action: 'invite_mail', token, store_id: storeId, member_id: String(memberId), email: email || '' }); } // ★ 2026-11-01: 招待メールを送る(送り直し)
+export async function supabaseStaffInviteMailStatus(token, { storeId, memberId, email }) { return staffApi({ action: 'invite_mail_status', token, store_id: storeId, member_id: String(memberId), email: email || '' }); } // ★ 2026-11-01: 招待メールが届いたか(Brevo の配信記録)
 export async function supabaseStaffPinReset(token, staffId) { return staffApi({ action: 'pin_reset', token, staff_id: String(staffId) }); } // ★ 2026-11-01: 管理者が PIN を作り直す(返事の pin は一度だけ)
 export async function supabaseStaffInviteLookup(code) { return (await staffApi({ action: 'invite_lookup', code: String(code || '') })).invite; }
 export async function supabaseStaffInviteAccept({ code, username, password }) {
