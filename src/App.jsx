@@ -52904,9 +52904,9 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
       const pi = list.findIndex(r => r.id === _prevRec.id);
       if (pi >= 0) list[pi] = { ...list[pi], ...prevEvalPatch, _savedAt: syncNow() };
     }
-    // ★ 2026-11-01: 計画書で選んだ自立度を、フェイスシート(LIFE・各計画書の保存先)が空のときだけ書き戻す(完成で保存したときだけ)
+    // ★ 2026-11-01(ユーザー「計画書からでも自立度を入力できてお互い更新される方が楽」): 完成で保存した計画書の自立度をフェイスシート(LIFE・各計画書の保存先)へ反映(値があり違うときだけ・新しい方が勝つ)
     const _ptsBf = close ? backfillFaceSheetLevels(appData.patients, pid, { adlLevel: rec.jiritsuBody, dementiaLevel: rec.jiritsuDementia }) : null;
-    onSave({ ...appData, ...(_ptsBf ? { patients: _ptsBf } : {}), kinouKeikakuRecords: list }, { manual:true, message: close ? (_ptsBf ? '✓ 個別機能訓練計画書を保存しました（自立度をフェイスシートにも入れました）' : '✓ 個別機能訓練計画書を保存しました') : '✓ 一時保存しました' });
+    onSave({ ...appData, ...(_ptsBf ? { patients: _ptsBf } : {}), kinouKeikakuRecords: list }, { manual:true, message: close ? (_ptsBf ? '✓ 個別機能訓練計画書を保存しました（自立度をフェイスシートにも反映しました）' : '✓ 個別機能訓練計画書を保存しました') : '✓ 一時保存しました' });
     setPrevEvalPatch(null);
     if (dirtyRef) dirtyRef.current = false;
     if (close) setEditing(null);
@@ -52919,7 +52919,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
     onSave({ ...appData, kinouKeikakuRecords: (appData.kinouKeikakuRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'kinouKeikakuRecords',id) }, { manual:true, message:'削除しました' });
     if (editing?.id === id) setEditing(null);
   };
-  const dupRecord = (r) => { setEditing({ ...r, id:`kk_${pid}_${Date.now()}`, createdAt:Date.now(), prevDate: r.createdDate||'', createdDate: toReiwa(tsuTodayIso()), shortAchieve:'', longAchieve:'', henka:'', kadai:'', setsumeiDate:'', setsumeisha:'' }); };
+  const dupRecord = (r) => { const _lv = _kkFsAuto(patient); setEditing({ ...r, id:`kk_${pid}_${Date.now()}`, createdAt:Date.now(), prevDate: r.createdDate||'', createdDate: toReiwa(tsuTodayIso()), shortAchieve:'', longAchieve:'', henka:'', kadai:'', setsumeiDate:'', setsumeisha:'', jiritsuBody: _lv.jiritsuBody || r.jiritsuBody || '', jiritsuDementia: _lv.jiritsuDementia || r.jiritsuDementia || '' /* ★ 2026-11-01: 複製でも自立度はフェイスシートの今の値(空なら前回の計画書) */ }); };
   // ★ 作成予定からの遷移(navFocus='start_edit'): 最新が一時保存(draft)ならそれを再開、
   //   完成版があれば「複製して更新」、無ければ新規(2026-09-08 店舗要望: 一時保存の続きから作成)
   React.useEffect(() => {
@@ -54060,9 +54060,9 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
       const pi = list.findIndex(r => r.id === _prevRec.id);
       if (pi >= 0) list[pi] = { ...list[pi], ...prevEvalPatch, _savedAt: syncNow() };
     }
-    // ★ 2026-11-01: 計画書で選んだ自立度を、フェイスシート(LIFE・各計画書の保存先)が空のときだけ書き戻す(完成で保存したときだけ)
+    // ★ 2026-11-01(ユーザー「計画書からでも自立度を入力できてお互い更新される方が楽」): 完成で保存した計画書の自立度をフェイスシート(LIFE・各計画書の保存先)へ反映(値があり違うときだけ・新しい方が勝つ)
     const _ptsBf = close ? backfillFaceSheetLevels(appData.patients, pid, { adlLevel: rec.adlLevel, dementiaLevel: rec.demLevel }) : null;
-    onSave({...appData, ...(_ptsBf ? { patients: _ptsBf } : {}), tsushoKeikakuRecords:list}, {manual:true, message: close ? (_ptsBf ? '✓ 通所介護計画書を保存しました（自立度をフェイスシートにも入れました）' : '✓ 通所介護計画書を保存しました') : '✓ 一時保存しました'});
+    onSave({...appData, ...(_ptsBf ? { patients: _ptsBf } : {}), tsushoKeikakuRecords:list}, {manual:true, message: close ? (_ptsBf ? '✓ 通所介護計画書を保存しました（自立度をフェイスシートにも反映しました）' : '✓ 通所介護計画書を保存しました') : '✓ 一時保存しました'});
     setPrevEvalPatch(null);
     if(dirtyRef) dirtyRef.current=false;
     if(close) setEditing(null);
@@ -54070,7 +54070,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   };
   React.useEffect(()=>{ if(!saveFnRef) return; saveFnRef.current=()=>{ if(editing) saveRecord(); }; });
   const delRecord=(id)=>{ if(!window.confirm('この計画書を削除します。よろしいですか？')) return; onSave({...appData, tsushoKeikakuRecords:(appData.tsushoKeikakuRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'tsushoKeikakuRecords',id)}, {manual:true, message:'削除しました'}); if(editing?.id===id) setEditing(null); };
-  const dupRecord=(r)=>{ setEditing(_migrate({...r, id:`tk_${pid}_${Date.now()}`, createdAt:Date.now(), prevDate:r.createdDate||'', createdDate:toReiwa(tsuTodayIso()), longAchieve:'', shortAchieve:'', soukatsu:'', saihyokaDate:'', setsumeiDate:'', setsumeisha:'', doui:''})); };
+  const dupRecord=(r)=>{ const _lv=_fsAuto(patient); setEditing(_migrate({...r, id:`tk_${pid}_${Date.now()}`, createdAt:Date.now(), prevDate:r.createdDate||'', createdDate:toReiwa(tsuTodayIso()), longAchieve:'', shortAchieve:'', soukatsu:'', saihyokaDate:'', setsumeiDate:'', setsumeisha:'', doui:'', adlLevel: _lv.adlLevel || r.adlLevel || '', demLevel: _lv.demLevel || r.demLevel || '' /* ★ 2026-11-01: 複製でも自立度はフェイスシートの今の値(空なら前回の計画書) */})); };
   // ★ 作成予定からの遷移(navFocus='start_edit'): 最新が一時保存(draft)ならそれを再開、
   //   完成版があれば「複製して更新」、無ければ新規(2026-09-08 店舗要望: 一時保存の続きから作成)
   React.useEffect(() => {
@@ -62702,7 +62702,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
             <Field label="留意点（申し送り）"><textarea rows={2} maxLength={200} value={fs.ryui} onChange={e=>update('ryui', e.target.value.slice(0, 200))} placeholder="送迎・介助・対応上の申し送り事項など（提供記録の画面にも表示されます）" className={textareaCls}/><div className="text-right"><CharCount value={fs.ryui} max={200}/></div></Field>
             {/* ★ 2026-10-03 ユーザー指示: 服薬状況(お薬手帳のコピーで代替)・アレルギー感染症(既往歴に記載)は廃止 */}
             {/* ★ 2026-11-01(ユーザー指摘「フェイスシートに自立度の欄がない」): 日常生活自立度はここ(personalFile.faceSheet)が保存先で、LIFEのCSV・計画書(3-3/3-4)の自動取込が読む。
-                  10/3 に欄を外したあと Excel/CSV の取込以外に入れる手段がなく、LIFE が「自立度(フェイスシート)が未設定」になっていたため戻す。計画書で選んだ値は空のときだけここへ書き戻る(backfillFaceSheetLevels) */}
+                  10/3 に欄を外したあと Excel/CSV の取込以外に入れる手段がなく、LIFE が「自立度(フェイスシート)が未設定」になっていたため戻す。計画書で選んで保存した値はここへも反映(backfillFaceSheetLevels・新しい方が勝つ) */}
             <div data-fs-sec="level" className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="障害高齢者の日常生活自立度">
                 <select data-testid="fs-adl-level" value={normalizeAdlLevel(fs.adlLevel)} onChange={e=>update('adlLevel', e.target.value)} className={inputCls}>
@@ -62718,7 +62718,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                   {fs.dementiaLevel && !TK_DEM_OPTS.includes(normalizeDemLevel(fs.dementiaLevel)) && <option value={normalizeDemLevel(fs.dementiaLevel)}>{fs.dementiaLevel}</option>}
                 </select>
               </Field>
-              <div className="sm:col-span-2 text-[11px] text-slate-500 -mt-1">LIFEの提出と計画書（通所介護・個別機能訓練）はここの値を使います。計画書で先に選んだ場合は、ここが空のときだけ自動で入ります。</div>
+              <div className="sm:col-span-2 text-[11px] text-slate-500 -mt-1">LIFEの提出と計画書（通所介護・個別機能訓練）はここの値を使います。計画書で選んで保存すると、ここも同じ値に更新されます（新しい方が反映）。</div>
             </div>
           </div>
           {/* ⑥ ケアマネジメント関連 */}

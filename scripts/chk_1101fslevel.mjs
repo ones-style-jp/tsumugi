@@ -1,6 +1,7 @@
 // 2026-11-01(ユーザー指摘「フェイスシート→編集に自立度の選択欄はない」) 日常生活自立度の入力欄をフェイスシートに戻す・計画書から空のフェイスシートへ書き戻す
 //   ①利用者マスタ→「フェイスシートで編集」→ 障害/認知症の自立度を選んで保存 → personalFile.faceSheet.adlLevel/dementiaLevel に入る
-//   ②個別機能訓練計画書(3-3・jiritsuBody/jiritsuDementia。通所介護計画書 3-4 は adlLevel/demLevel で同じ書き戻し)で自立度を選んで「保存して閉じる」→ フェイスシートが空の方は同じ値が入る(①で入れた方は変わらない)
+//   ②個別機能訓練計画書(3-3・jiritsuBody/jiritsuDementia。通所介護計画書 3-4 は adlLevel/demLevel で同じ)で自立度を選んで「保存して閉じる」→ フェイスシートが空の方に同じ値が入る
+//   ②' ①で入れた方の 3-3 を新規作成 → フェイスシートの値が最初から選ばれている → 変えて保存 → フェイスシートも新しい値になる(お互い更新・新しい方が勝つ)
 //   ③LIFE提出(科学的介護推進)の一覧で、①②の方に「自立度…未設定」のエラーが出ない
 //   実行: node scripts/chk_1101fslevel.mjs [--port 4175]
 import { chromium } from 'playwright';
@@ -37,8 +38,19 @@ await page.locator('button:visible', { hasText: '新規作成' }).first().click(
 const pickLv = async (label, txt) => { const box = page.locator('div', { has: page.locator('label', { hasText: label }) }).filter({ has: page.locator('select') }).last(); await box.locator('select').first().selectOption(txt); };
 await pickLv('障害高齢者の日常生活自立度', 'A1'); await pickLv('認知症高齢者の日常生活自立度', 'Ⅲa'); await page.waitForTimeout(200);
 await page.locator('button:visible', { hasText: '保存して閉じる' }).first().click(); await page.waitForTimeout(1500);
-const b2 = await fsOf(S.B), a2 = await fsOf(S.A); console.log('② B のフェイスシート', b2, 'A はそのまま', a2);
-r.planBackfill = b2.adl === 'A1' && b2.dem === 'Ⅲa'; r.keepA = a2.adl === 'A2' && a2.dem === 'Ⅱb';
+const b2 = await fsOf(S.B); console.log('② B のフェイスシート', b2);
+r.planBackfill = b2.adl === 'A1' && b2.dem === 'Ⅲa';
+// ②' A: 新規作成するとフェイスシートの値が選ばれている → 変えて保存 → フェイスシートも更新
+await page.evaluate((pid) => { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'kinou_keikaku', pid, t: Date.now() })); }, S.A);
+await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(1800); await page.locator('button', { hasText: 'あとで' }).click({ timeout: 300 }).catch(() => {});
+await page.locator('button:visible', { hasText: '新規作成' }).first().click(); await page.waitForTimeout(1200);
+const lvSel = (label) => page.locator('div', { has: page.locator('label', { hasText: label }) }).filter({ has: page.locator('select') }).last().locator('select').first();
+const pre = [await lvSel('障害高齢者の日常生活自立度').inputValue(), await lvSel('認知症高齢者の日常生活自立度').inputValue()]; console.log("②' A の新規作成の初期値", pre);
+r.planPrefill = pre[0] === 'A2' && pre[1] === 'Ⅱb';
+await pickLv('障害高齢者の日常生活自立度', 'B1'); await pickLv('認知症高齢者の日常生活自立度', 'Ⅳ'); await page.waitForTimeout(200);
+await page.locator('button:visible', { hasText: '保存して閉じる' }).first().click(); await page.waitForTimeout(1500);
+const a2 = await fsOf(S.A); console.log("②' A のフェイスシート(計画書で変えたあと)", a2);
+r.planOverwrite = a2.adl === 'B1' && a2.dem === 'Ⅳ';
 // ③ LIFE提出の一覧でエラーが出ない
 await page.evaluate(() => { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'life_submit', t: Date.now() })); });
 await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(1800); await page.locator('button', { hasText: 'あとで' }).click({ timeout: 300 }).catch(() => {});
