@@ -397,7 +397,7 @@ export default async function handler(req, res) {
       // ★ 2026-11-01(10/23 ユーザー決定): PIN は本人が決めず、つむぎが乱数4桁を作って登録の返事で一度だけ渡す(端末が表示・保存はハッシュだけ)
       let gp; try { gp = await genStorePin(inv.store_id, null); } catch (e) { return res.status(503).json({ error: (e && e.message) || 'PIN を作れませんでした' }); }
       const nm = String(inv.name || '').trim(); const sp = nm.split(/[\s\u3000]+/);
-      const rec = { store_id: inv.store_id, username, password_hash: hash, role: (inv.role === 'manager' ? 'manager' : 'member'), last_name: sp[0] || nm, first_name: sp.slice(1).join(' ') || '', email: inv.email || null, is_active: true, kind: 'person', member_id: inv.member_id || null, pin_hash: gp.hash }; // ★ 2026-11-01 実機で判明: display_name は DB の自動生成列(入れると『cannot insert a non-DEFAULT value』で登録できない)ので入れない
+      const rec = { store_id: inv.store_id, username, password_hash: hash, role: (inv.role === 'manager' ? 'manager' : 'staff') /* ★ 2026-11-01 実機で判明: staff.role の許容値は super_admin/manager/staff(member は制約違反) */, last_name: sp[0] || nm, first_name: sp.slice(1).join(' ') || '', email: inv.email || null, is_active: true, kind: 'person', member_id: inv.member_id || null, pin_hash: gp.hash }; // ★ 2026-11-01 実機で判明: display_name は DB の自動生成列(入れると『cannot insert a non-DEFAULT value』で登録できない)ので入れない
       const created = await sb('staff?select=*,stores(id,name,short_name)', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(rec) });
       const staff = Array.isArray(created) ? created[0] : created;
       try { await sb(`staff_invites?id=eq.${encodeURIComponent(inv.id)}&used_by=is.null`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ used_by: staff.id, used_at: new Date().toISOString() }) }); } catch {}
@@ -544,6 +544,36 @@ export default async function handler(req, res) {
       const lim = Math.min(Math.max(Number(body.limit) || 100, 1), 500);
       try { const rows = await sb(`staff_logins?select=at,name,kind,device,member_id&store_id=eq.${encodeURIComponent(sid)}&order=at.desc&limit=${lim}`); return res.status(200).json({ logins: rows || [] }); }
       catch { return res.status(200).json({ logins: [], not_ready: true }); }
+    }
+    // ★ 2026-11-01 段階4「本部も1人1アカウント」(10/18 ユーザー決定): 本部のアカウントの一覧・作成・停止/復帰(本部だけ)。
+    //   確認コード(2段階認証)はメール宛に送るので、メールは必須。自分は止められない・有効な本部アカウントは1つ以上残す
+    if (action === 'hq_list' || action === 'hq_create' || action === 'hq_set_active') {
+      if (!isHq) return res.status(403).json({ error: '本部のアカウントだけが使えます' });
+      const listHq = async () => { const rows = await sb(`staff?select=${SAFE_COLS}&role=eq.super_admin&deleted_at=is.null&order=created_at`); return (rows || []).map(x => ({ id: x.id, username: x.username, name: x.display_name || `${x.last_name || ''} ${x.first_name || ''}`.trim(), email: x.email || '', is_active: x.is_active !== false, last_login: x.last_login, created_at: x.created_at, me: String(x.id) === String(t.sid) })); };
+      if (action === 'hq_list') return res.status(200).json({ accounts: await listHq() });
+      if (action === 'hq_create') {
+        const username = String(body.username || '').trim(); const hash = String(body.password_hash || '').trim(); const email = String(body.email || '').trim();
+        const last_name = String(body.last_name || '').trim().slice(0, 40), first_name = String(body.first_name || '').trim().slice(0, 40);
+        if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(username)) return res.status(400).json({ error: 'ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください' });
+        if (!/^[0-9a-f]{64}$/.test(hash)) return res.status(400).json({ error: 'パスワードが不正です' });
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'メールアドレスは必須です(ログインの確認コードを送ります)' });
+        if (!last_name) return res.status(400).json({ error: 'お名前(姓)を入力してください' });
+        const dup = await sb(`staff?select=id&username=eq.${encodeURIComponent(username)}&deleted_at=is.null&limit=1`);
+        if (Array.isArray(dup) && dup.length) return res.status(409).json({ error: 'このログインIDは既に使われています' });
+        const dupMail = await sb(`staff?select=id&role=eq.super_admin&email=eq.${encodeURIComponent(email)}&deleted_at=is.null&limit=1`);
+        if (Array.isArray(dupMail) && dupMail.length) return res.status(409).json({ error: 'このメールアドレスの本部アカウントは既にあります(1人1つ)' });
+        await sb('staff', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ store_id: null, username, password_hash: hash, role: 'super_admin', last_name, first_name, email, phone: '', is_active: true, kind: 'store' }) });
+        return res.status(200).json({ ok: true, accounts: await listHq() });
+      }
+      // hq_set_active
+      const id = String(body.staff_id || ''); const active = !!body.active;
+      if (!id) return res.status(400).json({ error: 'staff_id' });
+      if (!active && id === String(t.sid)) return res.status(409).json({ error: '自分のアカウントは止められません(別の本部アカウントから操作してください)' });
+      const rows = await sb(`staff?select=id,role,is_active,deleted_at&id=eq.${encodeURIComponent(id)}&limit=1`); const row = Array.isArray(rows) ? rows[0] : null;
+      if (!row || row.role !== 'super_admin' || row.deleted_at) return res.status(404).json({ error: '本部のアカウントが見つかりません' });
+      if (!active) { const act = await sb(`staff?select=id&role=eq.super_admin&is_active=eq.true&deleted_at=is.null&limit=3`); if (!Array.isArray(act) || act.filter(x => String(x.id) !== id).length < 1) return res.status(409).json({ error: '有効な本部アカウントが無くなるため止められません' }); }
+      await sb(`staff?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ is_active: active }) });
+      return res.status(200).json({ ok: true, accounts: await listHq() });
     }
     // ---------------------------------------------------------------------------
     if (action === 'list') {

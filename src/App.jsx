@@ -112,7 +112,7 @@ import {
   supabaseDeleteSystemNotice,
   supabaseLoadGlobalPolicies,
   supabaseSaveGlobalPolicies,
-  supabaseCreateStaff,
+  supabaseCreateStaff, supabaseHqAccountsList, supabaseHqAccountCreate, supabaseHqAccountSetActive, // ★ 2026-11-01 本部のアカウント
   supabaseListStaff,
   supabaseUploadFile,
   supabaseDeleteFile,
@@ -20326,6 +20326,59 @@ function SystemNoticesPanel({ stores, staffSession }) {
   );
 }
 
+// ★ 2026-11-01 段階4「本部も1人1アカウント」(10/18 ユーザー決定): 管理局で本部の職員ごとのアカウントを作る・止める。確認コード(2段階認証)はこのメール宛
+function HqAccountsPanel({ staffSession }) {
+  const tok = staffSession && staffSession.token;
+  const [list, setList] = React.useState(null); const [msg, setMsg] = React.useState(''); const [busy, setBusy] = React.useState(false); const [open, setOpen] = React.useState(false);
+  const [f, setF] = React.useState({ last_name: '', first_name: '', email: '', username: '', password: '' });
+  React.useEffect(() => { if (!tok) return; (async () => { try { setList(await supabaseHqAccountsList(tok)); } catch (e) { setList([]); setMsg((e && e.message) || '読み込めませんでした'); } })(); }, [tok]);
+  const fmt = (s) => { if (!s) return '—'; try { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; } catch { return ''; } };
+  const create = async (e) => { e.preventDefault(); setMsg('');
+    if (!f.last_name.trim()) return setMsg('お名前(姓)を入力してください');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) return setMsg('メールアドレスを入力してください(確認コードの宛先)');
+    if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(f.username.trim())) return setMsg('ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください');
+    if (f.password.length < 8 || !/[A-Za-z]/.test(f.password) || !/[0-9]/.test(f.password)) return setMsg('初期パスワードは8文字以上で英字と数字を含めてください');
+    setBusy(true);
+    try { setList(await supabaseHqAccountCreate(tok, { username: f.username.trim(), password: f.password, last_name: f.last_name.trim(), first_name: f.first_name.trim(), email: f.email.trim() })); setMsg(`「${f.last_name} ${f.first_name}」の本部アカウントを作りました。ログインID と初期パスワードを本人に直接伝えてください（ログインのたびに ${f.email.trim()} へ確認コードが届きます）。`); setF({ last_name: '', first_name: '', email: '', username: '', password: '' }); setOpen(false); }
+    catch (e2) { setMsg((e2 && e2.message) || '作れませんでした'); }
+    finally { setBusy(false); }
+  };
+  const toggle = async (a) => { if (!window.confirm(a.is_active ? `「${a.name}」の本部アカウントを止めますか？（すぐにログインできなくなります）` : `「${a.name}」を復帰させますか？`)) return; try { setList(await supabaseHqAccountSetActive(tok, a.id, !a.is_active)); setMsg(''); } catch (e) { setMsg((e && e.message) || '変更できませんでした'); } };
+  if (!tok || staffSession.role !== 'super_admin') return null;
+  const inp = (k, ph, type, extra) => <input type={type || 'text'} value={f[k]} onChange={e => setF(x => ({ ...x, [k]: e.target.value }))} placeholder={ph} {...(extra || {})} style={{width:'100%',boxSizing:'border-box',padding:'9px 11px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,outline:'none'}}/>;
+  return (
+    <div data-testid="hq-accounts" style={{background:'white',borderRadius:16,padding:'16px 18px',boxShadow:'0 4px 16px rgba(0,0,0,0.06)',margin:'16px 0'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>本部のアカウント（1人1つ）</div>
+        <button type="button" data-testid="hq-acct-add" onClick={() => { setOpen(o => !o); setMsg(''); }} style={{marginLeft:'auto',padding:'8px 14px',background: open ? 'white' : '#3d5021',color: open ? '#3d5021' : 'white',border:'1px solid #3d5021',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{open ? '閉じる' : '＋ 本部の職員を追加'}</button>
+      </div>
+      <div style={{fontSize:12,color:'#475569',marginTop:4,lineHeight:1.6}}>本部の職員は一人ずつ自分のアカウントで入ります（だれが何をしたかが記録に残ります）。ログインのたびに、登録したメールへ確認コードが届きます（パスキーを登録した端末はコードなし）。退職したら「止める」を押してください。</div>
+      {open && (
+        <form onSubmit={create} data-testid="hq-acct-form" style={{marginTop:12,padding:12,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12,display:'grid',gap:8,gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))'}}>
+          <div><div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:3}}>姓 <span style={{color:'#dc2626'}}>*</span></div>{inp('last_name', '例: 見本')}</div>
+          <div><div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:3}}>名</div>{inp('first_name', '例: 太郎')}</div>
+          <div><div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:3}}>メールアドレス <span style={{color:'#dc2626'}}>*</span>（確認コードの宛先）</div>{inp('email', 'name@example.com', 'email', { autoComplete: 'off' })}</div>
+          <div><div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:3}}>ログインID <span style={{color:'#dc2626'}}>*</span></div>{inp('username', '4文字以上の半角英数字', 'text', { autoCapitalize: 'none', autoCorrect: 'off', autoComplete: 'off' })}</div>
+          <div><div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:3}}>初期パスワード <span style={{color:'#dc2626'}}>*</span>（8文字以上・英字と数字）</div>{inp('password', '本人が後で変えられます', 'password', { autoComplete: 'new-password' })}</div>
+          <div style={{display:'flex',alignItems:'end'}}><button type="submit" data-testid="hq-acct-save" disabled={busy} style={{width:'100%',padding:'10px 14px',background: busy ? '#a3b98a' : '#5e8030',color:'white',border:'none',borderRadius:10,fontSize:14,fontWeight:'bold',cursor: busy ? 'wait' : 'pointer'}}>作成する</button></div>
+        </form>
+      )}
+      {msg && <div data-testid="hq-acct-msg" style={{fontSize:12,fontWeight:'bold',color:'#334155',marginTop:8,lineHeight:1.6}}>{msg}</div>}
+      <div style={{marginTop:10,fontSize:13}}>
+        {list === null ? <span style={{color:'#64748b'}}>読み込み中…</span> : list.length === 0 ? <span style={{color:'#64748b'}}>本部のアカウントはありません</span> : list.map(a => (
+          <div key={a.id} data-testid={`hq-acct-${a.username}`} style={{display:'flex',alignItems:'center',gap:10,padding:'7px 0',borderTop:'1px solid #e2e8f0',flexWrap:'wrap'}}>
+            <span style={{fontWeight:'bold',color: a.is_active ? '#1e293b' : '#94a3b8',minWidth:110}}>{a.name || '（名前なし）'}{a.me ? <span style={{marginLeft:6,fontSize:11,color:'#146c43',fontWeight:'bold'}}>あなた</span> : null}</span>
+            <span style={{fontFamily:'monospace',color:'#334155'}}>{a.username}</span>
+            <span style={{color: a.email ? '#475569' : '#b45309',fontSize:12}}>{a.email || 'メール未登録（確認コードを送れません）'}</span>
+            <span style={{color:'#64748b',fontSize:12}}>最終ログイン {fmt(a.last_login)}</span>
+            {!a.is_active && <span style={{fontSize:11,fontWeight:'bold',color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'1px 6px'}}>停止中</span>}
+            {!a.me && <button type="button" onClick={() => toggle(a)} style={{marginLeft:'auto',padding:'4px 10px',background: a.is_active ? '#fef2f2' : '#f0f7e0',color: a.is_active ? '#b91c1c' : '#3d5021',border:`1px solid ${a.is_active ? '#fecaca' : '#c5dea0'}`,borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>{a.is_active ? '止める' : '復帰させる'}</button>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 function HqPasskeyPanel({ staffSession }) {
   const tok = staffSession && staffSession.token;
   const [list, setList] = React.useState(null); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
@@ -20679,6 +20732,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         <HqDevicePanel stores={stores}/>
         </div>
         {/* ★ 2026-10-23(ユーザー指示「毎回の確認コードが手間。安全はそのままでマスターキーのように」): 本部のパスキー */}
+        <HqAccountsPanel staffSession={staffSession}/>
         <HqPasskeyPanel staffSession={staffSession}/>
         {/* ★ J: 全店共通ポリシー編集 (折りたたみ) */}
         <div ref={_secAi} style={{scrollMarginTop:56}}>
@@ -24365,6 +24419,9 @@ export default function App() {
   // ★ 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): 管理局「端末の更新状況」パネルを単体で表示する入口(2026-10-17)
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && /^#staffinvite=/.test(window.location.hash)) { // ★ 段階4 の自動テスト(本番では空)
     return <StaffInviteAcceptView code={window.location.hash.slice('#staffinvite='.length)} onLogin={(sess) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), staffSession: sess }; }} />;
+  }
+  if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#hqaccounts') { // ★ 2026-11-01 自動テスト: 本部のアカウント(本番では空)
+    return <div style={{padding:24,background:'#f0f7e0',minHeight:'100vh'}}><HqAccountsPanel staffSession={{ token: 'tok', role: 'super_admin' }}/></div>;
   }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#stafflogin') { // ★ 自動テスト: ログイン画面(2段階認証)
     return <StaffLoginGate onLogin={(sess) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), staffSession: sess }; }} />;

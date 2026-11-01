@@ -2075,6 +2075,10 @@ export async function supabaseHqPasskeyLogin() {
 }
 export async function supabaseHqPasskeyList(token) { return (await staffApi({ action: 'passkey_list', token })).passkeys || []; }
 export async function supabaseHqPasskeyDelete(token, id) { return (await staffApi({ action: 'passkey_delete', token, id })).passkeys || []; }
+// ★ 2026-11-01 段階4: 本部のアカウント(1人1つ)
+export async function supabaseHqAccountsList(token) { return (await staffApi({ action: 'hq_list', token })).accounts || []; }
+export async function supabaseHqAccountCreate(token, { username, password, last_name, first_name, email }) { const password_hash = await hashPassword(password); return (await staffApi({ action: 'hq_create', token, username, password_hash, last_name, first_name, email })).accounts || []; }
+export async function supabaseHqAccountSetActive(token, staffId, active) { return (await staffApi({ action: 'hq_set_active', token, staff_id: String(staffId), active: !!active })).accounts || []; }
 
 // ★ 2026-10-17 データ保護(段階1): ログインの証から Supabase の証を取り直す(起動時・12時間ごと)。サーバーに秘密が無ければ null(従来どおり)
 export async function supabaseStaffRefreshSbToken(staffToken) {
