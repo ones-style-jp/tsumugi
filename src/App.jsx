@@ -50,7 +50,7 @@ import {
   supabaseListSyncDiag, supabaseClaimDeviceName, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧・端末名の自動付与
   deviceIdentityReady, kvSet, lsSetSmall, deviceStorageStatus, // ★ 2026-10-18: 端末ID・端末名の第2・第3の保存先(IndexedDB・Cookie)と保存の状態
   setFilesContext, // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名はサーバー(/api/files)で
-  supabaseStaffInviteCreate, supabaseStaffInviteLookup, supabaseStaffInviteAccept, supabaseStaffPinSet, supabaseStaffPinVerify, supabaseStaffMembersStatus, supabaseStaffSetActive, supabaseStaffLoginsList, // ★ 2026-10-19 段階4
+  supabaseStaffInviteCreate, supabaseStaffInviteLookup, supabaseStaffInviteAccept, supabaseStaffPinSet, supabaseStaffPinVerify, supabaseStaffMembersStatus, supabaseStaffSetActive, supabaseStaffLoginsList, supabaseStaffInviteMail, supabaseStaffPinReset, // ★ 2026-10-19 段階4・2026-11-01 招待メール/PIN作り直し
   supabaseStaffSharedDevice, supabaseStaffRenew, tsuTokenExp, supabaseStaffPinLogin, supabaseStaffPinUnlock, supabaseStaffPinGuardStatus, // ★ 2026-10-19 段階4 続き
   cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
@@ -19327,7 +19327,8 @@ const groupStaffByRole = (members) => {
   if (rest.length) groups.push({ role: '', label: 'その他', members: rest });
   return groups;
 };
-// ★ 2026-10-19 段階4: 従業員の本人登録(招待 URL ?staffinvite=1234-5678 から)。ID・パスワード・PIN(任意・共有 iPad の切替用)を決めてそのままログイン
+// ★ 2026-10-19 段階4: 従業員の本人登録(招待 URL ?staffinvite=1234-5678 から)。ID・パスワードを決めてそのままログイン
+// ★ 2026-11-01(10/23 ユーザー決定): PIN は本人が決めず、つむぎが乱数4桁を作って登録のあとに一度だけ表示(控えてもらう)。忘れたら管理者が作り直す
 function tsuBuildStaffSession(staff) {
   return { staffId: staff.id, username: staff.username, role: staff.role, storeId: staff.store_id || null, storeName: staff.stores?.name || '', storeShortName: staff.stores?.short_name || '',
     displayName: staff.display_name || staff.username, token: staff._token || '', kind: staff.kind || 'store', memberId: staff.member_id || null, hasPin: !!staff.has_pin };
@@ -19344,19 +19345,31 @@ function tsuWeakPin(p) {
 }
 function StaffInviteAcceptView({ code, onLogin }) {
   const [inv, setInv] = React.useState(null); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
-  const [f, setF] = React.useState({ username: '', password: '', password2: '', pin: '', pin2: '' });
+  const [f, setF] = React.useState({ username: '', password: '', password2: '' });
+  const [done, setDone] = React.useState(null); // ★ 2026-11-01: { pin, session } 登録できたら PIN を一度だけ見せてから入る
   React.useEffect(() => { let on = true; (async () => { try { const i = await supabaseStaffInviteLookup(code); if (on) setInv(i); } catch (e) { if (on) setErr(e?.message || '招待コードを確認できませんでした'); } })(); return () => { on = false; }; }, [code]);
   const submit = async (e) => { e.preventDefault(); setErr('');
     if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(f.username)) return setErr('ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください');
     if (f.password.length < 8 || !/[A-Za-z]/.test(f.password) || !/[0-9]/.test(f.password)) return setErr('パスワードは8文字以上で英字と数字を含めてください');
     if (f.password !== f.password2) return setErr('パスワード(確認)が一致しません');
-    if (f.pin && tsuWeakPin(f.pin)) return setErr(tsuWeakPin(f.pin)); // ★ 2026-10-26: 分かりやすい PIN は不可
-    if (f.pin !== f.pin2) return setErr('PIN(確認)が一致しません');
     setBusy(true);
-    try { const staff = await supabaseStaffInviteAccept({ code, username: f.username, password: f.password, pin: f.pin }); const session = tsuBuildStaffSession(staff); sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session)); try { history.replaceState(null, '', location.pathname); } catch {} onLogin(session); }
+    try { const staff = await supabaseStaffInviteAccept({ code, username: f.username, password: f.password }); const session = tsuBuildStaffSession(staff); sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session)); try { history.replaceState(null, '', location.pathname); } catch {}
+      if (staff._pin) { setBusy(false); setDone({ pin: staff._pin, session }); } else onLogin(session); }
     catch (e2) { setErr(e2?.message || '登録に失敗しました'); setBusy(false); }
   };
   const inp = (k, type, ph, extra) => <input type={type} value={f[k]} onChange={e => setF(x => ({ ...x, [k]: e.target.value }))} placeholder={ph} {...(extra || {})} style={{width:'100%',boxSizing:'border-box',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:16,outline:'none'}}/>;
+  if (done) return (
+    <div data-testid="staff-invite-view" style={{minHeight:'100vh',background:'#f4f8ed',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div data-testid="staff-invite-pin" style={{width:'100%',maxWidth:440,background:'white',borderRadius:16,padding:'24px 22px',boxShadow:'0 4px 16px rgba(0,0,0,0.08)'}}>
+        <div style={{fontSize:11,fontWeight:'bold',color:'#5e8030',letterSpacing:2}}>TSUMUGI</div>
+        <div style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:6}}>登録できました</div>
+        <div style={{fontSize:14,color:'#334155',lineHeight:1.7}}>あなたの <b>PIN（4桁）</b> です。みんなで使う iPad で「自分に切り替える」ときに入力します。<b>この画面を閉じると二度と表示されません</b>。手帳などに控えてください。</div>
+        <div data-testid="staff-invite-pin-value" style={{margin:'16px 0',textAlign:'center',fontSize:44,fontWeight:'bold',letterSpacing:14,color:'#1e293b',background:'#f0f7e0',border:'2px solid #c5dea0',borderRadius:14,padding:'14px 0'}}>{done.pin}</div>
+        <div style={{fontSize:12,color:'#64748b',lineHeight:1.6}}>忘れたときは、店舗の管理者が「PIN を作り直す」で新しい番号を発行できます（利用者マスタ管理 → スタッフ → あなたの名前）。</div>
+        <button type="button" data-testid="staff-invite-pin-ok" onClick={() => { if (!window.confirm('PIN を控えましたか？（この画面を閉じると二度と表示されません）')) return; onLogin(done.session); }} style={{marginTop:16,width:'100%',minHeight:48,padding:'12px 16px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:16,fontWeight:'bold',cursor:'pointer'}}>控えました。つむぎをはじめる</button>
+      </div>
+    </div>
+  );
   return (
     <div data-testid="staff-invite-view" style={{minHeight:'100vh',background:'#f4f8ed',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
       <form onSubmit={submit} style={{width:'100%',maxWidth:440,background:'white',borderRadius:16,padding:'24px 22px',boxShadow:'0 4px 16px rgba(0,0,0,0.08)'}}>
@@ -19373,8 +19386,7 @@ function StaffInviteAcceptView({ code, onLogin }) {
             <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>ログインID <span style={{color:'#dc2626'}}>*</span></div>{inp('username','text','例: hanako_m（4文字以上の半角英数字）',{autoCapitalize:'none',autoCorrect:'off'})}</div>
             <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>パスワード <span style={{color:'#dc2626'}}>*</span>（8文字以上・英字と数字）</div>{inp('password','password','パスワード')}</div>
             <div>{inp('password2','password','パスワード（確認）')}</div>
-            <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>PIN（数字4桁・任意）</div><div style={{fontSize:12,color:'#64748b',marginBottom:4,lineHeight:1.6}}>共有のiPadで自分に切り替えるときの番号です（あとからでも設定できます）。</div>{inp('pin','password','0000',{inputMode:'numeric',maxLength:4})}</div>
-            <div>{inp('pin2','password','PIN（確認）',{inputMode:'numeric',maxLength:4})}</div>
+            <div style={{fontSize:12,color:'#64748b',lineHeight:1.6,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,padding:'8px 10px'}}>登録が終わると、みんなで使う iPad で「自分に切り替える」ための <b>4桁の PIN</b> が一度だけ表示されます（つむぎが自動で決めます）。</div>
           </div>
           <button type="submit" disabled={busy} style={{marginTop:16,width:'100%',minHeight:48,padding:'12px 16px',background:busy?'#a3b98a':'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:16,fontWeight:'bold',cursor:'pointer'}}>{busy ? '登録中…' : '登録してログイン'}</button>
         </>)}
@@ -23349,6 +23361,7 @@ export default function App() {
     if (!isSupabaseEnabled || !staffSession?.token || !staffSession?.storeId) return null;
     const withPin = new Set((_staffAcct.accounts || []).filter(a => a.is_active && a.has_pin).map(a => String(a.member_id)));
     return { enabled: true, kind: staffSession.kind || 'store', role: staffSession.role, displayName: staffSession.displayName, hasPin: !!staffSession.hasPin,
+      hasManagerAccount: (_staffAcct.accounts || []).some(a => a.is_active && a.role === 'manager'), // ★ 2026-11-01: 共通ログインを止める前提
       membersWithoutAccount: mergedStaffMembers.filter(m => m.id !== 'hq_viewer' && !withPin.has(String(m.id))).map(m => m.name),
       setPin: async (pin) => { await supabaseStaffPinSet(staffSession.token, pin); const next = { ...staffSession, hasPin: true }; sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(next)); setStaffSession(next); _reloadStaffAcct(); },
       sharedDevice: async () => { const r = await supabaseStaffSharedDevice(staffSession.token); if (!r || !r.token) throw new Error('設定できませんでした'); const next = { ...r.session, token: r.token }; sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(next)); sessionStorage.removeItem('tsumugiActiveRecorder'); window.location.reload(); },
@@ -25478,7 +25491,15 @@ export default function App() {
               const mid = String(staffAddForm.editId); const acct = (_staffAcct.accounts || []).find(a => String(a.member_id) === mid) || null; const inv = (_staffAcct.invites || []).find(i => String(i.member_id) === mid) || null;
               const nm = `${staffAddForm.lastName || ''} ${staffAddForm.firstName || ''}`.trim();
               const url = inv ? `${location.origin}${location.pathname}?staffinvite=${inv.code}` : '';
-              const issue = async () => { if (!tsuAdminGate(issue, '招待コードの発行')) return; /* ★ 2026-10-26(ユーザー): 招待を出せるのは管理者だけ */ try { await supabaseStaffInviteCreate(staffSession.token, { storeId: staffSession.storeId, memberId: mid, name: nm, role: staffAddForm.role === '管理者' ? 'manager' : 'member' }); await _reloadStaffAcct(); } catch (e) { alert(e?.message || '招待を発行できませんでした'); } };
+              const _email = staffAddForm.inviteEmail !== undefined ? staffAddForm.inviteEmail : ((inv && inv.email) || '');
+              const _setF = (patch) => setStaffAddForm(f => ({ ...f, ...patch }));
+              const _mailNote = (r) => _setF({ mailMsg: r && r.mailed ? `送信済み（${_email}・${new Date(r.sent_at || Date.now()).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}）` : `メールを送れませんでした${r && r.mail_err ? `（${r.mail_err}）` : ''}。URL をコピーして渡してください` });
+              const issue = async () => { if (!tsuAdminGate(issue, '招待コードの発行')) return; /* ★ 2026-10-26(ユーザー): 招待を出せるのは管理者だけ */ try { const r = await supabaseStaffInviteCreate(staffSession.token, { storeId: staffSession.storeId, memberId: mid, name: nm, role: staffAddForm.role === '管理者' ? 'manager' : 'member', email: _email.trim() }); await _reloadStaffAcct(); if (_email.trim()) _mailNote(r); else _setF({ mailMsg: '' }); } catch (e) { alert(e?.message || '招待を発行できませんでした'); } };
+              // ★ 2026-11-01: 招待メールを送る(送り直し)。宛先はその場で入れられる
+              const mail = async () => { if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(_email.trim())) { alert('メールアドレスを入力してください'); return; } if (!tsuAdminGate(mail, '招待メールの送信')) return; _setF({ mailMsg: '送信中…' }); try { const r = await supabaseStaffInviteMail(staffSession.token, { storeId: staffSession.storeId, memberId: mid, email: _email.trim() }); _mailNote(r); await _reloadStaffAcct(); } catch (e) { _setF({ mailMsg: `メールを送れませんでした（${e?.message || ''}）` }); } };
+              // ★ 2026-11-01(10/23 ユーザー決定): PIN を忘れた職員には管理者が新しい乱数4桁を作る(一度だけ表示)
+              const resetPin = async () => { if (!acct) return; if (!tsuAdminGate(resetPin, 'PIN の作り直し')) return; if (!window.confirm(`「${acct.name}」の PIN を作り直します。今までの PIN は使えなくなり、新しい4桁がこの画面に一度だけ表示されます。よろしいですか？`)) return; try { const r = await supabaseStaffPinReset(staffSession.token, acct.staff_id); _setF({ newPin: r.pin || '' }); await _reloadStaffAcct(); } catch (e) { alert(e?.message || 'PIN を作り直せませんでした'); } };
+              const emailInput = <input type="email" value={_email} onChange={e => _setF({ inviteEmail: e.target.value })} placeholder="本人のメールアドレス（招待メールの宛先）" autoComplete="off" className="w-full sm:w-72 px-3 py-2 border border-slate-300 rounded-lg text-sm"/>;
               const toggle = async () => { if (!acct) return; if (!window.confirm(acct.is_active ? `「${acct.name}」を退職にしますか？\n（この人のログインはすぐに使えなくなります。記録に残っている名前はそのままです）` : `「${acct.name}」を復帰にしますか？`)) return; try { await supabaseStaffSetActive(staffSession.token, acct.staff_id, !acct.is_active); await _reloadStaffAcct(); } catch (e) { alert(e?.message || '変更できませんでした'); } };
               return (
                 <div data-testid="member-account-panel" className="mt-4 p-3 rounded-xl border border-emerald-200 bg-emerald-50/60">
@@ -25488,7 +25509,17 @@ export default function App() {
                     <div className="text-sm text-slate-700 leading-6">
                       <div>状態: {acct.is_active ? <b className="text-emerald-700">登録済み</b> : <b className="text-red-700">退職（ログイン不可）</b>}　ID: <span className="font-mono">{acct.username}</span>　PIN: {acct.has_pin ? 'あり' : 'なし'}</div>
                       <div className="text-xs text-slate-500">最終ログイン: {acct.last_login ? new Date(acct.last_login).toLocaleString('ja-JP') : '—'}</div>
-                      <button type="button" onClick={toggle} className={`mt-2 px-3 py-2 rounded-lg text-sm font-bold ${acct.is_active ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-emerald-600 text-white'}`}>{acct.is_active ? '退職にする' : '復帰させる'}</button>
+                      <div className="flex gap-2 mt-2 flex-wrap items-center">
+                        <button type="button" onClick={toggle} className={`px-3 py-2 rounded-lg text-sm font-bold ${acct.is_active ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-emerald-600 text-white'}`}>{acct.is_active ? '退職にする' : '復帰させる'}</button>
+                        {acct.is_active && <button type="button" data-testid="member-pin-reset" onClick={resetPin} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-emerald-300 text-emerald-800">PIN を作り直す</button>}
+                      </div>
+                      {staffAddForm.newPin && (
+                        <div data-testid="member-pin-new" className="mt-2 p-3 rounded-xl border-2 border-emerald-300 bg-emerald-50">
+                          <div className="text-xs font-bold text-emerald-900">新しい PIN（この画面を閉じると表示されません。本人に直接伝えてください）</div>
+                          <div className="text-3xl font-bold tracking-[0.4em] text-slate-800 text-center my-1">{staffAddForm.newPin}</div>
+                          <button type="button" onClick={() => _setF({ newPin: '' })} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-300 text-slate-700">伝えました（消す）</button>
+                        </div>
+                      )}
                     </div>
                   ) : inv ? (
                     <div className="text-sm text-slate-700 leading-6">
@@ -25499,12 +25530,16 @@ export default function App() {
                         <button type="button" onClick={() => { try { navigator.clipboard.writeText(url); tsuPopNotice('招待URLをコピーしました'); } catch {} }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">URLをコピー</button>
                         <button type="button" onClick={issue} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">コードを発行し直す</button>
                       </div>
-                      <div className="text-xs text-slate-500 mt-1">本人にこのURL（またはコード）を渡します。本人がID・パスワード・PINを決めると登録完了です。</div>
+                      <div className="flex gap-2 mt-2 flex-wrap items-center">{emailInput}<button type="button" data-testid="member-invite-mail" onClick={mail} className="px-3 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white">招待メールを送る</button></div>
+                      {staffAddForm.mailMsg && <div data-testid="member-invite-mailmsg" className={`text-xs font-bold mt-1 ${/送信済み/.test(staffAddForm.mailMsg) ? 'text-emerald-700' : 'text-amber-700'}`}>{staffAddForm.mailMsg}</div>}
+                      <div className="text-xs text-slate-500 mt-1">メールで送るか、このURL（またはコード）を本人に渡します。本人がID・パスワードを決めると登録完了です。PIN はつむぎが自動で決め、本人の画面に一度だけ表示されます。</div>
                     </div>
                   ) : (
                     <div className="text-sm text-slate-700 leading-6">
                       <div>未登録</div>
-                      <button type="button" onClick={issue} disabled={!!_staffAcct.not_ready} className="mt-1 px-3 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white disabled:opacity-50">招待コードを発行</button>
+                      <div className="flex gap-2 mt-1 flex-wrap items-center">{emailInput}<button type="button" onClick={issue} disabled={!!_staffAcct.not_ready} className="px-3 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white disabled:opacity-50">{_email.trim() ? '招待コードを発行してメールを送る' : '招待コードを発行'}</button></div>
+                      {staffAddForm.mailMsg && <div className="text-xs font-bold mt-1 text-amber-700">{staffAddForm.mailMsg}</div>}
+                      <div className="text-xs text-slate-500 mt-1">メールアドレスを入れると、本人登録の案内（URL・コード・手順）を送ります。入れなければ URL をコピーして渡せます。</div>
                     </div>
                   )}
                 </div>
@@ -42187,9 +42222,7 @@ function tsuPendingInitialReportSet(appData) {
 function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
   const sec = tsuSecurity(appData);
   const setSec = (patch) => onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), security: { ...sec, ...patch } } }, { manual: true, message: '✓ ログインとロックの設定を保存しました' });
-  const [pin, setPin] = useState(''); const [pin2, setPin2] = useState(''); const [pinMsg, setPinMsg] = useState('');
-  const [busy, setBusy] = useState(false);
-  const savePin = async () => { setPinMsg(''); if (tsuWeakPin(pin)) return setPinMsg(tsuWeakPin(pin)); /* ★ 2026-10-26: 分かりやすい PIN は不可 */ if (pin !== pin2) return setPinMsg('PIN(確認)が一致しません'); setBusy(true); try { await staffCtx.setPin(pin); setPin(''); setPin2(''); setPinMsg('PIN を保存しました'); } catch (e) { setPinMsg(e?.message || '保存できませんでした'); } setBusy(false); };
+  // ★ 2026-11-01(10/23 ユーザー決定): 本人が PIN を決める欄はなくした(つむぎが作る・管理者が作り直す)
   const Sel = ({ value, opts, onChange }) => <select value={String(value)} onChange={e => onChange(Number(e.target.value))} className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold bg-white">{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>;
   const noAcct = staffCtx.membersWithoutAccount || [];
   const [guard, setGuard] = useState(null);
@@ -42209,13 +42242,7 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
         {staffCtx.kind === 'person' && (
           <div className="mb-4 p-3 rounded-xl border border-emerald-200 bg-emerald-50/60">
             <div className="text-sm font-bold text-emerald-900">本人のログイン（{staffCtx.displayName}）</div>
-            <div className="text-xs text-slate-600 mt-1 mb-2">みんなで使う iPad で「自分に切り替える」ための PIN（数字4桁）{staffCtx.hasPin ? '：設定済み（変更できます）' : '：未設定'}</div>
-            <div className="flex gap-2 flex-wrap items-center">
-              <input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => setPin(e.target.value)} placeholder="新しい PIN" className="w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm"/>
-              <input type="password" inputMode="numeric" maxLength={4} value={pin2} onChange={e => setPin2(e.target.value)} placeholder="確認" className="w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm"/>
-              <button type="button" onClick={savePin} disabled={busy} className="px-3 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white disabled:opacity-50">PIN を保存</button>
-              {pinMsg && <span className="text-xs font-bold text-slate-600">{pinMsg}</span>}
-            </div>
+            <div className="text-xs text-slate-600 mt-1 mb-2 leading-5">みんなで使う iPad で「自分に切り替える」ための PIN（数字4桁）は、本人登録のときに一度だけ表示された番号です{staffCtx.hasPin ? '（設定済み）' : '（未設定）'}。本人は変えられません。忘れたときは店舗の管理者が「PIN を作り直す」で新しい番号を発行します（利用者マスタ管理 → スタッフ → 名前）。</div>
             {staffCtx.role === 'manager' && (
               <div className="mt-3 pt-3 border-t border-emerald-200">
                 <div className="text-sm font-bold text-emerald-900">この端末をみんなで使う</div>
@@ -42235,7 +42262,7 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
             <label data-testid="sec-row-pin" className="flex items-center justify-between gap-3 cursor-pointer"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}。間違いが続くと PIN を止めます</div></div>
               <input type="checkbox" checked={!!sec.pinRequired} onChange={e => { if (e.target.checked && noAcct.length && !window.confirm(`まだ本人登録が済んでいない職員が ${noAcct.length} 名います（${noAcct.slice(0,5).join('・')}${noAcct.length>5?' …':''}）。この人たちは記録できなくなります。PIN を必須にしますか？`)) return; setSec({ pinRequired: e.target.checked }); }} className="w-6 h-6 shrink-0"/></label>
             <label data-testid="sec-row-storeid" className="flex items-center justify-between gap-3 cursor-pointer"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">店舗IDでのログインを止める</div><div className="text-xs text-slate-500">全員が本人登録を終えたら入れます</div></div>
-              <input type="checkbox" checked={!!sec.storeLoginDisabled} onChange={e => { if (e.target.checked && !window.confirm('店舗IDでのログインを止めます。管理者の本人ログインから「この端末をみんなで使う」を設定できることを確認してから入れてください。よろしいですか？')) return; setSec({ storeLoginDisabled: e.target.checked }); }} className="w-6 h-6 shrink-0"/></label>
+              <input type="checkbox" checked={!!sec.storeLoginDisabled} onChange={e => { if (e.target.checked && !staffCtx.hasManagerAccount) { alert('先に管理者の本人登録（従業員ごとのアカウント）を済ませてください。管理者の本人アカウントが無いまま止めると、この店舗に入れなくなります。'); return; } /* ★ 2026-11-01 */ if (e.target.checked && !window.confirm('店舗IDでのログインを止めます。今ログイン中の店舗ID（共通）の端末は、すぐにログアウトして入り直しになります。管理者の本人ログインから「この端末をみんなで使う」を設定できることを確認してから入れてください。よろしいですか？')) return; setSec({ storeLoginDisabled: e.target.checked }); }} className="w-6 h-6 shrink-0"/></label>
           </div>
         ) : <div className="text-xs text-slate-500">ロックや PIN の設定は管理者が行います。</div>}
       </div>

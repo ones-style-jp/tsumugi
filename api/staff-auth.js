@@ -178,8 +178,25 @@ async function notifyPinHardLock(sid) {
   await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', 'api-key': apiKey }, body: JSON.stringify({ sender: { email: senderEmail, name: 'つむぎ' }, to, subject: `【つむぎ】${name}: PIN の間違いが続いたため停止しました`, htmlContent: html }) });
 }
 // ★ 段階4: 店舗のログイン設定(各種設定→システム・systemSettings.security)。読めなければ既定
+// ★ 2026-11-01: 証 t が「店舗共通ログイン」で、その店舗が共通ログインを止めていれば true(shared・本部・本人は false)
+async function storeLoginNowDisabled(t, row) {
+  try { if (!t || t.shared || t.role === 'super_admin' || !t.store_id) return false;
+    const r = row || (Array.isArray(await sb(`staff?select=id,kind&id=eq.${encodeURIComponent(t.sid)}&limit=1`)) ? (await sb(`staff?select=id,kind&id=eq.${encodeURIComponent(t.sid)}&limit=1`))[0] : null);
+    if (!r || (r.kind || 'store') !== 'store') return false;
+    return !!(await storeSecurity(t.store_id)).storeLoginDisabled; } catch { return false; }
+}
 async function storeSecurity(storeId) {
   try { const rows = await sb(`app_state?select=sec:data->systemSettings->security&key=eq.${encodeURIComponent(storeId)}&limit=1`); const sec = rows && rows[0] && rows[0].sec; return (sec && typeof sec === 'object') ? sec : {}; } catch { return {}; }
+}
+// ★ 2026-11-01: 招待メールの送信(店舗名を引いて URL を組む)。URL はこの API を呼んだアプリのアドレス(origin)。origin が無い/違うときは host から https で組む
+async function sendInviteMail(req, storeId, inv) {
+  let storeName = ''; try { const st = await sb(`stores?select=name,short_name&id=eq.${encodeURIComponent(storeId)}&limit=1`); storeName = (st && st[0] && (st[0].name || st[0].short_name)) || ''; } catch {}
+  const rp = rpOf(req); const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  const origin = (rp && rp.origin) || (host ? `https://${host}` : '');
+  const url = `${origin}/?staffinvite=${inv.code}`;
+  _lastMailErr = '';
+  const ok = await sendMail([inv.email], `【つむぎ】本人登録のご案内（${storeName || 'つむぎ'}）`, inviteMailHtml({ storeName, name: inv.name, url, code: inv.code, expiresAt: inv.expires_at }));
+  return { ok: !!ok, err: ok ? '' : (_lastMailErr || 'メールを送れませんでした（送信の設定を確認してください）') };
 }
 // ★ 2026-10-19 段階4: ログイン記録(staff_logins が無い間は黙って何もしない)
 async function logLogin(staff, kind, device) {
@@ -213,6 +230,34 @@ function readToken(token) {
     if (!t || !t.sid || !t.exp || Date.now() > Number(t.exp)) return null;
     return t;
   } catch { return null; }
+}
+// ★ 2026-11-01 段階4(10/23 ユーザー決定): PIN はつむぎが乱数4桁を作る(本人は決めない・変えられない・忘れたら管理者が作り直す)。
+//   分かりやすい並び(同じ数字・2桁の繰り返し・連番・19xx/20xx)は避け、同じ店舗の中で重ならない。ハッシュは端末の hashPin と同じ(sha256('tsumugi_v1_pin:'+pin))
+const pinHashOf = (pin) => crypto.createHash('sha256').update('tsumugi_v1_pin:' + String(pin)).digest('hex');
+function pinWeak(t) { if (!/^\d{4}$/.test(t)) return true; if (/^(\d)\1{3}$/.test(t)) return true; if (/^(\d\d)\1$/.test(t)) return true;
+  const d = [...t].map(Number); const up = d.every((v, i) => i === 0 || v === (d[i - 1] + 1) % 10); const dn = d.every((v, i) => i === 0 || v === (d[i - 1] + 9) % 10);
+  if (up || dn) return true; if (/^(19|20)\d\d$/.test(t)) return true; return false; }
+async function genStorePin(storeId, exceptId) {
+  for (let i = 0; i < 60; i++) {
+    const pin = String(crypto.randomInt(0, 10000)).padStart(4, '0'); if (pinWeak(pin)) continue; const h = pinHashOf(pin);
+    const pd = await sb(`staff?select=id&store_id=eq.${encodeURIComponent(storeId)}&pin_hash=eq.${encodeURIComponent(h)}&deleted_at=is.null&limit=2`);
+    if (Array.isArray(pd) && pd.some(x => String(x.id) !== String(exceptId || ''))) continue;
+    return { pin, hash: h };
+  }
+  throw new Error('PIN を作れませんでした。もう一度お試しください');
+}
+// ★ 2026-11-01: 職員への招待メール(本人登録の URL とコード)。送れなくても招待は作る
+function inviteMailHtml({ storeName, name, url, code, expiresAt }) {
+  const esc = (v) => String(v || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const exp = expiresAt ? new Date(expiresAt).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric' }) : '';
+  return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"></head><body style="font-family:-apple-system,'Hiragino Sans','Yu Gothic',sans-serif;color:#1e293b;line-height:1.8;font-size:15px">
+<p>${esc(name)} 様</p>
+<p>${esc(storeName)} の記録アプリ「つむぎ」に、あなた専用のログインを作る案内です。<br>下のボタン（またはURL）を開き、ログインIDとパスワードを決めてください。所要時間は2分ほどです。</p>
+<p style="margin:22px 0"><a href="${esc(url)}" style="display:inline-block;background:#5e8030;color:#fff;text-decoration:none;font-weight:bold;padding:12px 22px;border-radius:10px">本人登録をはじめる</a></p>
+<p style="font-size:13px;color:#475569;word-break:break-all">URL: ${esc(url)}<br>招待コード: <b style="font-size:18px;letter-spacing:2px">${esc(code)}</b>（URLが開けないときは、つむぎのログイン画面で入力）<br>有効期限: ${esc(exp)} まで</p>
+<p style="background:#f0f7e0;border:1px solid #c5dea0;border-radius:10px;padding:10px 14px;font-size:14px"><b>登録の流れ</b><br>1. ログインIDとパスワードを決めます<br>2. 登録が終わると <b>4桁のPIN</b> が一度だけ表示されます。みんなで使う iPad で「自分に切り替える」ときの番号です。必ず控えてください（忘れたときは店舗の管理者が作り直せます）</p>
+<p style="font-size:12px;color:#64748b">このメールに心当たりがない場合は、そのまま破棄してください。本メールは送信専用です。</p>
+</body></html>`;
 }
 const strip = (row) => { if (!row) return row; const { password_hash, pin_hash, ...rest } = row; return { ...rest, has_pin: !!pin_hash }; };
 
@@ -344,21 +389,21 @@ export default async function handler(req, res) {
       if (inv.expires_at && new Date(inv.expires_at) < new Date()) return res.status(410).json({ error: '招待コードの有効期限が切れています(店舗の管理者に発行し直してもらってください)' });
       let storeName = ''; try { const st = await sb(`stores?select=name,short_name&id=eq.${encodeURIComponent(inv.store_id)}&limit=1`); storeName = (st && st[0] && (st[0].name || st[0].short_name)) || ''; } catch {}
       if (action === 'invite_lookup') return res.status(200).json({ invite: { store_id: inv.store_id, store_name: storeName, name: inv.name || '', role: inv.role || 'member', member_id: inv.member_id || null } });
-      const username = String(body.username || '').trim(); const hash = String(body.password_hash || '').trim(); const pin = String(body.pin_hash || '').trim();
+      const username = String(body.username || '').trim(); const hash = String(body.password_hash || '').trim();
       if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(username)) return res.status(400).json({ error: 'ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください' });
       if (!/^[0-9a-f]{64}$/.test(hash)) return res.status(400).json({ error: 'パスワードが不正です' });
-      if (pin && !/^[0-9a-f]{64}$/.test(pin)) return res.status(400).json({ error: 'PIN が不正です' });
       const dup = await sb(`staff?select=id&username=eq.${encodeURIComponent(username)}&deleted_at=is.null&limit=1`);
       if (Array.isArray(dup) && dup.length) return res.status(409).json({ error: 'このログインIDは既に使われています' });
-      if (pin) { const pd = await sb(`staff?select=id&store_id=eq.${encodeURIComponent(inv.store_id)}&pin_hash=eq.${encodeURIComponent(pin)}&is_active=eq.true&deleted_at=is.null&limit=1`); if (Array.isArray(pd) && pd.length) return res.status(409).json({ error: 'この PIN は同じ店舗で既に使われています。別の番号にしてください' }); }
+      // ★ 2026-11-01(10/23 ユーザー決定): PIN は本人が決めず、つむぎが乱数4桁を作って登録の返事で一度だけ渡す(端末が表示・保存はハッシュだけ)
+      let gp; try { gp = await genStorePin(inv.store_id, null); } catch (e) { return res.status(503).json({ error: (e && e.message) || 'PIN を作れませんでした' }); }
       const nm = String(inv.name || '').trim(); const sp = nm.split(/[\s\u3000]+/);
-      const rec = { store_id: inv.store_id, username, password_hash: hash, role: (inv.role === 'manager' ? 'manager' : 'member'), last_name: sp[0] || nm, first_name: sp.slice(1).join(' ') || '', display_name: nm, email: inv.email || null, is_active: true, kind: 'person', member_id: inv.member_id || null, pin_hash: pin || null };
+      const rec = { store_id: inv.store_id, username, password_hash: hash, role: (inv.role === 'manager' ? 'manager' : 'member'), last_name: sp[0] || nm, first_name: sp.slice(1).join(' ') || '', display_name: nm, email: inv.email || null, is_active: true, kind: 'person', member_id: inv.member_id || null, pin_hash: gp.hash };
       const created = await sb('staff?select=*,stores(id,name,short_name)', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(rec) });
       const staff = Array.isArray(created) ? created[0] : created;
       try { await sb(`staff_invites?id=eq.${encodeURIComponent(inv.id)}&used_by=is.null`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ used_by: staff.id, used_at: new Date().toISOString() }) }); } catch {}
       const mc = await mintSbTokenChecked(staff);
       await logLogin(staff, 'person', body.device);
-      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null });
+      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, pin: gp.pin /* ★ 一度だけ */ });
     }
 
     // 以降は token 必須
@@ -370,6 +415,8 @@ export default async function handler(req, res) {
     if (action === 'sb_token') {
       // ★ 2026-10-19 段階4: 退職(is_active=false)・削除済みならログインの証も失効させる(アプリはログアウトして入り直し)
       try { const cur = await sb(`staff?select=id,is_active,deleted_at&id=eq.${encodeURIComponent(t.sid)}&limit=1`); const row = Array.isArray(cur) ? cur[0] : null; if (row && (row.is_active === false || row.deleted_at)) return res.status(401).json({ error: 'このアカウントは使えなくなりました。管理者にご確認ください。', expired: true }); } catch {}
+      // ★ 2026-11-01: 店舗共通(kind=store)の証は、店舗の設定「店舗IDでのログインを止める」が入ったら失効(ログイン中の端末も入り直し)。「この端末をみんなで使う」(shared)と本部は対象外
+      if (await storeLoginNowDisabled(t)) return res.status(401).json({ error: 'この店舗は「従業員ごとのログイン」に切り替わりました。ご自身のログインIDとパスワードでログインしてください。', expired: true, store_login_disabled: true });
       const mc = await mintSbTokenChecked({ id: t.sid, role: t.role, store_id: t.store_id });
       return res.status(200).json({ sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, configured: !!JWT_SECRET, reason: mc.ok ? undefined : mc.reason });
     }
@@ -380,6 +427,7 @@ export default async function handler(req, res) {
       // 証の延長(使っている限り切れない)。退職・削除なら失効
       const cur = await sb(`staff?select=id,role,store_id,is_active,deleted_at,kind,member_id&id=eq.${encodeURIComponent(t.sid)}&limit=1`); const row = Array.isArray(cur) ? cur[0] : null;
       if (!row || row.is_active === false || row.deleted_at) return res.status(401).json({ error: 'このアカウントは使えなくなりました。管理者にご確認ください。', expired: true });
+      if (await storeLoginNowDisabled(t, row)) return res.status(401).json({ error: 'この店舗は「従業員ごとのログイン」に切り替わりました。ご自身のログインIDとパスワードでログインしてください。', expired: true, store_login_disabled: true }); // ★ 2026-11-01
       const payload = b64u(JSON.stringify({ sid: row.id, role: t.role, store_id: t.store_id || row.store_id || null, shared: !!t.shared, exp: Date.now() + TOKEN_TTL_MS }));
       return res.status(200).json({ token: payload + '.' + sign(payload) });
     }
@@ -404,9 +452,37 @@ export default async function handler(req, res) {
       if (rec.member_id) { try { await sb(`staff_invites?store_id=eq.${encodeURIComponent(sid)}&member_id=eq.${encodeURIComponent(rec.member_id)}&used_by=is.null`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }); } catch {} }
       const ins = await sb('staff_invites?select=*', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(rec) });
       const inv = Array.isArray(ins) ? ins[0] : ins;
-      return res.status(200).json({ invite: { code: inv.code, expires_at: inv.expires_at, name: inv.name, role: inv.role, member_id: inv.member_id } });
+      // ★ 2026-11-01: メールアドレスがあれば招待メール(本人登録の URL とコード)を送る。送れなくても招待は有効(URL をコピーして渡せる)
+      let mailed = false, mail_err = '';
+      if (rec.email && /@/.test(rec.email)) { const m = await sendInviteMail(req, sid, inv); mailed = m.ok; mail_err = m.err; }
+      return res.status(200).json({ invite: { code: inv.code, expires_at: inv.expires_at, name: inv.name, role: inv.role, member_id: inv.member_id, email: inv.email || '' }, mailed, mail_err, sent_at: mailed ? new Date().toISOString() : null });
+    }
+    if (action === 'invite_mail') {
+      // ★ 2026-11-01: 招待メールを(もう一度)送る。宛先を入れ直せる
+      const sid = String(body.store_id || t.store_id || ''); if (!sid || !canManageStore(sid)) return res.status(403).json({ error: '権限がありません' });
+      const mid = String(body.member_id || ''); if (!mid) return res.status(400).json({ error: 'member_id' });
+      const rows = await sb(`staff_invites?select=*&store_id=eq.${encodeURIComponent(sid)}&member_id=eq.${encodeURIComponent(mid)}&used_by=is.null&order=created_at.desc&limit=1`);
+      const inv = Array.isArray(rows) ? rows[0] : null; if (!inv) return res.status(404).json({ error: '有効な招待がありません。先に招待コードを発行してください' });
+      if (inv.expires_at && new Date(inv.expires_at) < new Date()) return res.status(410).json({ error: '招待コードの有効期限が切れています。発行し直してください' });
+      const email = String(body.email || inv.email || '').trim(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'メールアドレスを入力してください' });
+      if (email !== inv.email) { try { await sb(`staff_invites?id=eq.${encodeURIComponent(inv.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ email }) }); } catch {} inv.email = email; }
+      const m = await sendInviteMail(req, sid, inv);
+      return res.status(200).json({ mailed: m.ok, mail_err: m.err, sent_at: m.ok ? new Date().toISOString() : null, email });
+    }
+    if (action === 'pin_reset') {
+      // ★ 2026-11-01(10/23 ユーザー決定): PIN を忘れた職員には、管理者が新しい乱数4桁を作る(返事で一度だけ渡す・本人は変えられない)
+      const target = await sb(`staff?select=id,store_id,kind,is_active,deleted_at,display_name&id=eq.${encodeURIComponent(String(body.staff_id || ''))}&limit=1`); const row = Array.isArray(target) ? target[0] : null;
+      if (!row || !canManageStore(row.store_id) || row.kind !== 'person') return res.status(403).json({ error: '権限がありません' });
+      if (row.is_active === false || row.deleted_at) return res.status(409).json({ error: '退職にしている方の PIN は作れません(先に復帰させてください)' });
+      let gp; try { gp = await genStorePin(row.store_id, row.id); } catch (e) { return res.status(503).json({ error: (e && e.message) || 'PIN を作れませんでした' }); }
+      await sb(`staff?id=eq.${encodeURIComponent(row.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ pin_hash: gp.hash }) });
+      try { await pinGuardUnlock(row.store_id); } catch {}
+      return res.status(200).json({ ok: true, pin: gp.pin });
     }
     if (action === 'pin_set') {
+      // ★ 2026-11-01(10/23 ユーザー決定): PIN は本人が決めない。忘れたら管理者が pin_reset で作り直す
+      return res.status(403).json({ error: 'PIN は本人登録のときに表示された番号です。忘れたときは店舗の管理者が「PIN を作り直す」で新しい番号を発行します' });
+      // eslint-disable-next-line no-unreachable
       const pin = String(body.pin_hash || '').trim(); if (!/^[0-9a-f]{64}$/.test(pin)) return res.status(400).json({ error: 'PIN が不正です' });
       const me = await sb(`staff?select=id,store_id,kind&id=eq.${encodeURIComponent(t.sid)}&limit=1`); const row = Array.isArray(me) ? me[0] : null;
       if (!row || row.kind !== 'person') return res.status(403).json({ error: '本人アカウントだけ PIN を設定できます' });
@@ -452,8 +528,8 @@ export default async function handler(req, res) {
       try {
         const rows = await sb(`staff?select=id,member_id,display_name,last_name,first_name,username,role,is_active,last_login,pin_hash,kind&store_id=eq.${encodeURIComponent(sid)}&kind=eq.person&deleted_at=is.null&order=created_at`);
         accounts = (rows || []).map(r => ({ staff_id: r.id, member_id: r.member_id, name: r.display_name || `${r.last_name || ''} ${r.first_name || ''}`.trim(), username: r.username, role: r.role, is_active: r.is_active !== false, has_pin: !!r.pin_hash, last_login: r.last_login }));
-        const iv = await sb(`staff_invites?select=member_id,name,role,code,expires_at,used_by&store_id=eq.${encodeURIComponent(sid)}&used_by=is.null&order=created_at.desc`);
-        invites = (iv || []).filter(i => !i.expires_at || new Date(i.expires_at) > new Date()).map(i => ({ member_id: i.member_id, name: i.name, role: i.role, code: i.code, expires_at: i.expires_at }));
+        const iv = await sb(`staff_invites?select=member_id,name,role,code,expires_at,used_by,email&store_id=eq.${encodeURIComponent(sid)}&used_by=is.null&order=created_at.desc`);
+        invites = (iv || []).filter(i => !i.expires_at || new Date(i.expires_at) > new Date()).map(i => ({ member_id: i.member_id, name: i.name, role: i.role, code: i.code, expires_at: i.expires_at, email: i.email || '' }));
       } catch (e) { return res.status(200).json({ accounts: [], invites: [], not_ready: true }); }
       return res.status(200).json({ accounts, invites });
     }

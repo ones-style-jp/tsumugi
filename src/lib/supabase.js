@@ -2000,13 +2000,16 @@ const _isNoServer = (e) => !!(e && e.noServer) && !!supabase;
 // ★ 2026-10-19 段階4(従業員ごとのログイン): 招待・本人登録・PIN・退職・ログイン記録(すべてサーバー /api/staff-auth)
 const _devName = () => { try { return localStorage.getItem('tsumugiDeviceName') || ''; } catch { return ''; } };
 export const hashPin = (pin) => hashPassword('pin:' + String(pin || ''));
-export async function supabaseStaffInviteCreate(token, { storeId, memberId, name, role, email }) { return (await staffApi({ action: 'invite_create', token, store_id: storeId, member_id: memberId, name, role, email: email || '' })).invite; }
+export async function supabaseStaffInviteCreate(token, { storeId, memberId, name, role, email }) { const j = await staffApi({ action: 'invite_create', token, store_id: storeId, member_id: memberId, name, role, email: email || '' }); return { ...(j.invite || {}), mailed: !!j.mailed, mail_err: j.mail_err || '', sent_at: j.sent_at || null }; } // ★ 2026-11-01: メールの結果も返す
+export async function supabaseStaffInviteMail(token, { storeId, memberId, email }) { return staffApi({ action: 'invite_mail', token, store_id: storeId, member_id: String(memberId), email: email || '' }); } // ★ 2026-11-01: 招待メールを送る(送り直し)
+export async function supabaseStaffPinReset(token, staffId) { return staffApi({ action: 'pin_reset', token, staff_id: String(staffId) }); } // ★ 2026-11-01: 管理者が PIN を作り直す(返事の pin は一度だけ)
 export async function supabaseStaffInviteLookup(code) { return (await staffApi({ action: 'invite_lookup', code: String(code || '') })).invite; }
-export async function supabaseStaffInviteAccept({ code, username, password, pin }) {
-  const password_hash = await hashPassword(password); const pin_hash = pin ? await hashPin(pin) : '';
-  const j = await staffApi({ action: 'invite_accept', code: String(code || ''), username: String(username || '').trim(), password_hash, pin_hash, device: _devName() });
+export async function supabaseStaffInviteAccept({ code, username, password }) {
+  // ★ 2026-11-01(10/23 ユーザー決定): PIN は端末で決めない。サーバーが乱数4桁を作り、返事の pin で一度だけ渡す(画面に表示して控えてもらう)
+  const password_hash = await hashPassword(password);
+  const j = await staffApi({ action: 'invite_accept', code: String(code || ''), username: String(username || '').trim(), password_hash, device: _devName() });
   if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp);
-  return { ...(j.staff || {}), _token: j.token || '' };
+  return { ...(j.staff || {}), _token: j.token || '', _pin: j.pin || '' };
 }
 export async function supabaseStaffPinSet(token, pin) { return staffApi({ action: 'pin_set', token, pin_hash: await hashPin(pin) }); }
 export async function supabaseStaffPinUnlock(token, storeId) { return staffApi({ action: 'pin_unlock', token, store_id: storeId }); }
