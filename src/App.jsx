@@ -19347,6 +19347,10 @@ function StaffInviteAcceptView({ code, onLogin }) {
   const [inv, setInv] = React.useState(null); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
   const [f, setF] = React.useState({ username: '', password: '', password2: '' });
   const [done, setDone] = React.useState(null); // ★ 2026-11-01: { pin, session } 登録できたら PIN を一度だけ見せてから入る
+  const [pk, setPk] = React.useState({ busy: false, done: false, msg: '' }); // ★ 2026-11-01 従業員のパスキー(10/23 決定②: 本人登録の流れで一緒に登録)
+  const registerPasskey = async () => { if (!done || pk.busy) return; setPk({ busy: true, done: false, msg: '' });
+    try { await supabaseHqPasskeyRegister(done.session.token); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} setPk({ busy: false, done: true, msg: 'この端末に登録しました。次からはログイン画面の「パスキーで入る」で、ID・パスワードなしで入れます。' }); }
+    catch (e) { setPk({ busy: false, done: false, msg: e && e.name === 'NotAllowedError' ? '登録を取り消しました（あとから各種設定→ログイン情報でも登録できます）' : ((e && e.message) || '登録できませんでした（あとから各種設定→ログイン情報でも登録できます）') }); } };
   React.useEffect(() => { let on = true; (async () => { try { const i = await supabaseStaffInviteLookup(code); if (on) setInv(i); } catch (e) { if (on) setErr(e?.message || '招待コードを確認できませんでした'); } })(); return () => { on = false; }; }, [code]);
   const submit = async (e) => { e.preventDefault(); setErr('');
     if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(f.username)) return setErr('ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください');
@@ -19366,6 +19370,14 @@ function StaffInviteAcceptView({ code, onLogin }) {
         <div style={{fontSize:14,color:'#334155',lineHeight:1.7}}>あなたの <b>PIN（4桁）</b> です。みんなで使う iPad で「自分に切り替える」ときに入力します。<b>この画面を閉じると二度と表示されません</b>。手帳などに控えてください。</div>
         <div data-testid="staff-invite-pin-value" style={{margin:'16px 0',textAlign:'center',fontSize:44,fontWeight:'bold',letterSpacing:14,color:'#1e293b',background:'#f0f7e0',border:'2px solid #c5dea0',borderRadius:14,padding:'14px 0'}}>{done.pin}</div>
         <div style={{fontSize:12,color:'#64748b',lineHeight:1.6}}>忘れたときは、店舗の管理者が「PIN を作り直す」で新しい番号を発行できます（利用者マスタ管理 → スタッフ → あなたの名前）。</div>
+        {tsuPasskeyAvailable() && (
+          <div data-testid="staff-invite-passkey" style={{marginTop:14,padding:'10px 12px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12}}>
+            <div style={{fontSize:13,fontWeight:'bold',color:'#1e293b'}}>この端末に指紋・顔のログインを登録（任意）</div>
+            <div style={{fontSize:12,color:'#64748b',lineHeight:1.6,marginTop:2}}>自分のスマホやパソコンなら、次から ID・パスワードなしで入れます（Touch ID / Face ID）。みんなで使う iPad では登録しないでください。</div>
+            {!pk.done && <button type="button" data-testid="staff-invite-passkey-reg" onClick={registerPasskey} disabled={pk.busy} style={{marginTop:8,padding:'10px 14px',background:'white',color:'#3d5021',border:'2px solid #94c456',borderRadius:10,fontSize:14,fontWeight:'bold',cursor: pk.busy ? 'wait' : 'pointer'}}>{pk.busy ? '登録しています…' : 'この端末に登録する'}</button>}
+            {pk.msg && <div style={{fontSize:12,fontWeight:'bold',color: pk.done ? '#146c43' : '#b45309',marginTop:6,lineHeight:1.6}}>{pk.msg}</div>}
+          </div>
+        )}
         <button type="button" data-testid="staff-invite-pin-ok" onClick={() => { if (!window.confirm('PIN を控えましたか？（この画面を閉じると二度と表示されません）')) return; onLogin(done.session); }} style={{marginTop:16,width:'100%',minHeight:48,padding:'12px 16px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:16,fontWeight:'bold',cursor:'pointer'}}>控えました。つむぎをはじめる</button>
       </div>
     </div>
@@ -21070,6 +21082,14 @@ function StaffLoginGate({ onLogin }) {
     try { const staff = await supabaseHqPasskeyLogin(); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} await finishLogin(staff); } // ★ 2026-10-26: パスキーで入れた端末に印(次からは自動)
     catch (err) { setForm(f=>({...f, loading:false, error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした')})); }
   };
+  // ★ 2026-11-01 従業員のパスキー: この端末で職員が登録した(または入れたことがある)ときだけ、ID・パスワードなしの「パスキーで入る」を出す(印 tsumugiStaffPasskeyDev)
+  const _staffPkDev = (() => { try { return localStorage.getItem('tsumugiStaffPasskeyDev') === '1'; } catch { return false; } })();
+  const passkeyLoginStaff = async () => {
+    if (!isSupabaseEnabled && String(import.meta.env.VITE_E2E_DEMO || '') !== '1') { setForm(f=>({...f, error:'Supabase が未接続です'})); return; } // (自動テストの見本ビルドでは API を模擬)
+    setForm(f=>({...f, loading:true, error:''}));
+    try { const staff = await supabaseHqPasskeyLogin(); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} await finishLogin(staff); }
+    catch (err) { setForm(f=>({...f, loading:false, error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした。ID とパスワードで入ってください')})); }
+  };
   const finishLogin = async (staff) => {
     {
       const session = tsuBuildStaffSession(staff); // ★ 2026-10-19 段階4: kind(store/person)・memberId・hasPin も持つ
@@ -21096,6 +21116,12 @@ function StaffLoginGate({ onLogin }) {
           <img src="/preview/tsumugi-logo-full-transparent.png" alt="つむぎ Tsumugi" style={{width:'100%',maxWidth:200,height:'auto',display:'block',margin:'0 auto',objectFit:'contain'}}/>
           <div style={{fontSize:18,fontWeight:'bold',marginTop:6,color:'#3d5021',fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",letterSpacing:'3px'}}>事業所スタッフ専用ログイン</div>
         </div>
+        {_staffPkDev && tsuPasskeyAvailable() && !form.needCode && (
+          <button type="button" data-testid="staff-passkey-login" onClick={passkeyLoginStaff} disabled={form.loading}
+            style={{width:'100%',marginBottom:16,padding:'13px',background:'#f0f7e0',color:'#3d5021',border:'2px solid #94c456',borderRadius:12,fontSize:15,fontWeight:'bold',cursor: form.loading ? 'wait' : 'pointer'}}>
+            パスキーで入る（指紋・顔）
+          </button>
+        )}{/* ★ 2026-11-01 従業員のパスキー: 登録した端末だけ。下の ID・パスワードも今までどおり使える */}
         <form onSubmit={handleSubmit}>
           <div style={{marginBottom:14}}>
             <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
@@ -23415,6 +23441,7 @@ export default function App() {
     if (!isSupabaseEnabled || !staffSession?.token || !staffSession?.storeId) return null;
     const withPin = new Set((_staffAcct.accounts || []).filter(a => a.is_active && a.has_pin).map(a => String(a.member_id)));
     return { enabled: true, kind: staffSession.kind || 'store', role: staffSession.role, displayName: staffSession.displayName, hasPin: !!staffSession.hasPin,
+      token: staffSession.kind === 'person' ? staffSession.token : '', // ★ 2026-11-01: 本人のパスキーの登録に使う(本人アカウントのときだけ)
       hasManagerAccount: (_staffAcct.accounts || []).some(a => a.is_active && a.role === 'manager'), // ★ 2026-11-01: 共通ログインを止める前提
       membersWithoutAccount: mergedStaffMembers.filter(m => m.id !== 'hq_viewer' && !withPin.has(String(m.id))).map(m => m.name),
       setPin: async (pin) => { await supabaseStaffPinSet(staffSession.token, pin); const next = { ...staffSession, hasPin: true }; sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(next)); setStaffSession(next); _reloadStaffAcct(); },
@@ -42282,6 +42309,36 @@ function tsuPendingInitialReportSet(appData) {
   return set;
 }
 // ★ 2026-10-19 段階4: 各種設定→システム「ログインとロックの設定」(管理者)＋本人ログインの PIN ＋「この端末をみんなで使う」
+// ★ 2026-11-01 従業員のパスキー: 本人アカウントで入っているとき、各種設定からも登録・一覧・外すができる(本部の HqPasskeyPanel と同じ仕組み)
+function TsuPersonPasskeyBox({ token }) {
+  const [list, setList] = React.useState(null); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
+  React.useEffect(() => { if (!token) return; (async () => { try { setList(await supabaseHqPasskeyList(token)); } catch (e) { setList([]); setMsg((e && e.message) || '読み込めませんでした'); } })(); }, [token]);
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  const fmt = (s) => { try { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; } catch { return ''; } };
+  const reg = async () => { if (!tsuPasskeyAvailable()) { setMsg('この端末・ブラウザではパスキーを使えません'); return; } setBusy(true); setMsg('');
+    try { const r = await supabaseHqPasskeyRegister(token); setList(r.passkeys || []); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} setMsg('この端末に登録しました。次からはログイン画面の「パスキーで入る」で入れます。'); }
+    catch (e) { setMsg(e && e.name === 'NotAllowedError' ? '登録を取り消しました' : ((e && e.message) || '登録できませんでした')); } finally { setBusy(false); } };
+  const del = async (id) => { if (!window.confirm('このパスキーを外しますか？（その端末では、パスキーで入れなくなります）')) return; try { setList(await supabaseHqPasskeyDelete(token, id)); } catch (e) { setMsg((e && e.message) || '外せませんでした'); } };
+  if (!token) return null;
+  return (
+    <div data-testid="person-passkey" className="mt-3 pt-3 border-t border-emerald-200">
+      <div className="text-sm font-bold text-emerald-900">パスキー（指紋・顔で入る）</div>
+      <div className="text-xs text-slate-600 mt-1 leading-5">自分のスマホやパソコンに登録すると、ID・パスワードなしで入れます。端末ごと・アドレスごと（試験版・安定版）に登録します。みんなで使う iPad には登録しないでください。端末をなくしたときは、ここで外してください。</div>
+      <button type="button" data-testid="person-passkey-reg" onClick={reg} disabled={busy} className="mt-2 px-3 py-2 rounded-lg text-sm font-bold bg-white border border-emerald-400 text-emerald-800 disabled:opacity-50">{busy ? '登録しています…' : 'この端末にパスキーを登録'}</button>
+      {msg && <div className="text-xs font-bold text-slate-700 mt-2 leading-5">{msg}</div>}
+      <div className="mt-2 text-xs">
+        {list === null ? <span className="text-slate-500">読み込み中…</span> : list.length === 0 ? <span className="text-slate-500">まだ登録はありません</span> : list.map(c => (
+          <div key={c.id} className="flex items-center gap-2 py-1.5 border-t border-slate-200 flex-wrap">
+            <span className="font-bold text-slate-800 min-w-[100px]">{c.device || '名前のない端末'}</span>
+            <span className={c.rp === host ? 'text-emerald-700' : 'text-slate-500'}>{c.rp === host ? 'このアドレス' : c.rp}</span>
+            <span className="text-slate-500">登録 {fmt(c.at)}{c.lastUsed ? `・最後に使用 ${fmt(c.lastUsed)}` : ''}</span>
+            <button type="button" onClick={() => del(c.id)} className="ml-auto px-2 py-1 rounded bg-red-50 text-red-700 border border-red-200 text-[11px] font-bold">外す</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
   const sec = tsuSecurity(appData);
   const setSec = (patch) => onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), security: { ...sec, ...patch } } }, { manual: true, message: '✓ ログインとロックの設定を保存しました' });
@@ -42306,6 +42363,7 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
           <div className="mb-4 p-3 rounded-xl border border-emerald-200 bg-emerald-50/60">
             <div className="text-sm font-bold text-emerald-900">本人のログイン（{staffCtx.displayName}）</div>
             <div className="text-xs text-slate-600 mt-1 mb-2 leading-5">みんなで使う iPad で「自分に切り替える」ための PIN（数字4桁）は、本人登録のときに一度だけ表示された番号です{staffCtx.hasPin ? '（設定済み）' : '（未設定）'}。本人は変えられません。忘れたときは店舗の管理者が「PIN を作り直す」で新しい番号を発行します（利用者マスタ管理 → スタッフ → 名前）。</div>
+            <TsuPersonPasskeyBox token={staffCtx.token}/>
             {staffCtx.role === 'manager' && (
               <div className="mt-3 pt-3 border-t border-emerald-200">
                 <div className="text-sm font-bold text-emerald-900">この端末をみんなで使う</div>

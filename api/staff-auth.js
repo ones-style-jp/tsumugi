@@ -212,6 +212,11 @@ function rpOf(req) {
   return { id: host, origin: u.origin };
 }
 function pkPrune(ch) { const now = Date.now(); Object.keys(ch || {}).forEach(k => { if (!ch[k] || !(ch[k].exp > now)) delete ch[k]; }); return ch || {}; }
+// ★ 2026-11-01 従業員のパスキー: パスキーを持てるのは 本部(super_admin) と 本人アカウント(kind=person)。店舗共通(kind=store・role manager)は持てない
+async function pkStaffById(id) {
+  const rows = await sb(`staff?select=*,stores(id,name,short_name)&id=eq.${encodeURIComponent(id)}&is_active=eq.true&deleted_at=is.null&limit=1`);
+  const s = Array.isArray(rows) ? rows[0] : null; return s && (s.role === 'super_admin' || s.kind === 'person') ? s : null;
+}
 async function hqStaffById(id) {
   const rows = await sb(`staff?select=*,stores(id,name,short_name)&id=eq.${encodeURIComponent(id)}&is_active=eq.true&deleted_at=is.null&limit=1`);
   const s = Array.isArray(rows) ? rows[0] : null; return s && s.role === 'super_admin' ? s : null;
@@ -324,8 +329,9 @@ export default async function handler(req, res) {
     }
     // ★ 2026-10-23 本部のパスキー
     if (action === 'passkey_reg_options' || action === 'passkey_reg_verify' || action === 'passkey_list' || action === 'passkey_delete') {
-      const t = readToken(body.token); if (!t || t.role !== 'super_admin') return res.status(403).json({ error: '本部のアカウントだけが使えます' });
-      const staff = await hqStaffById(t.sid); if (!staff) return res.status(403).json({ error: '本部のアカウントだけが使えます' });
+      // ★ 2026-11-01: 本部に加えて、職員の本人アカウントも登録できる(店舗共通のログイン・みんなで使う端末の証からは不可)
+      const t = readToken(body.token); if (!t || t.shared) return res.status(403).json({ error: '本人のログイン(本部または職員の本人アカウント)だけが使えます' });
+      const staff = await pkStaffById(t.sid); if (!staff) return res.status(403).json({ error: '本人のログイン(本部または職員の本人アカウント)だけが使えます' });
       const all = await kvLoad(PK_KEY); const mine = Array.isArray(all[staff.id]) ? all[staff.id] : [];
       const view = (list) => list.map(c => ({ id: c.id, rp: c.rp, device: c.device || '', at: c.at, lastUsed: c.lastUsed || null }));
       if (action === 'passkey_list') return res.status(200).json({ passkeys: view(mine) });
@@ -334,7 +340,7 @@ export default async function handler(req, res) {
       const ch = pkPrune(await kvLoad(PK_CHAL));
       if (action === 'passkey_reg_options') {
         const challenge = wb64u(crypto.randomBytes(32)); ch['reg:' + staff.id] = { c: challenge, exp: Date.now() + 5 * 60 * 1000, rp: rp.id }; await kvSave(PK_CHAL, ch);
-        return res.status(200).json({ options: { challenge, rp: { name: 'つむぎ管理局', id: rp.id }, user: { id: wb64u(Buffer.from('staff:' + staff.id)), name: staff.username, displayName: staff.display_name || staff.username },
+        return res.status(200).json({ options: { challenge, rp: { name: staff.role === 'super_admin' ? 'つむぎ管理局' : 'つむぎ', id: rp.id }, user: { id: wb64u(Buffer.from('staff:' + staff.id)), name: staff.username, displayName: staff.display_name || staff.username },
           pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }], timeout: 60000, attestation: 'none',
           authenticatorSelection: { residentKey: 'required', userVerification: 'required' }, excludeCredentials: mine.filter(c => c.rp === rp.id).map(c => ({ type: 'public-key', id: c.id })) } });
       }
@@ -368,12 +374,12 @@ export default async function handler(req, res) {
       const cred = mine.find(x => x.id === String(c.id || '') && x.rp === rp.id);
       if (!cred) { await loginFailNote('passkey'); return fail('このパスキーは登録されていません'); }
       let out; try { out = verifyAuthentication(resp, cred, { challenge, origin: rp.origin, rpId: rp.id }); } catch { await loginFailNote('passkey'); return fail(); }
-      const staff = await hqStaffById(sid); if (!staff) return fail();
+      const staff = await pkStaffById(sid); if (!staff) return fail(); // ★ 2026-11-01: 本部または職員の本人アカウント
       cred.signCount = out.signCount; cred.lastUsed = new Date().toISOString(); all[sid] = mine; await kvSave(PK_KEY, all);
       try { await sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString() }) }); } catch {}
       const mc = await mintSbTokenChecked(staff);
       await logLogin(staff, 'passkey', body.device);
-      let _tr = null; try { _tr = await hqTrustIssue(staff, body.device); } catch {} // ★ 2026-10-26: パスキーで入れた端末も30分は確認なし
+      let _tr = null; if (staff.role === 'super_admin') { try { _tr = await hqTrustIssue(staff, body.device); } catch {} } // ★ 2026-10-26: パスキーで入れた端末も30分は確認なし(本部だけ)
       return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason, hq_trust: _tr ? _tr.token : undefined, hq_trust_exp: _tr ? _tr.exp : undefined });
     }
     // ★ 2026-10-19 段階4: 招待コードの確認と本人アカウントの作成(ログイン不要)
