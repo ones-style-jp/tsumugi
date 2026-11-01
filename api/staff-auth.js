@@ -397,7 +397,7 @@ export default async function handler(req, res) {
       // ★ 2026-11-01(10/23 ユーザー決定): PIN は本人が決めず、つむぎが乱数4桁を作って登録の返事で一度だけ渡す(端末が表示・保存はハッシュだけ)
       let gp; try { gp = await genStorePin(inv.store_id, null); } catch (e) { return res.status(503).json({ error: (e && e.message) || 'PIN を作れませんでした' }); }
       const nm = String(inv.name || '').trim(); const sp = nm.split(/[\s\u3000]+/);
-      const rec = { store_id: inv.store_id, username, password_hash: hash, role: (inv.role === 'manager' ? 'manager' : 'member'), last_name: sp[0] || nm, first_name: sp.slice(1).join(' ') || '', display_name: nm, email: inv.email || null, is_active: true, kind: 'person', member_id: inv.member_id || null, pin_hash: gp.hash };
+      const rec = { store_id: inv.store_id, username, password_hash: hash, role: (inv.role === 'manager' ? 'manager' : 'member'), last_name: sp[0] || nm, first_name: sp.slice(1).join(' ') || '', email: inv.email || null, is_active: true, kind: 'person', member_id: inv.member_id || null, pin_hash: gp.hash }; // ★ 2026-11-01 実機で判明: display_name は DB の自動生成列(入れると『cannot insert a non-DEFAULT value』で登録できない)ので入れない
       const created = await sb('staff?select=*,stores(id,name,short_name)', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(rec) });
       const staff = Array.isArray(created) ? created[0] : created;
       try { await sb(`staff_invites?id=eq.${encodeURIComponent(inv.id)}&used_by=is.null`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ used_by: staff.id, used_at: new Date().toISOString() }) }); } catch {}
