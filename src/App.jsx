@@ -84,7 +84,7 @@ import {
   supabaseLoadStateForStore,
   supabaseLoadStateMetaForStore,
   supabaseStaffLogin,
-  supabaseHqPasskeyRegister, supabaseHqPasskeyLogin, supabaseHqPasskeyList, supabaseHqPasskeyDelete, tsuPasskeyAvailable, // ★ 2026-10-23 本部のパスキー
+  supabaseHqPasskeyRegister, supabaseHqPasskeyLogin, supabaseHqPasskeyList, supabaseHqPasskeyDelete, tsuPasskeyAvailable, tsuPasskeyAutofillAvailable, // ★ 2026-10-23 本部のパスキー ★ 2026-11-01 自動入力
   portalLoadState, portalSubscribeState, portalResolveStore, portalListStores, hasPortalToken, setPortalToken, // ★ 2026-10-18 データ保護(段階3.5): ポータルのサーバー経由
   supabaseStaffRefreshSbToken, setSbAccessToken, getSbAccessState, // ★ 2026-10-17 データ保護(段階1)
   supabaseStaffChangePassword,
@@ -21056,8 +21056,10 @@ function StaffLoginGate({ onLogin }) {
       const staff = await supabaseStaffLogin({ username: form.username, password: form.password, code: form.needCode ? form.code : '', noMail: _tryPk });
       if (staff && staff._needCode) { // ★ 本部: 確認コードの入力へ
         if (_tryPk && staff._passkeyFirst) {
+          _condStop();
           try { const st2 = await supabaseHqPasskeyLogin(); await finishLogin(st2); return; }
           catch (e2) { // パスキーを取り消した・使えない → メールを送ってコード入力へ
+            _condStart();
             const _cancel = !!(e2 && e2.name === 'NotAllowedError');
             if (!_cancel) { try { localStorage.removeItem('tsumugiHqPasskeyDev'); } catch {} } // ★ 2026-10-26: この端末のパスキーでは入れなかった → 次からは自動で試さない(メールが先)
             let st3; try { st3 = await supabaseStaffLogin({ username: form.username, password: form.password, code: '' }); }
@@ -21078,18 +21080,49 @@ function StaffLoginGate({ onLogin }) {
   // ★ 2026-10-23 本部のパスキー(Touch ID・Face ID): ID・パスワード・確認コードなしで入る(登録は管理局の「パスキー」から)
   const passkeyLogin = async () => {
     if (!isSupabaseEnabled) { setForm(f=>({...f, error:'Supabase が未接続です'})); return; }
-    setForm(f=>({...f, loading:true, error:''}));
+    setForm(f=>({...f, loading:true, error:''})); _condStop();
     try { const staff = await supabaseHqPasskeyLogin(); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} await finishLogin(staff); } // ★ 2026-10-26: パスキーで入れた端末に印(次からは自動)
-    catch (err) { setForm(f=>({...f, loading:false, error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした')})); }
+    catch (err) { _condStart(); setForm(f=>({...f, loading:false, error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした')})); }
   };
   // ★ 2026-11-01 従業員のパスキー: この端末で職員が登録した(または入れたことがある)ときだけ、ID・パスワードなしの「パスキーで入る」を出す(印 tsumugiStaffPasskeyDev)
   const _staffPkDev = (() => { try { return localStorage.getItem('tsumugiStaffPasskeyDev') === '1'; } catch { return false; } })();
   const passkeyLoginStaff = async () => {
     if (!isSupabaseEnabled && String(import.meta.env.VITE_E2E_DEMO || '') !== '1') { setForm(f=>({...f, error:'Supabase が未接続です'})); return; } // (自動テストの見本ビルドでは API を模擬)
-    setForm(f=>({...f, loading:true, error:''}));
+    setForm(f=>({...f, loading:true, error:''})); _condStop();
     try { const staff = await supabaseHqPasskeyLogin(); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} await finishLogin(staff); }
-    catch (err) { setForm(f=>({...f, loading:false, error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした。ID とパスワードで入ってください')})); }
+    catch (err) { _condStart(); setForm(f=>({...f, loading:false, error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした。ID とパスワードで入ってください')})); }
   };
+  // ★ 2026-11-01 trial496(ユーザー「他のサイトは ID を自動入力する時点で顔認証が出る。つむぎは ID・パスワードを打ってログインしてから認証で手間が多い」):
+  //   パスキーの「自動入力」(WebAuthn conditional UI)。ログイン画面を開いた時点でブラウザに「つむぎのパスキーがあれば ID 欄で出して」と頼んでおく。
+  //   ID 欄(autocomplete="username webauthn")に触れると、この端末(iCloud キーチェーン/Google パスワードマネージャー)にあるつむぎのパスキーが候補に出て、
+  //   選ぶと顔・指紋 → ID・パスワード・確認コードなしでログイン。パスキーの無い端末(みんなで使う iPad など)では何も出ない(今までどおり)。
+  //   端末の印(tsumugiStaffPasskeyDev)に頼らないので、iPhone で登録したパスキーが同期された Mac でも出る。上の「パスキーで入る」ボタン(印のある端末)も残す。
+  //   ボタンや自動のパスキーを呼ぶ前は自動入力の問いかけを止める(_condStop: 2つ同時はブラウザが拒む)・終わったら再開(_condStart)。問いかけは 20分で作り直す(サーバーの期限と同じ)。
+  const _condRef = useRef({ ac: null, gen: 0, timer: null, fails: 0 });
+  const _condStop = () => { const c = _condRef.current; c.gen += 1; if (c.timer) { clearTimeout(c.timer); c.timer = null; } if (c.ac) { try { c.ac.abort(); } catch {} c.ac = null; } };
+  const _condStart = async () => {
+    _condStop(); const c = _condRef.current; const gen = c.gen;
+    try {
+      if (!isSupabaseEnabled && String(import.meta.env.VITE_E2E_DEMO || '') !== '1') return;
+      if (!(await tsuPasskeyAutofillAvailable())) return;
+      if (gen !== c.gen) return;
+      const ac = new AbortController(); c.ac = ac;
+      c.timer = setTimeout(() => { if (gen === c.gen) _condStart(); }, 19 * 60 * 1000);
+      const staff = await supabaseHqPasskeyLogin({ conditional: true, signal: ac.signal });
+      if (gen !== c.gen) return;
+      _condStop();
+      try { localStorage.setItem(staff && staff.role === 'super_admin' ? 'tsumugiHqPasskeyDev' : 'tsumugiStaffPasskeyDev', '1'); } catch {}
+      setForm(f=>({...f, loading:true, error:''}));
+      await finishLogin(staff);
+    } catch (err) {
+      if (gen !== c.gen || (err && err.name === 'AbortError')) return;
+      // 候補を出したが選ばなかった・取り消した(NotAllowedError) → また出せるように作り直す。ただし「候補なし」で即座に戻るブラウザもあるので、間隔を空け(1.5秒→3→6→12秒)・4回で打ち切る(連打でサーバーを叩かない)
+      c.fails = (c.fails || 0) + 1; if (c.fails > 4) return;
+      if (!(err && err.name === 'NotAllowedError')) setForm(f=>({...f, loading:false, error: `パスキーで入れませんでした（${(err && err.message) || ''}）。ID とパスワードで入ってください`}));
+      c.timer = setTimeout(() => { if (gen === c.gen) _condStart(); }, 1500 * Math.pow(2, c.fails - 1));
+    }
+  };
+  useEffect(() => { _condStart(); return () => { _condStop(); }; }, []); // (ログイン画面を開いたとき一度・離れるとき止める)
   const finishLogin = async (staff) => {
     {
       const session = tsuBuildStaffSession(staff); // ★ 2026-10-19 段階4: kind(store/person)・memberId・hasPin も持つ
@@ -21125,8 +21158,8 @@ function StaffLoginGate({ onLogin }) {
         <form onSubmit={handleSubmit}>
           <div style={{marginBottom:14}}>
             <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
-            <ImeSafeInput value={form.username} onChange={e=>setForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}))} autoFocus={!_ios} autoComplete="username" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
-              style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+            <ImeSafeInput value={form.username} onChange={e=>setForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}))} autoFocus={!_ios} autoComplete="username webauthn" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+              style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>{/* ★ 2026-11-01 trial496: "webauthn" で ID 欄にパスキーの候補(指紋・顔)が出る */}
           </div>
           <div style={{marginBottom:18}}>
             <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード</label>

@@ -37,7 +37,10 @@ await page.goto(`http://localhost:${PORT}/#stafflogin`, { waitUntil: 'networkidl
 r.noBtnWithoutMark = (await page.getByTestId('staff-passkey-login').count()) === 0;
 await page.evaluate(() => localStorage.setItem('tsumugiStaffPasskeyDev', '1')); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(600);
 r.btnWithMark = (await page.getByTestId('staff-passkey-login').count()) === 1;
-if (r.btnWithMark) { await page.getByTestId('staff-passkey-login').click(); await page.waitForTimeout(2500); }
+// ★ 2026-11-01 trial496: 「自動入力」の問いかけ(開いた時点)を Chromium の仮想認証器は自動で選ぶので、ボタンを押す前に入っていることがある(それも合格)
+const _auto = await page.evaluate(() => !!(window.__tsumugiE2E && window.__tsumugiE2E.staffSession));
+if (r.btnWithMark && !_auto) { await page.getByTestId('staff-passkey-login').click({ timeout: 5000 }).catch(() => {}); await page.waitForTimeout(2500); }
+console.log('   自動入力で先に入った?', _auto);
 const sess = await page.evaluate(() => window.__tsumugiE2E && window.__tsumugiE2E.staffSession);
 const vc = calls.find(c => c.action === 'passkey_login_verify');
 r.loggedIn = !!(sess && sess.kind === 'person' && sess.token === 'tok2') && !!(vc && vc.credential && vc.credential.response && vc.credential.response.signature);

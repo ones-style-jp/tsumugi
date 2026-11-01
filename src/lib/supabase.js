@@ -2059,15 +2059,19 @@ export async function supabaseStaffLogin({ username, password, code, noMail }) {
 const _pkU2B = (s) => { let t = String(s || '').replace(/-/g, '+').replace(/_/g, '/'); t += '==='.slice((t.length + 3) % 4); const b = atob(t); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u.buffer; };
 const _pkB2U = (buf) => { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 export const tsuPasskeyAvailable = () => { try { return typeof window !== 'undefined' && !!window.PublicKeyCredential && !!navigator.credentials && window.isSecureContext; } catch { return false; } };
+// ★ 2026-11-01 trial496: 「自動入力」のパスキー(ID 欄に触れたとき)が使えるブラウザか(iOS 16〜の Safari・Chrome・Edge など)
+export async function tsuPasskeyAutofillAvailable() { try { if (!tsuPasskeyAvailable()) return false; const P = window.PublicKeyCredential; if (typeof P.isConditionalMediationAvailable !== 'function') return false; return !!(await P.isConditionalMediationAvailable()); } catch { return false; } }
 export async function supabaseHqPasskeyRegister(token) {
   const { options } = await staffApi({ action: 'passkey_reg_options', token });
   const cred = await navigator.credentials.create({ publicKey: { ...options, challenge: _pkU2B(options.challenge), user: { ...options.user, id: _pkU2B(options.user.id) }, excludeCredentials: (options.excludeCredentials || []).map(c => ({ ...c, id: _pkU2B(c.id) })) } });
   const r = cred.response;
   return staffApi({ action: 'passkey_reg_verify', token, device: _devName(), credential: { id: cred.id, type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), attestationObject: _pkB2U(r.attestationObject) } } });
 }
-export async function supabaseHqPasskeyLogin() {
-  const { options } = await staffApi({ action: 'passkey_login_options' });
-  const cred = await navigator.credentials.get({ publicKey: { ...options, challenge: _pkU2B(options.challenge), allowCredentials: [] } });
+// ★ 2026-11-01 trial496(ユーザー「他のサイトのように ID を自動入力する時点で顔・指紋が出てほしい」): conditional=true で「自動入力」の問いかけ
+//   (ブラウザが ID 欄のそばに、この端末・iCloud キーチェーンにあるつむぎのパスキーを出す。選ぶと顔・指紋 → ログイン)。signal で中止できる(ボタンを押したとき・画面を離れるとき)
+export async function supabaseHqPasskeyLogin({ conditional = false, signal } = {}) {
+  const { options } = await staffApi({ action: 'passkey_login_options', ...(conditional ? { long: true } : {}) });
+  const cred = await navigator.credentials.get({ ...(conditional ? { mediation: 'conditional' } : {}), ...(signal ? { signal } : {}), publicKey: { ...options, challenge: _pkU2B(options.challenge), allowCredentials: [] } });
   const r = cred.response;
   const j = await staffApi({ action: 'passkey_login_verify', device: _devName(), credential: { id: _pkB2U(cred.rawId), type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), authenticatorData: _pkB2U(r.authenticatorData), signature: _pkB2U(r.signature), userHandle: r.userHandle ? _pkB2U(r.userHandle) : '' } } });
   if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp);

@@ -38,7 +38,7 @@
 //   passkey_reg_options  { token(本部) }              → { options }   登録の問いかけ(5分)
 //   passkey_reg_verify   { token, credential, device } → { ok, passkeys }  指紋・顔で本人を確かめた鍵だけ登録(最大10)
 //   passkey_list / passkey_delete { token, id? }       → { passkeys }
-//   passkey_login_options {}                            → { options }   ログインの問いかけ(2分・1回だけ)
+//   passkey_login_options { long? }                     → { options }   ログインの問いかけ(2分・1回だけ。long=自動入力用で 20分)
 //   passkey_login_verify { credential, device }         → login と同じ { staff, token, sb_token… }  ID・パスワード・確認コードは要らない
 //   鍵は app_secrets 'hq_passkeys'(本部の職員ID → 公開鍵の一覧)。秘密の鍵は端末から出ない。使えるのは super_admin だけ。
 //   アドレス(サイト)ごとの鍵なので、試験版と安定版はそれぞれ登録する。
@@ -355,10 +355,11 @@ export default async function handler(req, res) {
     if (action === 'passkey_login_options') {
       const rp = rpOf(req); if (!rp) return res.status(400).json({ error: 'この画面からは使えません' });
       const ch = pkPrune(await kvLoad(PK_CHAL)); const challenge = wb64u(crypto.randomBytes(32));
-      ch['auth:' + challenge] = { exp: Date.now() + 2 * 60 * 1000, rp: rp.id };
+      const longMs = body.long ? 20 * 60 * 1000 : 2 * 60 * 1000; // ★ 2026-11-01 trial496: 自動入力(ID 欄に触れたときのパスキー)は欄に触れるまで待つので 20分。ボタンは 2分
+      ch['auth:' + challenge] = { exp: Date.now() + longMs, rp: rp.id };
       const ak = Object.keys(ch).filter(k => k.startsWith('auth:')); if (ak.length > 200) ak.slice(0, ak.length - 200).forEach(k => { delete ch[k]; });
       await kvSave(PK_CHAL, ch);
-      return res.status(200).json({ options: { challenge, rpId: rp.id, timeout: 60000, userVerification: 'required', allowCredentials: [] } });
+      return res.status(200).json({ options: { challenge, rpId: rp.id, timeout: body.long ? 20 * 60 * 1000 : 60000, userVerification: 'required', allowCredentials: [] } });
     }
     if (action === 'passkey_login_verify') {
       const fail = async (msg) => { await sleep(FAIL_DELAY); return res.status(401).json({ error: msg || 'パスキーで入れませんでした' }); };
