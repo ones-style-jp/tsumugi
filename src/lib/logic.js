@@ -320,3 +320,20 @@ export const healStalePauseRecords = (records, patients, todayIso, isPausedOn, i
   });
   return { records: fixed.length ? out : records, fixed };
 };
+
+// ★ 2026-11-02 水元店の事故(08:20〜09:00 に「起動直後の空の状態」がクラウドへ書かれ、利用者75名・日誌・送迎表・設定が消えた。
+//   経路は「更新のお知らせ」から更新する直前の保存で、読み込み前の端末の状態がそのまま送られた):
+//   クラウドへ書く直前の関所。クラウドに利用者がいるのに、端末側が
+//     ①利用者 0 件(local-empty)  ②まだクラウドを読み込んでいない(_sbStoreId なし = not-loaded)  ③利用者が半分未満に急減(mass-drop・クラウド10名以上のとき)
+//   なら書かない(理由を返す)。allowEmpty(一括削除・重複統合など意図した減少)のときは通す。クラウドに利用者がいない(新規店舗・空の店舗)ときは従来どおり。
+export function pushEmptyGuard(storeId, local, cloud, opts = {}) {
+  if (opts && opts.allowEmpty) return null;
+  const cp = cloud && Array.isArray(cloud.patients) ? cloud.patients.length : 0;
+  if (cp === 0) return null;
+  const lp = local && Array.isArray(local.patients) ? local.patients.length : 0;
+  if (lp === 0) return { reason: 'local-empty', lp, cp };
+  if (!local || !local._sbStoreId) return { reason: 'not-loaded', lp, cp };
+  if (String(local._sbStoreId) !== String(storeId)) return { reason: 'store-mismatch', lp, cp };
+  if (cp >= 10 && lp < cp * 0.5) return { reason: 'mass-drop', lp, cp };
+  return null;
+}

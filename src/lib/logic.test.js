@@ -353,3 +353,24 @@ describe('休止中に保存された先の日の記録を出席に戻す(healSt
   });
   it('直す物がなければ同じ配列を返す', () => { const recs = [rec('d', 2, '2026-11-08')]; expect(healStalePauseRecords(recs, pats, today, paused, sched, { now }).records).toBe(recs); });
 });
+
+import { pushEmptyGuard } from './logic';
+describe('クラウドへ書く直前の関所(pushEmptyGuard・2026-11-02 水元店の事故)', () => {
+  const cloud = { patients: Array.from({ length: 75 }, (_, i) => ({ id: i + 1 })) };
+  it('起動直後の空の状態(利用者0・_sbStoreId なし)は書かない', () => {
+    expect(pushEmptyGuard('store_a', { _sbStoreId: null, patients: [] }, cloud)).toEqual({ reason: 'local-empty', lp: 0, cp: 75 });
+    expect(pushEmptyGuard('store_a', { patients: [{ id: 1 }, { id: 2 }, { id: 3 }] }, cloud).reason).toBe('not-loaded');
+  });
+  it('読み込み済みで利用者がいれば通す・半分未満への急減は止める・別店舗は止める', () => {
+    const ok = { _sbStoreId: 'store_a', patients: cloud.patients.slice(0, 70) };
+    expect(pushEmptyGuard('store_a', ok, cloud)).toBeNull();
+    expect(pushEmptyGuard('store_a', { _sbStoreId: 'store_a', patients: cloud.patients.slice(0, 30) }, cloud).reason).toBe('mass-drop');
+    expect(pushEmptyGuard('store_a', { _sbStoreId: 'store_b', patients: cloud.patients }, cloud).reason).toBe('store-mismatch');
+  });
+  it('クラウドに利用者がいない(新規・空の店舗)ときと allowEmpty(意図した減少)は従来どおり通す', () => {
+    expect(pushEmptyGuard('store_a', { patients: [] }, { patients: [] })).toBeNull();
+    expect(pushEmptyGuard('store_a', { patients: [] }, null)).toBeNull();
+    expect(pushEmptyGuard('store_a', { _sbStoreId: 'store_a', patients: [] }, cloud, { allowEmpty: true })).toBeNull();
+    expect(pushEmptyGuard('store_a', { _sbStoreId: 'store_a', patients: cloud.patients.slice(0, 5) }, { patients: cloud.patients.slice(0, 9) })).toBeNull(); // 10名未満は急減の判定をしない
+  });
+});

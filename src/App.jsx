@@ -21428,7 +21428,8 @@ export default function App() {
         const p = await _pendIdb.get(sid); if (!p || !p.data || stopped) return;
         if (p.data._sbStoreId && p.data._sbStoreId !== sid) { await _pendIdb.del(sid); return; } // 別店舗の控えは捨てる(店舗ゲート)
         syncLog('pend-resend', { age: Math.round((Date.now() - (p.at || Date.now())) / 1000) });
-        let ok = false; try { ok = (await supabaseMergeAndSyncStateForStore(sid, p.data)) !== false; } catch {}
+        let ok = false, _blk = false; try { const _r = await supabaseMergeAndSyncStateForStore(sid, p.data); ok = _r !== false; _blk = _r === 'blocked'; } catch {}
+        if (_blk) { await _pendIdb.del(sid); _pendPushRef.current = false; syncLog('pend-resend-blocked', {}); return; } // ★ 2026-11-02: 読み込み前/利用者0の控えは危険なので送らずに捨てる
         if (ok) { await _pendIdb.del(sid); _pendPushRef.current = false; syncLog('pend-resend-ok', {}); setToastMsg('前回保存できなかった変更をクラウドへ送信しました（数秒後に画面に反映されます）'); setShowToast(true); setTimeout(() => setShowToast(false), 5000); }
         else syncLog('pend-resend-fail', {});
       } finally { busy = false; }
@@ -23924,9 +23925,10 @@ export default function App() {
               // ★ 一定時間で必ず決着(2026-09-09): 遅いWi-Fiでpushが宙吊りになると、リトライも通知も永遠に
               //   走らないまま端末を閉じられて消える。タイムアウトは失敗扱い→リトライ→最終的に通知へ。
               const ok = await Promise.race([
-                supabaseMergeAndSyncStateForStore(staffSession.storeId, dataToPush),
+                supabaseMergeAndSyncStateForStore(staffSession.storeId, dataToPush, { allowEmpty: !!options.allowEmpty }), // ★ 2026-11-02: 関所(意図した減少だけ allowEmpty)
                 new Promise(res => setTimeout(() => res('__timeout__'), _tmo)),
               ]);
+              if (ok === 'blocked') return 'blocked'; // ★ 2026-11-02 水元店の事故: 読み込み前/利用者0の状態は書かない(再試行もしない)
               if (ok === '__timeout__') { syncLog('push-timeout', { attempt: i + 1 }); }
               else if (ok !== false) return true;
             } catch (e) { console.warn('[supabase] immediate save failed', e); }
@@ -23948,8 +23950,11 @@ export default function App() {
             let cur = dataToPush;
             while (cur) {
               const ok = await _retryPush(cur);
-              { const ws = _pushWaitersRef.current.splice(0); ws.forEach(r => { try { r(!!ok); } catch {} }); }
-              if (!ok) {
+              { const ws = _pushWaitersRef.current.splice(0); ws.forEach(r => { try { r(ok === true); } catch {} }); }
+              if (ok === 'blocked') { // ★ 2026-11-02 水元店の事故: 関所で止めた保存は再送に積まない(その状態をクラウドへ送ると全店のデータが消える)。端末はまもなく最新を取り直す
+                setToastMsg('⚠ この端末はまだ店舗のデータを読み込めていないため、クラウドへの保存を見送りました。数秒待ってから、もう一度保存してください（他の端末のデータは無事です）');
+                setShowToast(true); setTimeout(()=>setShowToast(false),8000);
+              } else if (!ok) {
                 syncLog('push-give-up', {});
                 // ★ 失敗した内容を IndexedDB に控える → 再読み込み後・オンライン復帰後に自動再送(2026-09-21)
                 const _kept = await _pendIdb.put(staffSession.storeId, cur); _pendPushRef.current = !!_kept;
@@ -24925,7 +24930,12 @@ export default function App() {
             try {
               // 直近の appData を即時クラウド保存(debounce待ちを飛ばす)＋操作ログの未送信を送り切る
               if (isSupabaseEnabled && staffSession?.storeId) {
-                await supabaseMergeAndSyncStateForStore(staffSession.storeId, appDataRef.current || appData);
+                // ★ 2026-11-02 水元店の事故(起動直後にこのボタンを押すと、まだ読み込んでいない空の状態がクラウドへ書かれ、利用者・日誌・送迎表・設定が消えた):
+                //   店舗のデータを読み込み済みで利用者がいるときだけ保存する。そうでなければ保存せず更新だけ(関所 pushEmptyGuard でも止まるが、ここでも送らない)
+                const _st = appDataRef.current || appData;
+                const _loaded = dataLoadedForStoreRef.current === staffSession.storeId && !storeTransitionRef.current && Array.isArray(_st && _st.patients) && _st.patients.length > 0 && _st._sbStoreId === staffSession.storeId;
+                if (_loaded) await supabaseMergeAndSyncStateForStore(staffSession.storeId, _st);
+                else { try { syncLog('update-skip-push', { dl: dataLoadedForStoreRef.current === staffSession.storeId, st: !!storeTransitionRef.current, pat: Array.isArray(_st && _st.patients) ? _st.patients.length : -1, sb: (_st && _st._sbStoreId) || null }); } catch {} }
                 try { await flushOps(staffSession.storeId); } catch {}
               }
             } catch (e) { console.warn('[update] 保存に失敗、リロードを中止', e);
