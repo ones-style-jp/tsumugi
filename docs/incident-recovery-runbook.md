@@ -47,6 +47,11 @@ select count(*), now() from app_state_rescue_YYYYMMDD;
 
 スナップショット(控え)の設計(2026-11-02 改定): **5分おきに「版が変わった店舗だけ」追加** → 2日より前は20分刻み(0/20/40分)だけ残して間引き → 7日より前は削除。11/2 時点の実測は 1,979件で 358MB(1件 約180KB・圧縮後)。5分おきでも 1GB 前後に収まる。
 
+ほかにも別の表に独立した控えがある(2026-11-02 に cron.job で確認・どれも残す):
+- `app_state_daily`(cron appstate-snapshot・毎時0分/30分・写真 familyPhotos を除いた店舗データ・7日で削除)
+- `ticket_records_history`(cron ticketrecords-history・毎時5分/35分・提供記録の行の履歴・3:20 に古い分を削除)
+→ app_state_snapshots が使えないときは app_state_daily(30分おき)でも同じ手順で戻せる。
+
 控えが動いているか確認:
 
 ```sql
