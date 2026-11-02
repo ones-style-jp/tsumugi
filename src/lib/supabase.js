@@ -1,7 +1,7 @@
 // Supabase クライアント (Phase 1: 家族認証のみ)
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
-import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays } from './logic.js';
+import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard } from './logic.js';
 import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
@@ -954,8 +954,9 @@ export const scrubAmnestyTombstones = (storeId, tomb) => {
   return changed ? out : tomb;
 };
 
-export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
+export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts = {}) { // ★ 2026-11-02: opts.allowEmpty(意図した減少のときだけ関所を通す)
   if (!supabase || !storeId) return false;
+  let _blocked = null; // ★ 2026-11-02 水元店の事故: 関所で止めた理由(止めたら 'blocked' を返す・再送に積まない)
   // ★★ 店舗ゲート(2026-08-07 南水元事故の再発防止・二重防御の2枚目):
   //   ローカルデータに刻まれた店舗ID(_sbStoreId=最後にpullで反映した店舗)が保存先と食い違う場合、
   //   別店舗のスナップショットを丸ごと書き込む事故(墓石混入・利用者消失)になるため push を拒否する。
@@ -1268,6 +1269,9 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
     // ★ 通常保存は端末が増えるほど競合しやすい(自動保存1.2秒＋4秒ポーリング)。 既定5回だと
     //   混み合った時に「上限到達=保存失敗」になりやすいので、この経路だけ再試行を厚くする。
     const _casRes = await supabaseCasUpdate(storeId, (cloud) => {
+    // ★ 2026-11-02 水元店の事故の恒久対策: クラウドに利用者がいるのに、端末が「利用者0」「読み込み前」「急減」の状態なら何も書かない(null=書かない)。
+    //   どの呼び出し元(保存・更新ボタンの直前・再送・pull の保持)からでも必ずここを通るので、起動直後の空の状態が全店のデータを消すことは二度と起きない
+    { const _g = pushEmptyGuard(storeId, localData, cloud, opts); if (_g) { _blocked = _g; return null; } }
     // クラウドが空(=新規店舗) ならそのまま(初回作成)
     if (!cloud || Object.keys(cloud).length === 0) {
       const _seed = sanitizeForSync(localData);
@@ -1622,6 +1626,12 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
     }
     return sanitizeForSync(merged);
     }, { maxRetries: 12, skipIfSame: true }); // supabaseCasUpdate の mutate 終わり (2台同時編集の競合に耐えるため厚め・中身が同じなら書かない)
+    if (_blocked) { // ★ 2026-11-02: 関所で止めた(クラウドは無傷)。失敗(false)とは区別して 'blocked' を返す=再送キューに積まず、呼び出し側は案内だけ出す
+      syncHealth.lastFailAt = Date.now(); syncHealth.lastError = 'blocked-' + _blocked.reason;
+      try { syncLog('push-blocked-empty', _blocked); } catch {}
+      try { console.warn('[supabase] push blocked (data not loaded / empty patients):', _blocked); } catch {}
+      return 'blocked';
+    }
     const _ok = !!(_casRes && _casRes.ok);
     if (_ok) { syncHealth.lastOkAt = Date.now(); if (!_casRes.noop) syncLog('push-ok', { v: _casRes.version }); }
     else { syncHealth.lastFailAt = Date.now(); syncHealth.lastError = (_casRes && _casRes.reason) || 'unknown'; syncLog('push-fail', { reason: syncHealth.lastError }); }
