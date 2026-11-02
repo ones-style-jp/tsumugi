@@ -14,6 +14,7 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { getSecret } from './_secrets.js';
+import { sendMailAny, mailConfig } from './_mail.js';
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 // クライアント(src/lib/supabase.js の hashPassword)と同一: SHA-256('tsumugi_v1_' + password)
@@ -88,9 +89,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'リセット情報の保存に失敗しました', detail: String(e.message || e) });
     }
     // メール送信 (Brevo)
-    const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
-    const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
-    if (apiKey) {
+    { // ★ 2026-11-02: 共通部品 _mail.js(Google Workspace 優先・Brevo 控え)
       const facility = (data.systemSettings || {}).facilityInfo?.name || 'デイサービス';
       const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const htmlBody = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"></head>
@@ -108,11 +107,7 @@ export default async function handler(req, res) {
   </div>
 </body></html>`.trim();
       try {
-        await fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: { accept: 'application/json', 'content-type': 'application/json', 'api-key': apiKey },
-          body: JSON.stringify({ sender: { email: senderEmail, name: facility.slice(0, 50) }, to: [{ email: acc.email }], subject: `【${facility}】パスワード再設定コード`.slice(0, 100), htmlContent: htmlBody }),
-        });
+        await sendMailAny({ to: [acc.email], subject: `【${facility}】パスワード再設定コード`.slice(0, 100), html: htmlBody, senderName: facility.slice(0, 50) });
       } catch (e) { /* コードは保存済み。 メール失敗は致命的にしない */ }
     }
     return res.status(200).json({ ok: true, sent: true, masked: maskEmail(acc.email) });

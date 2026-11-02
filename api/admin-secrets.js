@@ -74,6 +74,7 @@ async function runTest(id) {
       if (j.status === 'OK') return { ok: true, detail: `住所を検索できました（${j.results?.[0]?.formatted_address || ''}）` };
       return { error: `つながりませんでした: ${j.status || r.status}${j.error_message ? ' / ' + j.error_message : ''}` };
     }
+    if (kind === 'gmail') { const { verifyGmail } = await import('./_mail.js'); return await verifyGmail(); } // ★ 2026-11-02
     if (kind === 'brevo') {
       const key = await getSecret('BREVO_API_KEY', 'brevo_api_key');
       if (!key) return { error: 'APIキーが未設定です' };

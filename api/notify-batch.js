@@ -12,6 +12,7 @@
 //   ・同じメールアドレスは1回だけ送る(家族が複数の利用者に紐づいていても1通)
 //   ・件名/本文はHTMLエスケープして埋め込む(本文の改行はそのまま改行として表示)
 import { getSecret } from './_secrets.js';
+import { sendMailAny, mailConfig } from './_mail.js';
 
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const MAX_PER_CALL = 300;
@@ -23,9 +24,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed. Use POST.' });
 
-  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
-  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
-  if (!apiKey) return res.status(500).json({ error: 'メール送信の設定(BREVO_API_KEY)がありません。つむぎ管理局の「外部サービス設定」をご確認ください。' });
+  { const cfg = await mailConfig(); if (!cfg.gmail && !cfg.brevo) return res.status(500).json({ error: 'メール送信の設定がありません。つむぎ管理局の「外部サービス設定」で Google Workspace か Brevo を設定してください。' }); } // ★ 2026-11-02
 
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
@@ -65,24 +64,8 @@ export default async function handler(req, res) {
   const sendOne = async (r) => {
     const toEntry = { email: r.email }; if (r.name) toEntry.name = r.name;
     const body = r.text || text; // ★ 宛先ごとの本文(安否の行つき)があればそれを使う
-    const payload = {
-      sender: { email: senderEmail, name: facility.slice(0, 50) },
-      to: [toEntry],
-      subject: `【${facility}】${subject}`.slice(0, 100),
-      htmlContent: htmlOf(body),
-      textContent: `${facility} からの緊急連絡\n\n${body}`,
-      ...(replyTo && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(replyTo) ? { replyTo: { email: replyTo } } : {}),
-    };
-    const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: { accept: 'application/json', 'content-type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify(payload),
-    });
-    if (!resp.ok) {
-      const t = await resp.text().catch(() => '');
-      let m = ''; try { m = JSON.parse(t)?.message || ''; } catch {}
-      throw new Error(m || `HTTP ${resp.status}`);
-    }
+    const _mr = await sendMailAny({ to: [toEntry], subject: `【${facility}】${subject}`.slice(0, 100), html: htmlOf(body), text: `${facility} からの緊急連絡\n\n${body}`, senderName: facility.slice(0, 50), replyTo: (replyTo && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(replyTo)) ? replyTo : '' }); // ★ 2026-11-02: 共通部品
+    if (!_mr.ok) throw new Error(_mr.error || '送れませんでした');
   };
 
   // 5並列で送る(Brevoのレート制限を避けつつ、74件でも十数秒で終わる)

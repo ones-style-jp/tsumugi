@@ -7,6 +7,7 @@
 // POST /api/report  { description, context }
 //   context = { facility, storeId, recorder, view, url, userAgent, appVersion, when, errors:[...] }
 import { getSecret } from './_secrets.js';
+import { sendMailAny, mailConfig } from './_mail.js';
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>');
 
@@ -23,10 +24,7 @@ export default async function handler(req, res) {
   const description = String(body.description || '').slice(0, 4000);
   const ctx = body.context || {};
 
-  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
-  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
-  const toEmail = process.env.REPORT_TO_EMAIL || 'support@ones-style.co.jp';
-  if (!apiKey) return res.status(500).json({ error: 'サーバー設定エラー: BREVO_API_KEY が未設定です' });
+  { const cfg = await mailConfig(); if (!cfg.gmail && !cfg.brevo) return res.status(500).json({ error: 'サーバー設定エラー: メール送信の設定がありません' }); } // ★ 2026-11-02
 
   const errLines = Array.isArray(ctx.errors) && ctx.errors.length
     ? ctx.errors.map((e, i) => `${i + 1}. ${esc(e)}`).join('<br/>')
@@ -53,21 +51,8 @@ export default async function handler(req, res) {
 </body></html>`.trim();
 
   try {
-    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: { accept: 'application/json', 'content-type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({
-        sender: { email: senderEmail, name: 'つむぎ 不具合レポート' },
-        to: [{ email: toEmail }],
-        replyTo: { email: toEmail },
-        subject: `【つむぎ不具合】${(ctx.facility || '事業所')} / ${(ctx.view || '')}`.slice(0, 120),
-        htmlContent: html,
-      }),
-    });
-    if (!r.ok) {
-      const t = await r.text().catch(() => '');
-      return res.status(500).json({ error: 'メール送信に失敗しました', detail: t.slice(0, 300) });
-    }
+    const r = await sendMailAny({ to: [toEmail], subject: `【つむぎ不具合】${(ctx.facility || '事業所')} / ${(ctx.view || '')}`.slice(0, 120), html, senderName: 'つむぎ 不具合レポート', replyTo: toEmail }); // ★ 2026-11-02: 共通部品
+    if (!r.ok) return res.status(500).json({ error: 'メール送信に失敗しました', detail: (r.error || '').slice(0, 300) });
     return res.status(200).json({ ok: true });
   } catch (e) {
     return res.status(500).json({ error: '送信に失敗しました', detail: String(e.message || e) });

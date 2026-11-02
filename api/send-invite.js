@@ -6,6 +6,7 @@
 // クライアントから POST /api/send-invite で呼び出し
 // body: { to, toName?, inviteUrl, facilityName?, patientName?, facilityPhone?, expiresAtJp? }
 import { getSecret } from './_secrets.js';
+import { sendMailAny, mailConfig } from './_mail.js';
 
 export default async function handler(req, res) {
   // CORS (同一オリジン想定だが念のため)
@@ -18,12 +19,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
 
-  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
-  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
-
-  if (!apiKey) {
-    return res.status(500).json({ error: 'BREVO_API_KEY が設定されていません (Vercel の Environment Variables を確認してください)' });
-  }
+  { const cfg = await mailConfig(); if (!cfg.gmail && !cfg.brevo) return res.status(500).json({ error: 'メール送信の設定がありません（つむぎ管理局の「外部サービス設定」で Google Workspace か Brevo を設定してください）' }); } // ★ 2026-11-02
 
   // body のパース (Vercel は通常自動で JSON 解析するが念のため)
   let body = req.body;
@@ -96,44 +92,9 @@ export default async function handler(req, res) {
     const toEntry = { email: to };
     if (toName && toName.trim()) toEntry.name = toName.trim();
     // 必須最小フィールドのみ送信 (Brevo の 400 を避ける)
-    const payload = {
-      sender: { email: senderEmail, name: safeFacility.slice(0, 50) },
-      to: [toEntry],
-      subject: subject.slice(0, 100),
-      htmlContent: htmlBody,
-    };
-
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-        'api-key': apiKey,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      let parsed = null;
-      try { parsed = JSON.parse(errText); } catch {}
-      const brevoMsg = parsed?.message || parsed?.code || errText.slice(0, 300);
-      // よくあるケース別ヒント
-      let hint = '';
-      if (/unauthorized|sender/i.test(brevoMsg)) {
-        hint = `送信元 ${senderEmail} が Brevo で認証されていません。Brevo ダッシュボード > Senders & IP で認証してください。`;
-      } else if (/api[- ]?key/i.test(brevoMsg)) {
-        hint = 'API キーが無効です。Vercel 環境変数 BREVO_API_KEY を確認してください。';
-      }
-      return res.status(response.status).json({
-        error: `Brevo API エラー (${response.status})`,
-        brevoMessage: brevoMsg,
-        hint,
-      });
-    }
-
-    const data = await response.json().catch(() => ({}));
-    return res.status(200).json({ success: true, messageId: data?.messageId || null });
+    const r = await sendMailAny({ to: [toEntry], subject, html: htmlBody, senderName: safeFacility.slice(0, 50) }); // ★ 2026-11-02: 共通部品(Google Workspace 優先・Brevo 控え)
+    if (!r.ok) return res.status(500).json({ error: 'メール送信に失敗しました', brevoMessage: r.error, hint: r.error });
+    return res.status(200).json({ success: true, messageId: r.messageId || null, via: r.via });
   } catch (e) {
     return res.status(500).json({ error: 'メール送信に失敗しました', detail: String(e).slice(0, 500) });
   }
