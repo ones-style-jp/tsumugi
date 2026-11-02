@@ -55365,10 +55365,12 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
       const row = latest ? form.build(p, latest, sci, lifeCfgFor(p), pym) : null;
       const noneMsg = src==='seikatsu' ? '生活機能チェックが未作成' : src==='kinou' ? '個別機能訓練計画書が未作成' : 'ADL評価が未作成';
       const vr = latest ? form.validate(p, latest, sci, row, today) : { errors:[noneMsg], warns:[] };
+      // ★ 2026-11-02(テスト店で確認: 1月の評価がそのまま11月の提出可に数えられた): 最新の評価が提出年月より3か月より前なら「要確認」(科学的介護推進は3か月ごとの評価が前提。出すこと自体は止めない)
+      try { if (latest && pym && /^\d{6}$/.test(pym)) { const sy = Number(String(submitYm).slice(0,4)), sm = Number(String(submitYm).slice(5,7)); const py = Number(pym.slice(0,4)), pm = Number(pym.slice(4,6)); const diff = (sy*12+sm) - (py*12+pm); if (diff > 3) vr.warns = [...(vr.warns||[]), `最新の評価が${py}年${pm}月と古い（提出年月の${diff}か月前）。再評価の要否をご確認ください`]; } } catch {}
       return { p, latest, row, vr, status: !latest ? 'none' : (vr.skip ? 'skip' : (vr.errors.length ? 'error' : 'ok')) }; // ★ 2026-10-16: skip=対象外(ADL維持等の初月・6か月後以外・出さないのでエラーより先に判定)
     });
   };
-  const dashRows = React.useMemo(() => _lifeRowsFor(dashForm), [appData.adlRecords, appData.seikatsuKinouRecords, appData.kinouKeikakuRecords, appData.patients, dashFormId, appData.systemSettings?.facilityInfo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dashRows = React.useMemo(() => _lifeRowsFor(dashForm), [appData.adlRecords, appData.seikatsuKinouRecords, appData.kinouKeikakuRecords, appData.patients, dashFormId, appData.systemSettings?.facilityInfo, submitYm]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 2026-10-14: 事業所番号が2種類(通所介護/総合事業)ある店舗は、新LIFEのアカウントが別なのでファイルも事業所番号ごとに分ける
   const _groupByOffice = (rows) => { const m = new Map(); rows.forEach(r => { const k = String(r.care_facility_id||''); if (!m.has(k)) m.set(k, []); m.get(k).push(r); }); return [...m.entries()]; };
   const _dlByOffice = (base, cols, rows, dataType) => { const gs = _groupByOffice(rows); gs.forEach(([ofc, rs], i) => { const name = gs.length > 1 ? `${base}_${ofc||'事業所番号なし'}.csv` : `${base}.csv`; setTimeout(() => lifeDownloadCsv(name, lifeToCsvText(cols, rs, dataType)), i * 900); }); return gs; };
@@ -56013,6 +56015,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                       {({TIFI2024:'科学的介護推進(ADL+固有項目)',AINT2024:'ADL維持等(Barthel)',FUNC2024:'生活機能チェック(様式3-2)',IDUA2024:'個別機能訓練計画書(様式3-3)'})[it.form]||it.form}／評価日 {it.evalDate||'不明'}
                       {it.dup && <b className="text-amber-700 ml-2">同じ評価日の既存あり(重複)</b>}
                       {it.patientId==null && <b className="text-red-600 ml-2">→ 利用者マスタの被保険者番号をご確認ください</b>}
+                      {it.patientId!=null && !it.evalDate && <b className="text-amber-700 ml-2">→ 評価日が無いため取り込めません（元の記録が未評価のままです）</b>}{/* ★ 2026-11-02: 18名中1名が黙って対象外になっていた */}
                     </div>
                   </div>
                 </label>
