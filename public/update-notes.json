@@ -1,7 +1,26 @@
 {
-  "version": "upd-2026-1102-trial500",
+  "version": "upd-2026-1102-trial501",
   "updatedAt": "2026-11-02",
   "notes": [
+    {
+      "id": "upd-2026-1102-trial501",
+      "type": "improve",
+      "title": "LIFE提出：古い評価の注意表示・取り込めない行の理由",
+      "date": "2026-11-02",
+      "body": "LIFE・加算 → LIFE提出",
+      "items": [
+        {
+          "kind": "improve",
+          "where": "提出ダッシュボード",
+          "change": "最新の評価が提出年月の3か月より前の方は「要確認」として、評価の年月と何か月前かを出します（出すこと自体は止めません）。"
+        },
+        {
+          "kind": "improve",
+          "where": "CSV取込（移行）",
+          "change": "評価日が無い行は「評価日が無いため取り込めません（元の記録が未評価のまま）」と理由を出します。"
+        }
+      ]
+    },
     {
       "id": "upd-2026-1102-trial500",
       "type": "feature",
