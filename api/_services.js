@@ -50,15 +50,16 @@ export const EXT_SERVICES = [
   },
   {
     id: 'gmail',
-    name: 'Google Workspace メール（送信の本命）',
+    name: 'Google メール（送信の本命・Gmail / Google Workspace）',
     vendor: 'Google',
     desc: '招待メール・確認コード・パスワード通知・緊急連絡を、自社のアドレス（例: tsumugi@ones-style.co.jp）から送ります。設定があればこちらを優先し、無いときや失敗したときは Brevo で送ります。',
     status: 'active',
     required: false,
     test: 'gmail',
     fields: [
-      { env: 'GMAIL_USER', dbKey: 'gmail_user', label: '送信に使うアドレス', type: 'text', placeholder: 'tsumugi@ones-style.co.jp', note: 'Google Workspace のアドレス（2段階認証を有効にしておく）' },
+      { env: 'GMAIL_USER', dbKey: 'gmail_user', label: '送信に使うアドレス（Google にログインするアドレス）', type: 'text', placeholder: 'example@gmail.com', note: 'Gmail / Google Workspace のログインに使うアドレス（転送用の別名ではなく本体）。2段階認証を有効にしてアプリパスワードを発行' },
       { env: 'GMAIL_APP_PASSWORD', dbKey: 'gmail_app_password', label: 'アプリパスワード（16文字）', type: 'password', placeholder: 'xxxx xxxx xxxx xxxx', note: 'Google アカウント → セキュリティ → 2段階認証プロセス → アプリパスワード で発行。空白はあってもよい' },
+      { env: 'GMAIL_FROM', dbKey: 'gmail_from', label: '送信元として見せるアドレス（任意）', type: 'text', placeholder: 'noreply@example.com', note: 'Gmail の設定 → アカウント → 「他のメールアドレスを追加」で認証済みのアドレスだけ。空なら上のアドレスのまま' },
     ],
   },
   {
