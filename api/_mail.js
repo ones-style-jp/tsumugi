@@ -11,9 +11,10 @@ import { getSecret } from './_secrets.js';
 export async function mailConfig() {
   const user = await getSecret('GMAIL_USER', 'gmail_user');
   const pass = await getSecret('GMAIL_APP_PASSWORD', 'gmail_app_password');
+  const fromAddr = String((await getSecret('GMAIL_FROM', 'gmail_from')) || '').trim(); // ★ 任意: Gmail の「他のメールアドレスを追加」で認証済みの名義。空なら user
   const brevoKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
   const brevoFrom = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
-  return { gmail: (user && pass) ? { user: String(user).trim(), pass: String(pass).replace(/\s+/g, '') } : null, brevo: brevoKey ? { key: brevoKey, from: brevoFrom } : null };
+  return { gmail: (user && pass) ? { user: String(user).trim(), pass: String(pass).replace(/\s+/g, ''), from: (/@/.test(fromAddr) ? fromAddr : String(user).trim()) } : null, brevo: brevoKey ? { key: brevoKey, from: brevoFrom } : null };
 }
 
 const _norm = (to) => [...new Map((Array.isArray(to) ? to : [to]).filter(Boolean).map(x => (typeof x === 'string' ? { email: x } : x)).filter(x => x && /@/.test(String(x.email || ''))).map(x => [String(x.email).trim().toLowerCase(), { email: String(x.email).trim(), ...(x.name ? { name: String(x.name).trim() } : {}) }])).values()];
@@ -27,7 +28,7 @@ async function _gmailTransport(g) {
 export async function verifyGmail() {
   const cfg = await mailConfig();
   if (!cfg.gmail) return { error: 'Google Workspace のアドレスとアプリパスワードが未設定です' };
-  try { const t = await _gmailTransport(cfg.gmail); await t.verify(); return { ok: true, detail: `${cfg.gmail.user} でログインできました（送信できます）` }; }
+  try { const t = await _gmailTransport(cfg.gmail); await t.verify(); return { ok: true, detail: `${cfg.gmail.user} でログインできました（送信できます${cfg.gmail.from && cfg.gmail.from !== cfg.gmail.user ? '・送信元の表示は ' + cfg.gmail.from : ''}）` }; }
   catch (e) { const m = String((e && e.message) || e); return { error: /535|Username and Password not accepted|BadCredentials/i.test(m) ? 'ログインできません。アプリパスワード（16文字・2段階認証が必要）とアドレスを確認してください' : 'つながりませんでした: ' + m.slice(0, 160) }; }
 }
 
@@ -38,7 +39,7 @@ export async function sendMailAny({ to, subject, html, text, senderName, replyTo
   if (cfg.gmail) {
     try {
       const t = await _gmailTransport(cfg.gmail);
-      const info = await t.sendMail({ from: { name, address: cfg.gmail.user }, to: list.map(x => x.name ? { name: x.name, address: x.email } : x.email), subject: subj, html, ...(text ? { text } : {}), ...(replyTo && /@/.test(replyTo) ? { replyTo } : {}) });
+      const info = await t.sendMail({ from: { name, address: cfg.gmail.from || cfg.gmail.user }, to: list.map(x => x.name ? { name: x.name, address: x.email } : x.email), subject: subj, html, ...(text ? { text } : {}), ...(replyTo && /@/.test(replyTo) ? { replyTo } : {}) });
       return { ok: true, via: 'gmail', error: '', messageId: info && info.messageId || '' };
     } catch (e) { lastErr = 'Google: ' + String((e && e.message) || e).slice(0, 160); }
   }
