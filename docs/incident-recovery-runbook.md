@@ -45,7 +45,9 @@ create table if not exists app_state_rescue_YYYYMMDD as select * from app_state;
 select count(*), now() from app_state_rescue_YYYYMMDD;
 ```
 
-20分おきスナップショットが動いているか確認:
+スナップショット(控え)の設計(2026-11-02 改定): **5分おきに「版が変わった店舗だけ」追加** → 2日より前は20分刻み(0/20/40分)だけ残して間引き → 7日より前は削除。11/2 時点の実測は 1,979件で 358MB(1件 約180KB・圧縮後)。5分おきでも 1GB 前後に収まる。
+
+控えが動いているか確認:
 
 ```sql
 select key, version, taken_at from app_state_snapshots order by taken_at desc limit 15;
@@ -57,15 +59,16 @@ select key, version, taken_at from app_state_snapshots order by taken_at desc li
 create table if not exists app_state_snapshots (id bigserial primary key, key text not null, version bigint, data jsonb not null, taken_at timestamptz not null default now());
 create index if not exists idx_snap_key_time on app_state_snapshots(key, taken_at desc);
 create extension if not exists pg_cron;
-select cron.schedule('tsumugi-snapshot-20min','*/20 * * * *', $$insert into app_state_snapshots(key,version,data) select a.key,a.version,a.data from app_state a where not exists (select 1 from app_state_snapshots s where s.key=a.key and s.version=a.version);$$);
+select cron.schedule('tsumugi-snapshot-5min','*/5 * * * *', $$insert into app_state_snapshots(key,version,data) select a.key,a.version,a.data from app_state a where not exists (select 1 from app_state_snapshots s where s.key=a.key and s.version=a.version);$$);
+select cron.schedule('tsumugi-snapshot-thin','15 * * * *', $$delete from app_state_snapshots where taken_at < now() - interval '2 days' and extract(minute from taken_at)::int % 20 <> 0;$$);
 select cron.schedule('tsumugi-snapshot-cleanup','10 18 * * *', $$delete from app_state_snapshots where taken_at < now() - interval '7 days';$$);
 ```
 
 ## 3. 復旧素材の入手(2経路)
 
-### 3-A. 20分スナップショット(直近7日以内の事故はまずこちら)
+### 3-A. スナップショット(直近7日以内の事故はまずこちら)
 
-`app_state_snapshots` に20分ごと・version変化時のみ・7日分が残っている。
+`app_state_snapshots` に 5分ごと(2日より前は20分刻み)・version変化時のみ・7日分が残っている(2026-11-02 に 20分→5分へ)。
 
 ```sql
 -- 1) 戻したい時点を探す(事故発生「直前」のものを選ぶ)
