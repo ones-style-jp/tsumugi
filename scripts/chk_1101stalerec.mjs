@@ -34,7 +34,7 @@ r.healed = !!after.a && after.a.status === '出席' && after.a.tokki === '' && !
 r.keepPast = after.past && after.past.status === '休止'; r.keepNoSched = after.nosched && after.nosched.status === '休止'; r.keepFresh = after.fresh && after.fresh.status === '休止'; r.keepPaused = after.b && after.b.status === '休止';
 r.logged = toasts.length >= 1;
 // 日誌(来週)で A が休止に出ない
-await page.evaluate((iso) => { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'diary', pid: null, t: Date.now(), date: iso })); }, S.iso7);
+await page.evaluate((iso) => { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'diary', pid: null, t: Date.now(), date: iso, ampm: 'AM' })); }, S.iso7);
 await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500);
 const dateInput = page.locator('input[type="date"]:visible').first(); if (await dateInput.count()) { await dateInput.fill(S.iso7); await page.waitForTimeout(1200); }
 const body = await page.evaluate(() => document.body.innerText);

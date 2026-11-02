@@ -33,7 +33,7 @@ const info = await page.evaluate((D) => { const d = JSON.parse(localStorage.getI
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0');
   sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify({ id: 'demo_rec', name: '見本 職員', roleLabel: '介護職員' }));
   return { id: P.id, rY: d.ticketRecords[d.ticketRecords.length - 2].id, rT: d.ticketRecords[d.ticketRecords.length - 1].id }; }, D);
-const open = async (date) => { await page.evaluate((dt) => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'print', pid: null, date: dt, t: Date.now() })), date);
+const open = async (date) => { await page.evaluate((dt) => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'print', pid: null, date: dt, t: Date.now(), ampm: 'AM' })), date);
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2200); await page.locator('button', { hasText: 'あとで' }).click({ timeout: 300 }).catch(() => {}); };
 const card = () => page.evaluate(() => { const el = document.querySelector('[data-cb-next-t]'); return el ? { d: el.getAttribute('data-cb-next-d'), t: el.getAttribute('data-cb-next-t'), ra: el.getAttribute('data-cb-ren-all'), rp: el.getAttribute('data-cb-ren-pat'), txt: el.innerText } : null; });
 const rec = (rid) => page.evaluate((rid) => ((JSON.parse(localStorage.getItem('daycareAppData_v3')).ticketRecords || []).find(x => String(x.id) === rid) || {}).cbIssued, rid);
