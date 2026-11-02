@@ -7,6 +7,7 @@
 // クライアントから POST /api/send-store-welcome で呼び出し
 // body: { to, storeName, orgName?, loginId, loginPw?, loginUrl }
 import { getSecret } from './_secrets.js';
+import { sendMailAny, mailConfig } from './_mail.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -15,9 +16,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed. Use POST.' });
 
-  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
-  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
-  if (!apiKey) return res.status(500).json({ error: 'BREVO_API_KEY が設定されていません (Vercel の Environment Variables を確認してください)' });
+  { const cfg = await mailConfig(); if (!cfg.gmail && !cfg.brevo) return res.status(500).json({ error: 'メール送信の設定がありません（つむぎ管理局の「外部サービス設定」で Google Workspace か Brevo を設定してください）' }); } // ★ 2026-11-02
 
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
@@ -78,28 +77,9 @@ export default async function handler(req, res) {
   `.trim();
 
   try {
-    const payload = {
-      sender: { email: senderEmail, name: 'つむぎ運営' },
-      to: [{ email: to }],
-      subject: subject.slice(0, 100),
-      htmlContent: htmlBody,
-    };
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: { accept: 'application/json', 'content-type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      let parsed = null; try { parsed = JSON.parse(errText); } catch {}
-      const brevoMsg = parsed?.message || parsed?.code || errText.slice(0, 300);
-      let hint = '';
-      if (/unauthorized|sender/i.test(brevoMsg)) hint = `送信元 ${senderEmail} が Brevo で認証されていません。Brevo ダッシュボード > Senders & IP で認証してください。`;
-      else if (/api[- ]?key/i.test(brevoMsg)) hint = 'API キーが無効です。Vercel 環境変数 BREVO_API_KEY を確認してください。';
-      return res.status(response.status).json({ error: `Brevo API エラー (${response.status})`, brevoMessage: brevoMsg, hint });
-    }
-    const data = await response.json().catch(() => ({}));
-    return res.status(200).json({ success: true, messageId: data?.messageId || null });
+    const r = await sendMailAny({ to: [{ email: to }], subject, html: htmlBody, senderName: 'つむぎ運営' }); // ★ 2026-11-02: 共通部品(Google Workspace 優先・Brevo 控え)
+    if (!r.ok) return res.status(500).json({ error: 'メール送信に失敗しました', brevoMessage: r.error, hint: r.error });
+    return res.status(200).json({ success: true, messageId: r.messageId || null, via: r.via });
   } catch (e) {
     return res.status(500).json({ error: 'メール送信に失敗しました', detail: String(e).slice(0, 500) });
   }

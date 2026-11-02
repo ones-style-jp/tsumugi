@@ -47,6 +47,7 @@
 //   パスワードのハッシュ方式(SHA-256+固定ソルト)は従来どおりブラウザ側で計算して送る(平文は送らない)。
 import crypto from 'crypto';
 import { getSecret } from './_secrets.js';
+import { sendMailAny, mailConfig } from './_mail.js';
 import { verifyRegistration, verifyAuthentication, b64u as wb64u, unb64u as wunb64u } from './_webauthn.js';
 
 const SUPA_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -110,14 +111,15 @@ async function pinGuardOk(sid) { const all = await pinGuardLoad(); if (all[sid] 
 async function pinGuardUnlock(sid) { const all = await pinGuardLoad(); delete all[sid]; await pinGuardSave(all); }
 // メール送信(Brevo)。送れなくても処理は止めない
 async function sendMail(to, subject, html) {
-  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key'); if (!apiKey) return false;
-  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
-  const list = [...new Set((to || []).filter(e => e && /@/.test(e)))].map(email => ({ email })); if (!list.length) return false;
-  _lastMailErr = ''; let r; try { r = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', 'api-key': apiKey }, body: JSON.stringify({ sender: { email: senderEmail, name: 'つむぎ' }, to: list, subject: String(subject).slice(0, 100), htmlContent: html }) });
-  } catch (e) { _lastMailErr = 'メールのサーバーに接続できません（' + ((e && e.message) || '') + '）'; return false; }
-  if (!r.ok) { let t = ''; try { t = (await r.text()).slice(0, 200); } catch {} _lastMailErr = `メールのサーバーが拒否しました（${r.status}${t ? ' ' + t : ''}）`; } // ★ 2026-10-26: 失敗の理由を控える(本部の確認コードで表示)
+  // ★ 2026-11-02: 共通部品 _mail.js へ(Google Workspace 優先・Brevo 控え)。Brevo の共有IPが名簿に載って Google に拒否された件の対策
+  const list = [...new Set((to || []).filter(e => e && /@/.test(e)))]; if (!list.length) return false;
+  _lastMailErr = '';
+  const r = await sendMailAny({ to: list, subject, html, senderName: 'つむぎ' });
+  if (!r.ok) _lastMailErr = r.error || 'メールを送れませんでした';
+  _lastMailVia = r.via || '';
   return r.ok;
 }
+let _lastMailVia = ''; // ★ 2026-11-02: 直前の sendMail の経路('gmail'|'brevo')
 let _lastMailErr = ''; // ★ 2026-10-26: 直前の sendMail の失敗理由
 async function hqEmails() { try { const rows = await sb(`staff?select=email&role=eq.super_admin&is_active=eq.true&deleted_at=is.null`); return (rows || []).map(r => r.email).filter(e => e && /@/.test(e)); } catch { return []; } }
 // 汎用の控え(app_secrets の1行・JSON)
@@ -156,7 +158,7 @@ async function hqCodeIssue(staff) {
   const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   const g = await kvLoad('guard_hq2fa'); g[staff.id] = { hash: crypto.createHash('sha256').update(code + '|' + SERVICE_KEY).digest('hex'), exp: Date.now() + 5 * 60 * 1000, tries: 0 }; await kvSave('guard_hq2fa', g);
   _lastMailErr = ''; const ok = await sendMail([staff.email], '【つむぎ】管理局ログインの確認コード', `<p>つむぎ管理局のログインの確認コードです。</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>5分間有効です（間違いは3回まで）。心当たりが無い場合は、このメールを無視し、パスワードの変更をご検討ください。</p><p>— つむぎ(自動送信)</p>`);
-  return { ok, hint: staff.email.replace(/^(.{2}).*(@.*)$/, '$1***$2'), err: ok ? '' : (_lastMailErr || '送信の部品(BREVO_API_KEY)が設定されていません'), at: new Date().toISOString() };
+  return { ok, hint: staff.email.replace(/^(.{2}).*(@.*)$/, '$1***$2'), err: ok ? '' : (_lastMailErr || 'メール送信の設定がありません（管理局の外部サービス設定）'), at: new Date().toISOString() };
 }
 async function hqCodeVerify(staff, code) {
   const g = await kvLoad('guard_hq2fa'); const e = g[staff.id]; if (!e) return false;
@@ -167,15 +169,13 @@ async function hqCodeVerify(staff, code) {
 }
 // 停止(管理者解除待ち)になったら店舗のメールと管理者(本人アカウント)のメールへ知らせる。送れなくても処理は止めない
 async function notifyPinHardLock(sid) {
-  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key'); if (!apiKey) return;
-  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
   const st = await sb(`stores?select=name,email&id=eq.${encodeURIComponent(sid)}&limit=1`); const store = (st && st[0]) || {};
   const mgrs = await sb(`staff?select=email,display_name&store_id=eq.${encodeURIComponent(sid)}&role=eq.manager&is_active=eq.true&deleted_at=is.null`);
   const to = [...new Set([store.email, ...(mgrs || []).map(m => m.email)].filter(e => e && /@/.test(e)))].map(email => ({ email }));
   if (!to.length) return;
   const name = store.name || '店舗';
   const html = `<p>${name} の「どなたですか」(PIN)で、PIN の間違いが 15 回続いたため、PIN の入力を止めました。</p><p>心当たりが無い場合は、端末が第三者の手に渡っていないかをご確認ください。</p><p>解除は、管理者が つむぎ の「各種設定 → システム → ログインとロックの設定」の「PIN の停止を解除」から行えます。</p><p>— つむぎ(自動送信)</p>`;
-  await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', 'api-key': apiKey }, body: JSON.stringify({ sender: { email: senderEmail, name: 'つむぎ' }, to, subject: `【つむぎ】${name}: PIN の間違いが続いたため停止しました`, htmlContent: html }) });
+  await sendMailAny({ to: to.map(x => x.email), subject: `【つむぎ】${name}: PIN の間違いが続いたため停止しました`, html, senderName: 'つむぎ' }); // ★ 2026-11-02: 共通部品へ
 }
 // ★ 段階4: 店舗のログイン設定(各種設定→システム・systemSettings.security)。読めなければ既定
 // ★ 2026-11-01: 証 t が「店舗共通ログイン」で、その店舗が共通ログインを止めていれば true(shared・本部・本人は false)
@@ -483,7 +483,8 @@ export default async function handler(req, res) {
       const rows = await sb(`staff_invites?select=email,created_at&store_id=eq.${encodeURIComponent(sid)}&member_id=eq.${encodeURIComponent(mid)}&order=created_at.desc&limit=1`);
       const inv = Array.isArray(rows) ? rows[0] : null; const email = String(body.email || (inv && inv.email) || '').trim();
       if (!/@/.test(email)) return res.status(404).json({ error: '宛先のメールアドレスがありません' });
-      const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key'); if (!apiKey) return res.status(200).json({ email, events: [], reason: '送信の部品(BREVO_API_KEY)が設定されていません' });
+      { const cfg = await mailConfig(); if (cfg.gmail) return res.status(200).json({ email, events: [], via: 'gmail', from: cfg.gmail.user, reason: '' }); } // ★ 2026-11-02: Google Workspace から送っているときは配信記録が無い
+      const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key'); if (!apiKey) return res.status(200).json({ email, events: [], reason: 'メール送信の設定がありません' });
       let events = [], reason = '';
       try { const r = await fetch(`https://api.brevo.com/v3/smtp/statistics/events?email=${encodeURIComponent(email)}&limit=100&sort=desc`, { headers: { accept: 'application/json', 'api-key': apiKey } });
         const j = await r.json().catch(() => ({})); if (!r.ok) reason = `Brevo ${r.status} ${JSON.stringify(j).slice(0, 160)}`;

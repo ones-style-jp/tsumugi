@@ -1,7 +1,26 @@
 {
-  "version": "upd-2026-1102-trial501",
+  "version": "upd-2026-1102-trial502",
   "updatedAt": "2026-11-02",
   "notes": [
+    {
+      "id": "upd-2026-1102-trial502",
+      "type": "fix",
+      "title": "メール送信を Google Workspace からも（Brevo の送信元が迷惑メール扱いされる件の対策）",
+      "date": "2026-11-02",
+      "body": "管理局 → 外部サービス設定",
+      "items": [
+        {
+          "kind": "fix",
+          "where": "招待メール・確認コード・パスワード通知・緊急連絡・不具合レポート",
+          "change": "管理局の外部サービス設定に「Google Workspace メール」を追加。アドレスとアプリパスワードを入れると、そのアドレスから直接送ります。設定が無いときや失敗したときは今までどおり Brevo で送ります。"
+        },
+        {
+          "kind": "info",
+          "where": "届いたか確認",
+          "change": "Google から送った分には配信の記録が無いため、その旨を表示します。"
+        }
+      ]
+    },
     {
       "id": "upd-2026-1102-trial501",
       "type": "improve",
