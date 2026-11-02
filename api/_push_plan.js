@@ -4,9 +4,10 @@
 //   ・開始前のお知らせ: 開始の N 分前(既定 30 分)から開始までの間に1通(1分おきの点検で届く・2026-10-28 までは5分おき)
 //   ・夜(20時〜7時)は送らない。通知の文には利用者名・題名を出さない(ロック画面に出るため)。ラベル(担当者会議・契約など)と時刻だけ
 //   ・2026-10-30 タスク(kind:'task'): 朝のお知らせ(既定 9:00・今日のタスクと期限切れの数を1回)・時刻の入ったタスクは開始前に「タスクの時刻」。済んだ回は送らない。前日のお知らせ(あすの予定)には数えない
+//   ・2026-11-02 開始の時刻ちょうど(atStart・既定 on): 時間の入った予定・タスクに「予定の時刻です」「タスクの時刻です」を1通(開始〜10分の点検窓・控え s|<id>|<日>)
 //     繰り返しの判定は画面(App.jsx tsuOccursOn)と同じ: 毎月（最終営業日）・タスクの毎日は営業日だけ(定休日 closedDays・1日の休業日 holidays)
 export const JST_OFF = 9 * 60 * 60 * 1000;
-export const PUSH_DEFAULTS = { on: true, dayBefore: true, dayBeforeAt: '17:00', before: true, beforeMin: 30, offColors: [], taskMorning: true, taskMorningAt: '09:00' };
+export const PUSH_DEFAULTS = { on: true, dayBefore: true, dayBeforeAt: '17:00', before: true, beforeMin: 30, offColors: [], taskMorning: true, taskMorningAt: '09:00', atStart: true }; // ★ 2026-11-02: atStart=開始の時刻ちょうどにも1通
 // 画面(カレンダー)の既定のラベル。店舗が変えていれば systemSettings.scheduleColorLabels を使う
 const DEFAULT_LABELS = [
   { color: '#3b82f6', label: '担当者会議' }, { color: '#ef4444', label: '契約' }, { color: '#10b981', label: '見学' },
@@ -91,6 +92,17 @@ export function planStore({ storeId, events, colorLabels, cfg, closedDays, holid
         const rem = st - hm;
         if (isTask(e)) { out.push({ key, kind: 'beforeTask', title: `あと${rem}分でタスクの時刻です`, body: `${String(e.start).slice(0, 5)} タスク`, tag: `tsumugi-b-${e.id}-${today}`, path: '/?tsugo=dashboard' }); return; }
         out.push({ key, kind: 'before', title: `あと${rem}分で予定があります`, body: `${String(e.start).slice(0, 5)} ${labelOf(e, colorLabels)}`, tag: `tsumugi-b-${e.id}-${today}`, path: '/?tsugo=schedule' });
+      }
+    });
+  }
+  // ★ 2026-11-02(ユーザー要望「前日と30分前に加えて、その時刻になったときにも通知を」): 開始の時刻ちょうどに1通(開始〜10分後までの点検で届く・済んだタスクは送らない・1回だけ)
+  if (c.atStart !== false) {
+    [...list, ...tasks.filter(t => !taskDoneOn(t, today))].filter(e => occursOn(e, today, ctx)).sort(byStart).forEach(e => {
+      const st = minOf(e.start); if (st == null) return;
+      if (hm >= st && hm < st + 10) {
+        const key = `${storeId}|s|${e.id}|${today}`; if (S[key]) return;
+        if (isTask(e)) { out.push({ key, kind: 'startTask', title: 'タスクの時刻です', body: `${String(e.start).slice(0, 5)} タスク`, tag: `tsumugi-s-${e.id}-${today}`, path: '/?tsugo=dashboard' }); return; }
+        out.push({ key, kind: 'start', title: '予定の時刻です', body: `${String(e.start).slice(0, 5)} ${labelOf(e, colorLabels)}`, tag: `tsumugi-s-${e.id}-${today}`, path: '/?tsugo=schedule' });
       }
     });
   }
