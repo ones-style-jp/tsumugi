@@ -23,10 +23,10 @@ const res = {};
 // 提供記録入力: 検索で1人ずつ確認(状態ボタンの文字)
 await page.locator('button, a', { hasText: /サービス提供記録/ }).first().click(); await page.waitForTimeout(1200);
 for (const ap of ['AM', 'PM']) { await page.locator('button', { hasText: new RegExp('^' + ap + '$') }).first().click(); await page.waitForTimeout(500);
-  for (const [k, n] of Object.entries(info)) { await page.fill('input[placeholder="氏名で検索"]', n); await page.waitForTimeout(400);
+  for (const [k, n] of Object.entries(info)) { await page.fill('input[placeholder*="検索"]:visible', n); await page.waitForTimeout(400);
     const st = await page.evaluate((n) => { const leaf = [...document.querySelectorAll('div,span,td,button')].find(e => e.children.length === 0 && e.textContent.trim() === n); if (!leaf) return '—'; let c = leaf; for (let i = 0; i < 5; i++) { c = c.parentElement; if (!c) break; const btns = [...c.querySelectorAll('button,select')].map(b => (b.tagName === 'SELECT' ? b.value : b.innerText).trim()).filter(x => /(出席|欠席|振替|臨時|休止|休業)/.test(x)); if (btns.length) return btns[0].replace(/\s+/g, ' ').slice(0, 6); } return '?:' + c.innerText.replace(/\s+/g, ' ').slice(0, 40); }, n);
     res[`record_${ap}_${k}`] = st; }
-  await page.fill('input[placeholder="氏名で検索"]', ''); }
+  await page.fill('input[placeholder*="検索"]:visible', ''); }
 // 連絡帳 AM/PM
 await page.locator('button, a', { hasText: /^連絡帳$/ }).first().click(); await page.waitForTimeout(1200);
 for (const ap of ['AM', 'PM']) { await page.locator('button', { hasText: new RegExp('^' + ap + '$') }).first().click(); await page.waitForTimeout(700); const tx = await text(); for (const [k, n] of Object.entries(info)) res[`renraku_${ap}_${k}`] = tx.includes(n); }
