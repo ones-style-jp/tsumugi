@@ -23355,7 +23355,10 @@ export default function App() {
       pinUnlock: async () => { await supabaseStaffPinUnlock(staffSession.token, staffSession.storeId); } };
   }, [staffSession, _staffAcct, mergedStaffMembers, _reloadStaffAcct]); // eslint-disable-line react-hooks/exhaustive-deps
   const _verifyPin = React.useCallback(async (m, pin) => { await supabaseStaffPinVerify(staffSession.token, m.id, pin); }, [staffSession?.token]);
-  const _pinLogin = React.useCallback(async (pin) => { const r = await supabaseStaffPinLogin(staffSession.token, pin); const mid = r && r.staff && r.staff.member_id; const m = mergedStaffMembers.find(x => String(x.id) === String(mid)); if (m && (m.isAdmin || m.roleLabel === '管理者')) { try { sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} } return m || null; }, [staffSession?.token, mergedStaffMembers]);
+  const _pinLogin = React.useCallback(async (pin) => { const r = await supabaseStaffPinLogin(staffSession.token, pin); const mid = r && r.staff && r.staff.member_id; const m = mergedStaffMembers.find(x => String(x.id) === String(mid));
+    // ★ 2026-11-03 trial504: PIN は合っている(サーバーが本人を返した)のに、この店舗のスタッフ一覧にその職員が居ないときは「PIN が違います」ではなく理由を出す(11/2 テスト店で招待の結び先が一覧に無い登録を作って判明)
+    if (mid && !m) throw new Error(`PIN は合っていますが、${r.staff.display_name ? '「' + r.staff.display_name + '」が' : 'この方が'}スタッフ一覧に見つかりません。管理者が「各種設定 → スタッフ管理」でこの方の行があるか（退職・削除になっていないか）を確認し、無ければ行を作って招待を出し直してください`);
+    if (m && (m.isAdmin || m.roleLabel === '管理者')) { try { sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} } return m || null; }, [staffSession?.token, mergedStaffMembers]);
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.kind !== 'person' || !staffSession.memberId || activeRecorder) return;
     const m = mergedStaffMembers.find(x => String(x.id) === String(staffSession.memberId));
