@@ -38244,6 +38244,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // 週の月曜(selectedDate基準)
   const _mon = (() => { const d = new Date(selectedDate || new Date()); const dw = d.getDay(); const diff = (dw === 0 ? -6 : 1 - dw); d.setDate(d.getDate() + diff); d.setHours(0,0,0,0); return d; })();
   const _iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  // ★ 2026-11-03 trial505(ユーザー報告「退所した方がスマホの送迎表で休みに出る」): 送迎表の利用者の判定。利用期間(isPatientActiveOnDate=利用終了日)に加えて、
+  //   状態が退所・終了なのに利用終了日が空(入れ忘れ)の方は、今日以降の日には出さない(終了日があればその日まで出す・過去の週はそのまま)。他の画面(isPatientListable)との食い違い対策
+  const _tpActiveOn = (p, iso) => { if (!isPatientActiveOnDate(p, iso)) return false; if (/退所|終了/.test(String(p.status || '')) && !dateIsoAny(p.endDate) && String(iso).slice(0, 10) >= _iso(new Date())) return false; return true; };
   const closedDays = appData.systemSettings?.facilityInfo?.closedDays || [0];
   const DOWJ = ['日','月','火','水','木','金','土'];
   const weekDays = [];
@@ -38289,7 +38292,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       //   ここに「今日の時点で終了しているか」(isPatientResigned)の判定があり、終了日の当日(過去の日)も来ない方と数えていた
       //   (保存済みの送迎表では「休み・休止になった方」と出て、反映すると休みに移る)。判定はその日の利用期間(下)だけにする
       // ★ 2026-09-19(店舗指摘): 利用開始日より前・利用終了日より後の日には出さない(月間スケジュール・日誌と同じ判定)
-      if (!isPatientActiveOnDate(p, iso)) return;
+      if (!_tpActiveOn(p, iso)) return;
       const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${sl}`];
       const base = getScheduleOnDate(p, iso)?.[dow] || '';
       // ★ 2026-09-12b: 「1日」の方は午前の便で来るためAMのみ(PMのお迎えには出さない)
@@ -38325,7 +38328,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (_hol && (!_hol.ampm || _hol.ampm === '1日' || _hol.ampm === sl)) return [];
     const out = [];
     (appData.patients||[]).forEach(p => {
-      if (!isPatientActiveOnDate(p, iso)) return; // ★ 2026-09-19: 利用開始前・終了後は「休み」にも出さない(2026-10-28: 今日の時点の終了ではなく、その日の利用期間で)
+      if (!_tpActiveOn(p, iso)) return; // ★ 2026-09-19: 利用開始前・終了後は「休み」にも出さない(2026-10-28: 今日の時点の終了ではなく、その日の利用期間で)
       const base = getScheduleOnDate(p, iso)?.[dow] || '';
       const baseHit = base === sl || (base === '1日' && sl === 'AM');
       if (!baseHit) return;
@@ -38397,7 +38400,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const getPlan = (iso, sl) => {
     const _saved0 = plans[`${iso}_${sl}`];
     // ★ 2026-10-01: 利用終了日より後(開始日より前)の方は、保存済みの送迎表に残っていても外す(車・徒歩・その他・未割当・送り別)
-    const _keepM = (m) => { if (!m) return false; const pt = (appData.patients||[]).find(x => x.id === m.pid); return !pt || isPatientActiveOnDate(pt, iso); };
+    const _keepM = (m) => { if (!m) return false; const pt = (appData.patients||[]).find(x => x.id === m.pid); return !pt || _tpActiveOn(pt, iso); };
     const _clean = (o) => { if (!o || typeof o !== 'object') return o; const cars = {}; Object.keys(o.cars||{}).forEach(c => { cars[c] = (o.cars[c]||[]).filter(_keepM); });
       return { ...o, cars, ...(o.walkers ? { walkers: o.walkers.filter(_keepM) } : {}), ...(o.others ? { others: o.others.filter(_keepM) } : {}), ...(o.un ? { un: o.un.filter(_keepM) } : {}) }; };
     const saved = (_saved0 && typeof _saved0 === 'object') ? { ..._clean(_saved0), ...(_saved0.drop ? { drop: _clean(_saved0.drop) } : {}) } : _saved0;
@@ -38586,7 +38589,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const att = new Set(_attendees(iso, sl).map(a => String(a.pid)));
     const ids = new Set();
     [ ...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]), ...(pl.un||[]) ].forEach(m => { if (m && m.pid != null && !att.has(String(m.pid))) ids.add(m.pid); });
-    return [...ids].filter(pid => (appData.patients||[]).some(p => p.id === pid && isPatientActiveOnDate(p, iso)));
+    return [...ids].filter(pid => (appData.patients||[]).some(p => p.id === pid && _tpActiveOn(p, iso)));
   };
   const _staleOfWeek = () => { const out = []; days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const ids = _staleMembers(iso, sl); if (ids.length) out.push({ iso, sl, ids }); })); return out; };
   const reflectStale = (targets) => {
