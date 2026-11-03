@@ -38700,11 +38700,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _dotInfo = (pl, iso, pid) => { const ac = _chgOf(pl, pid); if (!ac) return { ac: '', dot: false }; return { ac, dot: _noticeNeeded(iso, pid, pl && pl._chgAt ? pl._chgAt[pid] : 0) }; };
   const _dotOf = (pl, iso, pid) => { const i = _dotInfo(pl, iso, pid); return i.dot ? i.ac : ''; };
   _stampChgRef.current = _stampChg;
-  const _removedSince = (pl) => { const fin = _baseOf(pl); if (!fin) return []; const cur = _snapPlan(pl); const nowIds = new Set([ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ]); return [ ...Object.values(fin.cars||{}).flat().map(m=>m.pid), ...(fin.walkers||[]), ...(fin.others||[]) ].filter(pid => !nowIds.has(pid)); };
+  // ★ 2026-11-03 trial506(ユーザー報告・スマホの写真「10/27 に退所した方が、配布後に外れた方として打ち消し線＋休みで出る」): 配布の控え(_base/_final)にはその方が残っているため、
+  //   「配布後に外れた方」に数えられていた。退所済み(利用終了日を過ぎた・状態が退所/終了)の方は、外れた方にも変わった車にも数えない
+  const _tpListable = (pid) => { const p = (appData.patients||[]).find(x => x.id === pid); return !p || isPatientListable(p); };
+  const _removedSince = (pl) => { const fin = _baseOf(pl); if (!fin) return []; const cur = _snapPlan(pl); const nowIds = new Set([ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ]); return [ ...Object.values(fin.cars||{}).flat().map(m=>m.pid), ...(fin.walkers||[]), ...(fin.others||[]) ].filter(pid => !nowIds.has(pid) && _tpListable(pid)); };
   // ★ 2026-10-01(試験版・ユーザー指示「完成後の変更は利用者の時間をメインに。運転者の変更は含まなくていい」): 運転者の変更は数えない
   const _chgCount = (pl) => { if (!pl || !_baseOf(pl)) return 0; const cur = _snapPlan(pl); let n = 0; [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { if (_chgOf(pl, pid)) n++; }); return n + _removedSince(pl).length; };
   // ★ 2026-10-05: この車の中身が基準(確定時)から変わったか(乗る方の増減・順番・時間)。運転者の変更は数えない
-  const _carChanged = (pl, cid) => { const base = _baseOf(pl); if (!base) return false; const cur = (pl.cars && pl.cars[cid]) || []; if (cur.some(m => _chgOf(pl, m.pid))) return true; const now = new Set(cur.map(m => String(m.pid))); return ((base.cars && base.cars[cid]) || []).some(m => !now.has(String(m.pid))); };
+  const _carChanged = (pl, cid) => { const base = _baseOf(pl); if (!base) return false; const cur = (pl.cars && pl.cars[cid]) || []; if (cur.some(m => _chgOf(pl, m.pid))) return true; const now = new Set(cur.map(m => String(m.pid))); return ((base.cars && base.cars[cid]) || []).some(m => !now.has(String(m.pid)) && _tpListable(m.pid)); };
   // ★ 2026-10-06(ユーザー要望「変更2 などのところで変更内容が表示されると尚いい」): 週の確定後の変更を一覧にする(_chgCount と同じ数え方)
   const _carNmOf = (zone) => zone === 'walk' ? '徒歩' : zone === 'other' ? 'その他' : ((cars.find(c => String(c.id) === String(zone)) || {}).name || '車');
   const _chgListOfWeek = () => { const out = []; days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = plans[`${iso}_${sl}`]; if (!pl || !_baseOf(pl)) return; const cur = _snapPlan(pl), fin = _baseOf(pl);
