@@ -1,7 +1,21 @@
 {
-  "version": "upd-2026-1103-trial510",
+  "version": "upd-2026-1104-trial511",
   "updatedAt": "2026-11-03",
   "notes": [
+    {
+      "id": "upd-2026-1104-trial511",
+      "type": "improve",
+      "title": "座席表の車の絵を画面の大きさに合わせて拡大",
+      "date": "2026-11-04",
+      "body": "送迎表 → 座席表で決める",
+      "items": [
+        {
+          "kind": "improve",
+          "where": "座席表（パソコン・iPad）",
+          "change": "車の絵と席の札を、画面の幅に合わせて自動で大きくします（最大 1.9 倍）。iPad を横にしたときも測り直します。"
+        }
+      ]
+    },
     {
       "id": "upd-2026-1103-trial510",
       "type": "improve",

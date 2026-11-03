@@ -39294,6 +39294,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [seatOrd, setSeatOrd] = useState(null); // 順番を変える方 {cid, pid}
   const [ordDrag, setOrdDrag] = useState(null); const ordDragRef = React.useRef(null); // ★ 2026-10-15: 送りの順番の一覧でつかんでいる方 {cid, pid, y0, dy, over}
   const [seatKp, setSeatKp] = useState(null); // ★ 2026-10-15: 送りの出発時間のテンキー {iso, sl, cid}
+  // ★ 2026-11-04 trial511(ユーザー「画面の大きさに合わせて座席表も大きくしていいかも」): 座席表の車の絵を画面の幅に合わせて拡大(1〜1.9倍・CSS zoom・向きを変えたら測り直す)
+  const [_seatVw, setSeatVw] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1366));
+  useEffect(() => { const f = () => setSeatVw(window.innerWidth); window.addEventListener('resize', f); window.addEventListener('orientationchange', f); return () => { window.removeEventListener('resize', f); window.removeEventListener('orientationchange', f); }; }, []);
   const [seatAtKp, setSeatAtKp] = useState(null); // ★ 2026-10-21: 送りで家に着く時間のテンキー {iso, sl, cid, pid}
   const [dropAtBusy, setDropAtBusy] = useState(false);
   // ★ 2026-10-16(ユーザー要望「次の週の順番などを変えた後に前週コピーすると、そのまま入ってしまう」): 前週コピーは
@@ -41268,7 +41271,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                     {!notYet.length && !carNoSeat.length && <span className="text-[11px] text-slate-400">{_dragging ? 'ここへ落とすと席から外れます' : 'なし（全員の席が決まっています）'}</span>}
                     {carNoSeat.length > 0 && <button type="button" onClick={() => [...new Set(carNoSeat.map(x => x.c.id))].forEach(cid => fillSeats(iso, sl, cid))} className="ml-1 text-[11px] font-bold text-indigo-700 underline">車が決まっている方を空いている席に順に入れる</button>}
                   </div>
-                  <div className="flex flex-wrap justify-center items-start gap-6">{cars.map(carBlock)}</div>
+                  {(() => { const _carW = (c) => Math.max(2, ...tpSeatLayout(c, dr.cars?.[c.id] || []).rows) * 120 + 30; const _tot = cars.reduce((a, c) => a + _carW(c), 0) + 24 * Math.max(0, cars.length - 1); const _zoom = Math.max(1, Math.min(1.9, Math.floor(((_seatVw - 56) / Math.max(1, _tot)) * 100) / 100)); // ★ 2026-11-04 trial511: 画面の幅いっぱいに拡大
+                    return <div className="flex flex-wrap justify-center items-start gap-6" style={{ zoom: _zoom }} data-seatzoom={_zoom} data-testid="tp-seat-cars">{cars.map(carBlock)}</div>; })()}
                   <div className="flex gap-3 flex-wrap">
                     <div data-tpdrop="d:walk" data-tpiso={iso} data-tpslot={sl} className={`flex-1 min-w-[220px] rounded-xl border px-3 py-2 text-[13px] ${_over('d:walk') ? 'border-orange-500 ring-2 ring-orange-200 bg-orange-50' : 'border-orange-200 bg-orange-50/50'}`}>
                       <span className="text-[11px] font-bold text-orange-700 mr-2">徒歩</span>
