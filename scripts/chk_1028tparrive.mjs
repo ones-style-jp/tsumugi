@@ -26,9 +26,9 @@ const info = await page.evaluate(() => { const d = JSON.parse(localStorage.getIt
   return { iso, A: A.name, E: E.name }; });
 r.seed = !!info; if (!info) { console.log('NO SEED'); process.exit(1); }
 await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2000);
-const st = page.getByTestId('tp-stale-modal'); const txt = (await st.count()) ? await st.innerText() : ''; console.log('小窓:', JSON.stringify(txt.slice(0, 160)));
-r.staleShown = txt.includes(info.A) && txt.includes(info.E);
-await page.getByTestId('tp-stale-apply').click().catch(() => {}); await page.waitForTimeout(1200);
+// ★ 2026-11-03 trial508: 「休み・休止になった方」の小窓はなくなり、今日以降は開いた時点で自動で外れる → 小窓が出ないことを確かめる(到着の時間が残る確認は従来どおり)
+const st = page.getByTestId('tp-stale-modal'); r.staleShown = (await st.count()) === 0; // 小窓なし=OK
+await page.waitForTimeout(1200);
 const pl = await page.evaluate((iso) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const p = (d.transportPlans || {})[`${iso}_AM`] || {}; return { arrive: p.arrive, arriveAuto: p.arriveAuto, cars: Object.fromEntries(Object.entries(p.cars || {}).map(([k, v]) => [k, v.length])) }; }, info.iso);
 console.log('反映後', JSON.stringify(pl));
 r.car1Kept = (pl.arrive || {}).c1 === '8:57'; r.car2EstKept = (pl.arrive || {}).c2 === '8:58'; r.car3Kept = (pl.arrive || {}).c3 === '8:59'; r.removed = pl.cars.c1 === 1 && pl.cars.c3 === 0;
