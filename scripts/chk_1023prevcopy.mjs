@@ -13,7 +13,7 @@ const ids = await page.evaluate(([keyPrev, keyNow]) => { const d = JSON.parse(lo
   d.transportPlans[keyPrev] = { cars: { car1: [{ pid: ps[0].id, t: '8:30', mark: false }], car2: [{ pid: ps[1].id, t: '8:35', mark: false }] }, walkers: [], others: [], un: [], memo: '', arrive: { car1: '8:50', car2: '8:55' }, arriveAuto: { car2: true }, _savedAt: Date.now() - 86400000 };
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'transport', pid: null, t: Date.now() })); return ps.map(p => p.id); }, [keyPrev, keyNow]);
 await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500);
-await page.getByTestId('tp-copy-prev').click(); await page.waitForTimeout(500); await page.getByTestId('tp-copy-all').click(); await page.waitForTimeout(1500);
+await page.getByTestId('tp-copy-prev').click(); await page.waitForTimeout(500); await page.getByTestId('tp-copy-all').click(); await page.waitForTimeout(500); /* ★ 2026-11-03 trial510: ①前の週から → ②全部上書き の2段 */ await page.getByTestId('tp-copy-over').click(); await page.waitForTimeout(1500);
 const pl = await page.evaluate((k) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const p = (d.transportPlans || {})[k]; return p ? { arrive: p.arrive, auto: p.arriveAuto, cars: Object.keys(p.cars || {}).map(c => (p.cars[c] || []).length) } : null; }, keyNow);
 console.log('copied', JSON.stringify(pl));
 r.copied = !!pl && pl.cars.join(',') === '1,1'; r.handKept = !!pl && pl.arrive && pl.arrive.car1 === '8:50' && !(pl.auto || {}).car1; r.autoKept = !!pl && pl.arrive && pl.arrive.car2 === '8:55' && !!(pl.auto || {}).car2;
