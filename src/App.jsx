@@ -38428,6 +38428,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // 週の月曜(selectedDate基準)
   const _mon = (() => { const d = new Date(selectedDate || new Date()); const dw = d.getDay(); const diff = (dw === 0 ? -6 : 1 - dw); d.setDate(d.getDate() + diff); d.setHours(0,0,0,0); return d; })();
   const _iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  // ★ 2026-11-03 trial509(ユーザー「休みが出るので、この週を基本にするだけでは一生作れない。別枠で基本の送迎表を作れる所を」):
+  //   基本の送迎表(曜日ごとの型)は、実在しない週 2099-01-05(月)〜01-11(日) のコマとして transportPlans に置く(キーは "2099-01-0X_AM|PM")。
+  //   こうすると送迎表の作成画面(ドラッグ・時間・運転者・座席表・自動計算)がそのまま型の編集に使え、同期もコマと同じ。
+  //   その週の「来る方」は利用者マスタの基本利用曜日どおり(月間スケジュール・記録・休業日は無い)、お迎え時間はマスタの基本の時間が入る。
+  //   「この週を基本の送迎表にする」(trial508)も同じキーに書く。新しい週の下書きはこの型から作る(_draftPlan)
+  const TSU_TP_BASE_MON = '2099-01-05';
+  const _tpBaseIsoOf = (dow) => { const d = new Date(`${TSU_TP_BASE_MON}T00:00:00`); d.setDate(d.getDate() + (dow === 0 ? 6 : dow - 1)); return _iso(d); };
+  const _isTplIso = (iso) => /^2099-01-(0[5-9]|1[01])$/.test(String(iso || ''));
+  const _tpTemplate = _iso(_mon) === TSU_TP_BASE_MON;
   // ★ 2026-11-03 trial505(ユーザー報告「退所した方がスマホの送迎表で休みに出る」): 送迎表の利用者の判定。利用期間(isPatientActiveOnDate=利用終了日)に加えて、
   //   状態が退所・終了なのに利用終了日が空(入れ忘れ)の方は、今日以降の日には出さない(終了日があればその日まで出す・過去の週はそのまま)。他の画面(isPatientListable)との食い違い対策
   const _tpActiveOn = (p, iso) => { if (!isPatientActiveOnDate(p, iso)) return false; if (/退所|終了/.test(String(p.status || '')) && !dateIsoAny(p.endDate) && String(iso).slice(0, 10) >= _iso(new Date())) return false; return true; };
@@ -38562,8 +38571,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _draftPlan = (iso, sl) => {
     const att = _attendees(iso, sl);
     // ★ 2026-11-03 trial508: 基本の送迎表(base_<曜日>_<AM|PM>)があれば、その並びにその日来る方を当てはめる(来ない方は外す・基本に無い方は未割当・送りの席と時間も基本から)
-    const _bd = new Date(`${iso}T00:00:00`).getDay(); const base0 = plans[`base_${_bd}_${sl}`];
-    if (base0 && typeof base0 === 'object' && base0.cars) {
+    const _bd = new Date(`${iso}T00:00:00`).getDay(); const base0 = _isTplIso(iso) ? null : plans[`${_tpBaseIsoOf(_bd)}_${sl}`]; // ★ trial509: 型の週そのものは型から作らない
+    if (base0 && typeof base0 === 'object' && base0.cars && !base0._draft) {
       const cp = JSON.parse(JSON.stringify(base0)); delete cp._savedAt;
       const attMap = new Map(att.map(a => [String(a.pid), a]));
       const keep = (m) => !!m && attMap.has(String(m.pid));
@@ -38815,7 +38824,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     let _unf = 0;
     days.forEach(d => ['AM','PM'].forEach(sl => { const k = `${_iso(d)}_${sl}`; const pl = np[k]; if (pl && pl._final) { const { _final, _finalAt, _finalId, ...rest } = pl; np[k] = { ...rest, _base: _final, _baseAt: _finalAt, _baseId: _finalId || _finalAt, _savedAt: syncNow() }; _unf++; } }));
     const _nm = list.flatMap(x => x.ids.map(pid => _pname(pid))); const _nmS = _nm.slice(0, 4).join('・') + (_nm.length > 4 ? ` ほか${_nm.length - 4}名` : '');
-    _saveBulk('休みの反映', np, { manual: true, message: `✓ 変更しました: ${_nmS}を休みに（送迎表から外しました・${n}名）${_unf ? '。確定を解除しました' : ''}` }); // ★ 2026-11-03 trial508: 自動反映の文言
+    _saveBulk('休みの反映', np, { manual: true, message: list.some(x => _isTplIso(x.iso)) ? `✓ 基本の送迎表から外しました: ${_nmS}（基本利用曜日が変わった・利用終了の方）` : `✓ 変更しました: ${_nmS}を休みに（送迎表から外しました・${n}名）${_unf ? '。確定を解除しました' : ''}` }); // ★ 2026-11-03 trial508: 自動反映の文言(trial509: 型の週の文言)
     if (_unf) setTpEdit(false);
     setStaleModal(null);
   };
@@ -39291,7 +39300,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   //   mode='fill'=この週でまだ作っていない午前・午後だけ写す(作った・直したコマはそのまま) / 'all'=全部写し直す(従来)
   const [copyAsk, setCopyAsk] = useState(false);
   // ★ 2026-11-03 trial508(ユーザー決定): 基本の送迎表 = 曜日×午前/午後の「いつもの並び」。transportPlans の base_<曜日0-6>_<AM|PM> に置く(同期はコマと同じく _savedAt の新しい方)
-  const _baseKeys = Object.keys(plans).filter(k => /^base_[0-6]_(AM|PM)$/.test(k));
+  const _baseKeys = Object.keys(plans).filter(k => /^2099-01-(0[5-9]|1[01])_(AM|PM)$/.test(k) && plans[k] && typeof plans[k] === 'object' && !plans[k]._draft); // ★ trial509: 型の週のコマ
   const _hasBaseAny = _baseKeys.length > 0;
   const _baseStamp = (() => { let b = 0; _baseKeys.forEach(k => { const t = Number(plans[k] && plans[k]._savedAt) || 0; if (t > b) b = t; }); return b ? `${new Date(b).getMonth() + 1}/${new Date(b).getDate()} に登録` : ''; })();
   const [dropBoxOpen, setDropBoxOpen] = useState({}); // ★ 2026-10-23(ユーザー要望): 作成中の「送り（帰り）の車」はコマごとに折りたたみ
@@ -39313,7 +39322,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             const np = { ...plans };
             days.forEach(d => { ['AM','PM'].forEach(sl => {
               const prevD = new Date(d); prevD.setDate(prevD.getDate() - 7);
-              const src = mode === 'base' ? plans[`base_${d.getDay()}_${sl}`] : plans[`${_iso(prevD)}_${sl}`]; // ★ 2026-11-03 trial508: 基本の送迎表からも
+              const src = mode === 'base' ? plans[`${_tpBaseIsoOf(d.getDay())}_${sl}`] : plans[`${_iso(prevD)}_${sl}`]; // ★ 2026-11-03 trial508: 基本の送迎表からも(trial509: 型の週のキー)
               if (!src) return;
               const cp = JSON.parse(JSON.stringify(src));
               // 赤丸(時間変更マーク)はコピーしない
@@ -39388,7 +39397,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     days.forEach(d => ['AM','PM'].forEach(sl => { const pl = plans[`${_iso(d)}_${sl}`]; if (!pl || typeof pl !== 'object' || pl._draft) return;
       const { un, _draft, _final, _finalAt, _finalId, _base, _baseAt, _baseId, _chgAt, _telDone, _copyBase, _cbT, _savedAt, _fromBase, ...rest } = pl;
       const snap = JSON.parse(JSON.stringify(rest)); Object.keys(snap.cars||{}).forEach(cid => (snap.cars[cid]||[]).forEach(m => { if (m) m.mark = false; }));
-      np[`base_${d.getDay()}_${sl}`] = { ...snap, _savedAt: syncNow() }; n++; }));
+      np[`${_tpBaseIsoOf(d.getDay())}_${sl}`] = { ...snap, _savedAt: syncNow() }; n++; })); // ★ trial509: 型の週のキーへ
     if (!n) { alert('この週にはまだ保存済みの送迎表がありません。'); return; }
     onSave({ ...appData, transportPlans: np }, { manual: true, message: `✓ この週の ${n}コマを基本の送迎表にしました（新しい週はこの並びで自動で作ります）` });
     setCopyAsk(false);
@@ -40514,18 +40523,28 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>
         </div>), document.body)}
       <div data-testid="tp-ops" className={`bg-white px-2 sm:px-3 py-1.5 border-b border-slate-200 shadow-sm flex items-center gap-2 flex-wrap ${_tpPhone && !_tpOpsOpen ? 'hidden' : ''}`}>
-        <div className="tsu-tpo-week flex items-center gap-1">
-          <button onClick={()=>moveWeek(-1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">◀ 前週</button>
-          <span className="text-sm font-bold text-slate-700 px-1 whitespace-nowrap">{_mon.getMonth()+1}/{_mon.getDate()}〜の週</span>
-          <button onClick={()=>moveWeek(1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">翌週 ▶</button>
-        </div>
+        {_tpTemplate ? (
+          <div className="tsu-tpo-week flex items-center gap-2" data-testid="tp-base-head">
+            {/* ★ 2026-11-03 trial509: 基本の送迎表(曜日ごとの型)の編集中 */}
+            <span className="text-sm font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-lg px-2 py-1.5 whitespace-nowrap">基本の送迎表（曜日ごとの型）</span>
+            <button type="button" data-testid="tp-base-back" onClick={() => setSelectedDate(_iso(new Date()))} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold whitespace-nowrap">今週の送迎表に戻る</button>
+          </div>
+        ) : (
+          <div className="tsu-tpo-week flex items-center gap-1">
+            <button onClick={()=>moveWeek(-1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">◀ 前週</button>
+            <span className="text-sm font-bold text-slate-700 px-1 whitespace-nowrap">{_mon.getMonth()+1}/{_mon.getDate()}〜の週</span>
+            <button onClick={()=>moveWeek(1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">翌週 ▶</button>
+            {/* ★ 2026-11-03 trial509(ユーザー要望): 基本の送迎表を別枠で作る(曜日ごとの型・利用者マスタの基本利用曜日とお迎え時間から) */}
+            {!_tpPhone && <button type="button" data-testid="tp-base-open" onClick={() => setSelectedDate(TSU_TP_BASE_MON)} className={`px-2 py-1.5 rounded-lg text-sm font-bold border whitespace-nowrap ${_hasBaseAny ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title="曜日ごとの「いつもの並び」を作ります。新しい週はこの並びで自動で作られます">基本の送迎表{_hasBaseAny ? '' : '（未作成）'}</button>}
+          </div>
+        )}
         {/* ★ 2026-10-09(ユーザー要望・全端末): 「(要TEL)」は不要。凡例の開閉もやめ、緑=振替・水色=初回だけを常に表示 */}
         <span className="tsu-tpo-legend flex items-center gap-1.5 text-[11px] font-bold text-slate-600 whitespace-nowrap" data-testid="tp-legend">
           <span className="border border-slate-200 rounded px-1.5 py-0.5"><span className="border-2 border-red-600 rounded px-1 font-bold">時間</span>=時間変更</span>
           <span className="bg-emerald-200 text-emerald-900 rounded px-1.5 py-0.5">緑=振替</span><span className="bg-sky-200 text-sky-900 rounded px-1.5 py-0.5">水色=初回</span>
         </span>
           <div className="tsu-tpo-sp flex-1"/>
-          <button onClick={()=>setCopyAsk(true)} data-testid="tp-copy-prev" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 h-10 px-3 rounded-xl font-bold text-sm inline-flex items-center" title="前の週または基本の送迎表から、この週の送迎表を作ります（「この週を基本にする」もここ）">コピー</button>
+          <button onClick={()=>setCopyAsk(true)} data-testid="tp-copy-prev" className={`${_tpTemplate ? 'hidden ' : ''}bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 h-10 px-3 rounded-xl font-bold text-sm inline-flex items-center`} title="前の週または基本の送迎表から、この週の送迎表を作ります（「この週を基本にする」もここ）">コピー</button>
           <button onClick={()=>setAutoCalc({ haisha: false, jikan: true, arrive: true, drop: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']), cars: new Set(cars.map(c=>c.id)) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white h-10 px-3 rounded-xl font-bold text-sm inline-flex items-center disabled:opacity-50" title="配車・時間を、日と時間帯を選んで自動で計算">{routing ? (
             // ★ 2026-10-01(試験版・ユーザー要望): 計算中が分かるよう回る輪を付ける(点の点滅は「どちらかでいい」との指示で回る輪だけに)
             <span data-testid="tp-calculating" className="inline-flex items-center whitespace-nowrap"><BusySpin/>計算中…</span>
@@ -40552,7 +40571,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             </span>); })()}
           {/* ★ 週の完成確定(2026-09-28): 確定後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`], _iso(d)),0),0); return TSU_TP_FINAL_OFF ? null : (
-            <button onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize" className={`${_tpPhone ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center ${fa?'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`確定 ${_fmtStamp(fa)}。押すと今の内容で確定を更新(赤丸は付け直し)`:'この週の送迎表を確定します。以後の変更には赤丸が付きます'}>
+            <button onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize" className={`${(_tpPhone || _tpTemplate) ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center ${fa?'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`確定 ${_fmtStamp(fa)}。押すと今の内容で確定を更新(赤丸は付け直し)`:'この週の送迎表を確定します。以後の変更には赤丸が付きます'}>
               {fa ? <>確定済<span className="ml-1 font-normal text-[10px] leading-tight inline-block text-left align-middle">{(() => { const [d0, t0] = String(_fmtStamp(fa)).split(' '); return <>{d0}<br/>{t0 || ''}</>; })()}</span><span className="ml-1 text-[9px]">▼</span></> : '確定'}{/* ★ 2026-10-23(ユーザー): 日付の下に時刻 */}
             </button>
           ); })()}
@@ -40561,7 +40580,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           ); })()}
           {/* ★ 2026-10-13(ユーザー提案): 変更内容は確定済みメニューとは別の専用ボタンから(全体・曜日・午前午後で絞り込み) */}
           {(() => { const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`], _iso(d)),0),0); return tot ? (
-            <button type="button" onClick={() => setChgPanel({ iso: '', sl: '' })} data-testid="tp-chg-btn" className={`${_tpPhone ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100`}>要連絡 {tot}件</button>) : null; })()}
+            <button type="button" onClick={() => setChgPanel({ iso: '', sl: '' })} data-testid="tp-chg-btn" className={`${(_tpPhone || _tpTemplate) ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100`}>要連絡 {tot}件</button>) : null; })()}
           {tpFocus && <button type="button" data-testid="tp-focus-clear" onClick={() => setTpFocus(null)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-amber-300 bg-yellow-100 text-amber-900 whitespace-nowrap">黄色の表示を消す</button>}
           {!!_finalAtOfWeek() && tpEdit && <button type="button" data-testid="tp-board-mode" onClick={()=>setTpEdit(false)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-emerald-300 bg-emerald-50 text-emerald-800 whitespace-nowrap">一覧に戻る</button>}
           {finalMenu && ReactDOM.createPortal((
@@ -40620,6 +40639,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))), dropAt: true, dropMode2: 'none' })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
       </div>
+        {_tpTemplate && (
+          <div data-testid="tp-base-banner" className="bg-emerald-50 border-b border-emerald-200 px-3 py-2 text-[13px] text-emerald-900 leading-relaxed">
+            <b>基本の送迎表</b>＝曜日ごとの「いつもの並び」です。利用者マスタの基本利用曜日の方が、基本のお迎え時間で入っています（休み・振替・退所の方は関係ありません）。
+            名前を長押しして車へ入れるか「自動計算」で並べ、運転者・座席表・送りの時間も決めておけます。
+            新しい週を開くと、この並びにその日来る方を当てはめて自動で下書きを作ります（「コピー → 基本の送迎表からコピー」でも写せます）。基本利用曜日を変えた方は、ここを開いたときに自動で外れます。
+          </div>
+        )}
         {_tpPhone && (
           <div className="bg-white px-1.5 py-1.5 border-b border-slate-200 flex items-center gap-1" data-testid="tp-phone-daybar">
             {_tpOneDay ? (<>
@@ -40659,7 +40685,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 const _today = iso === _iso(new Date());
                 return (
                   <div key={iso} id={`tpday-${iso}`} className={`px-2 py-1.5 text-sm font-bold text-white rounded-lg text-center ${_today?'bg-blue-600':'bg-slate-800'}`}>
-                    {d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{(() => { const _hw = holidayAmpmOn(appData.holidays, iso); return _hw ? <span className="ml-1 text-red-200" data-testid={`tp-hol-${iso}`}>{_hw === 'AM' ? '午前休業' : _hw === 'PM' ? '午後休業' : '休業'}</span> : null; })() /* ★ 2026-10-28 週の見出しにも休業(半日は午前休業/午後休業) */}
+                    {_tpTemplate ? `${DOWJ[d.getDay()]}曜日` : `${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）`}{(() => { const _hw = holidayAmpmOn(appData.holidays, iso); return _hw ? <span className="ml-1 text-red-200" data-testid={`tp-hol-${iso}`}>{_hw === 'AM' ? '午前休業' : _hw === 'PM' ? '午後休業' : '休業'}</span> : null; })() /* ★ 2026-10-28 週の見出しにも休業(半日は午前休業/午後休業) */}
                   </div>
                 );
               })}
@@ -41313,7 +41339,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             </button>
             <button type="button" data-testid="tp-copy-setbase" onClick={() => { if (window.confirm(`この週の送迎表（作成済みのコマ）を「基本の送迎表」として覚えます。${_hasBaseAny ? '今の基本の送迎表は置き換わります。' : ''}よろしいですか？`)) saveWeekAsBase(); }} className="w-full text-left rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-4 py-2.5 mb-3">
               <div className="font-bold text-slate-800 text-[14px]">この週を基本の送迎表にする</div>
-              <div className="text-[12px] text-slate-600 mt-0.5">曜日ごと・午前/午後ごとの「いつもの並び」として覚えます。新しい週は、この並びにその日来る方を当てはめて自動で作ります（先週休んだ方も席に入ります）。</div>
+              <div className="text-[12px] text-slate-600 mt-0.5">曜日ごと・午前/午後ごとの「いつもの並び」として覚えます（休みの方が居る週から作ると、その方は入りません。上の「基本の送迎表」ボタンで直接作る・直すのが確実です）。</div>
             </button>
             <div className="flex justify-end"><button type="button" onClick={() => setCopyAsk(false)} className="whitespace-nowrap px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold">やめる</button></div>
           </div>

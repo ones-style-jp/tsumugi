@@ -46,8 +46,20 @@ const planOf = (page, key) => page.evaluate((k) => { const d = JSON.parse(localS
   r.copy_2opts = (await page.getByTestId('tp-copy-all').count()) === 1 && (await page.getByTestId('tp-copy-base').count()) === 1 && (await page.getByTestId('tp-copy-fill').count()) === 0;
   r.copy_base_disabled = await page.getByTestId('tp-copy-base').isDisabled();
   await page.getByTestId('tp-copy-setbase').click(); await page.waitForTimeout(1200);
-  const base = await planOf(page, `base_${S.dow}_AM`);
+  // ★ trial509: 基本の送迎表は 2099-01-05(月)〜の週のコマ
+  const tplIso = (() => { const d = new Date('2099-01-05T00:00:00'); d.setDate(d.getDate() + (S.dow === 0 ? 6 : S.dow - 1)); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const base = await planOf(page, `${tplIso}_AM`);
   r.base_saved = !!(base && base.cars && Object.values(base.cars).flat().some(m => String(m.pid) === String(S.ids.A)) && !Object.values(base.cars).flat().some(m => String(m.pid) === String(S.ids.C)) && !base._base && !base.un);
+  // ⑧ trial509: 「基本の送迎表」ボタンで型の週(曜日ごと)を開ける。見出しは曜日・コピー/確定/要連絡は出ない・A〜D が型に居る(さっき登録した A・B・D は車、C は基本利用曜日から未割当)。戻るボタンで今週へ
+  await page.getByTestId('tp-base-open').click(); await page.waitForTimeout(1500);
+  r.base_head = (await page.getByTestId('tp-base-head').count()) === 1 && (await page.getByTestId('tp-base-banner').count()) === 1;
+  r.base_dow_header = (await page.evaluate(() => document.body.innerText)).includes('曜日');
+  r.base_hidden_btns = !(await page.getByTestId('tp-copy-prev').isVisible().catch(() => false)) && (await page.getByTestId('tp-finalize').isVisible().catch(() => false)) === false;
+  const tplRows = async (pid) => page.locator(`[data-tprow][data-tppid="${pid}"][data-tpiso="${tplIso}"]`).count();
+  r.base_rows = (await tplRows(S.ids.A)) === 1 && (await tplRows(S.ids.B)) === 1 && (await tplRows(S.ids.D)) === 1 && (await tplRows(S.ids.C)) === 0 && (await page.evaluate(() => document.body.innerText)).includes(S.names.C);
+  await page.screenshot({ path: '/tmp/chk_1103tpclean_base.png', fullPage: false }).catch(() => {});
+  await page.getByTestId('tp-base-back').click(); await page.waitForTimeout(1200);
+  r.base_back = (await page.getByTestId('tp-base-open').count()) === 1;
   // ⑥ 座席表は画面いっぱい
   const sb = page.getByTestId(`tp-seatbtn-${S.today}-AM`); if (await sb.count()) { await sb.click(); await page.waitForTimeout(800); const box = await page.locator('[data-testid="tp-seat-modal"] > div').first().boundingBox(); r.seat_full = !!box && box.width >= 1340; await page.getByTestId('tp-seat-close').click().catch(() => {}); } else r.seat_full = 'no-button';
   // ⑤ 来週の同じ曜日: 基本の並びで下書き(A・B・D は車・C は基本に無いので未割当)
