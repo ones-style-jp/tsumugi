@@ -67,7 +67,7 @@ const planOf = (page, key) => page.evaluate((k) => { const d = JSON.parse(localS
   await page.getByTestId('tp-base-back').click(); await page.waitForTimeout(1200);
   r.base_back = (await page.getByTestId('tp-base-open').count()) === 1;
   // ⑥ 座席表は画面いっぱい
-  const sb = page.getByTestId(`tp-seatbtn-${S.today}-AM`); if (await sb.count()) { await sb.click(); await page.waitForTimeout(800); const box = await page.locator('[data-testid="tp-seat-modal"] > div').first().boundingBox(); r.seat_full = !!box && box.width >= 1340; await page.getByTestId('tp-seat-close').click().catch(() => {}); } else r.seat_full = 'no-button';
+  const sb = page.getByTestId(`tp-seatbtn-${S.today}-AM`); if (await sb.count()) { await sb.click(); await page.waitForTimeout(800); const box = await page.locator('[data-testid="tp-seat-modal"] > div').first().boundingBox(); r.seat_full = !!box && box.width >= 1340; const _z = Number(await page.getByTestId('tp-seat-cars').getAttribute('data-seatzoom').catch(() => '0')); r.seat_zoom = _z >= 1.5; /* ★ trial511: 2台なら 1366px で 1.9倍 */ await page.screenshot({ path: '/tmp/chk_1103tpclean_seat.png', fullPage: false }).catch(() => {}); await page.getByTestId('tp-seat-close').click().catch(() => {}); } else r.seat_full = 'no-button';
   // ⑤ 来週の同じ曜日: 基本の並びで下書き(A・B・D は車・C は基本に無いので未割当)
   const n7 = new Date(); n7.setDate(n7.getDate() + 7); const iso7 = `${n7.getFullYear()}-${String(n7.getMonth() + 1).padStart(2, '0')}-${String(n7.getDate()).padStart(2, '0')}`;
   await page.evaluate((iso7) => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'transport', pid: null, t: Date.now(), ampm: 'AM', date: iso7 })), iso7); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500);
