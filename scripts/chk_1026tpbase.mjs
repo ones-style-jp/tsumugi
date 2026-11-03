@@ -29,8 +29,8 @@ const dailyHtml = async (page) => { await page.locator('button:visible', { hasTe
   await page.evaluate((key) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); d.transportPlans[key].cars.car1[0].t = '8:45'; d.transportPlans[key]._savedAt = Date.now(); localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); }, key);
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {});
   await page.evaluate(() => { window.__ph = []; window.addEventListener('setPrintHtml', e => { window.__ph.push(e.detail); }); });
-  const btn = page.getByTestId('tp-chg-btn'); r.chgBtn = (await btn.count()) === 1 && /変更 1件/.test(await btn.innerText());
-  await btn.click(); await page.waitForTimeout(400); const panel = page.getByTestId('tp-chg-panel'); r.panel = (await panel.count()) === 1 && /運行表を出した後の変更/.test(await panel.innerText()) && /時間/.test(await panel.innerText()); await page.keyboard.press('Escape'); await page.locator('.fixed.inset-0').last().click({ position: { x: 5, y: 5 } }).catch(() => {}); await page.waitForTimeout(300);
+  const btn = page.getByTestId('tp-chg-btn'); r.chgBtn = (await btn.count()) === 1 && /要連絡 1件/.test(await btn.innerText()) /* ★ 2026-11-03 trial508: 文言は「要連絡 n件」 */;
+  await btn.click(); await page.waitForTimeout(400); const panel = page.getByTestId('tp-chg-panel'); r.panel = (await panel.count()) === 1 && /要連絡/.test(await panel.innerText()) && /時間/.test(await panel.innerText()); await page.keyboard.press('Escape'); await page.locator('.fixed.inset-0').last().click({ position: { x: 5, y: 5 } }).catch(() => {}); await page.waitForTimeout(300);
   const h1 = await dailyHtml(page); r.redAfter = /outline:2px solid #c82c35/.test(h1) && />8:45</.test(h1);
   await page.context().close(); void ids; }
 console.log(r, Object.values(r).every(Boolean) ? 'PASS' : 'FAIL'); await b.close();

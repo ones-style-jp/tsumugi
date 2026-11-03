@@ -57,6 +57,15 @@ const planOf = (page, key) => page.evaluate((k) => { const d = JSON.parse(localS
   await page.locator('[data-testid="tp-copy-ask"] button', { hasText: /^やめる$/ }).first().click(); await page.waitForTimeout(400);
   const tplIso = S.tplIso;
   // ⑧ trial509: 「基本の送迎表」ボタンで型の週(曜日ごと)を開ける。見出しは曜日・コピー/確定/要連絡は出ない・A〜D が型に居る(さっき登録した A・B・D は車、C は基本利用曜日から未割当)。戻るボタンで今週へ
+  // trial512: 車の見出し=車名＋運転者の文字。押すとメニュー(運転者・ナビ)。ナビはメニューを開くまで無い。送りは1行(tp-droprow)
+  r.ui_carhead = (await page.locator(`[data-testid^="tp-carhead-${S.today}-AM-"]`).count()) >= 1 && (await page.locator('[data-testid^="tp-navi-"]').count()) === 0 && (await page.locator('[data-testid^="tp-driver-txt-"]').count()) >= 1;
+  await page.locator(`[data-testid^="tp-carhead-${S.today}-AM-"]`).first().click(); await page.waitForTimeout(400);
+  r.ui_carmenu = (await page.locator('[data-testid^="tp-carmenu-"]').count()) === 1 && (await page.locator('[data-testid^="tp-navi-"]').count()) === 1 && (await page.locator(`[data-testid="tp-driver-${S.carId}"]`).count()) >= 1;
+  await page.keyboard.press('Escape').catch(() => {}); await page.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {}); await page.waitForTimeout(300);
+  r.ui_droprow = (await page.getByTestId(`tp-droprow-${S.today}-AM`).count()) === 1 && (await page.getByTestId(`tp-dropsame-${S.today}-AM`).count()) === 1 && (await page.getByTestId(`tp-seatbtn-${S.today}-AM`).count()) === 1;
+  r.ui_topbar = (await page.getByTestId('tp-more').count()) === 1 && (await page.getByTestId('tp-base-open').count()) === 0 && (await page.getByTestId('tp-drop-toggle').count()) === 0;
+  await page.getByTestId('tp-more').click(); await page.waitForTimeout(300);
+  r.ui_more_menu = (await page.getByTestId('tp-base-open').count()) === 1 && (await page.getByTestId('tp-drop-toggle').count()) === 1 && (await page.getByTestId('tp-settings').count()) === 1;
   await page.getByTestId('tp-base-open').click(); await page.waitForTimeout(1500);
   r.base_head = (await page.getByTestId('tp-base-head').count()) === 1 && (await page.getByTestId('tp-base-banner').count()) === 1;
   r.base_dow_header = (await page.evaluate(() => document.body.innerText)).includes('曜日');
@@ -65,7 +74,7 @@ const planOf = (page, key) => page.evaluate((k) => { const d = JSON.parse(localS
   r.base_rows = (await tplRows(S.ids.A)) === 1 && (await tplRows(S.ids.B)) === 1 && (await tplRows(S.ids.D)) === 1 && (await tplRows(S.ids.C)) === 0 && (await page.evaluate(() => document.body.innerText)).includes(S.names.C);
   await page.screenshot({ path: '/tmp/chk_1103tpclean_base.png', fullPage: false }).catch(() => {});
   await page.getByTestId('tp-base-back').click(); await page.waitForTimeout(1200);
-  r.base_back = (await page.getByTestId('tp-base-open').count()) === 1;
+  r.base_back = (await page.getByTestId('tp-base-head').count()) === 0 && (await page.getByTestId('tp-more').count()) === 1;
   // ⑥ 座席表は画面いっぱい
   const sb = page.getByTestId(`tp-seatbtn-${S.today}-AM`); if (await sb.count()) { await sb.click(); await page.waitForTimeout(800); const box = await page.locator('[data-testid="tp-seat-modal"] > div').first().boundingBox(); r.seat_full = !!box && box.width >= 1340; const _z = Number(await page.getByTestId('tp-seat-cars').getAttribute('data-seatzoom').catch(() => '0')); r.seat_zoom = _z >= 1.5; /* ★ trial511: 2台なら 1366px で 1.9倍 */ await page.screenshot({ path: '/tmp/chk_1103tpclean_seat.png', fullPage: false }).catch(() => {}); await page.getByTestId('tp-seat-close').click().catch(() => {}); } else r.seat_full = 'no-button';
   // ⑤ 来週の同じ曜日: 基本の並びで下書き(A・B・D は車・C は基本に無いので未割当)
