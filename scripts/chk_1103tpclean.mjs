@@ -20,8 +20,11 @@ const seed = async (page, extra) => {
     // 配布の控え(_base)では A は 8:30、いまは 8:45(変更あり・要連絡)。送りは座席表で決める(座席表のボタンを出す)
     d.transportPlans[`${today}_AM`] = { cars: { [carId]: [{ pid: ids.A, t: '8:45', mark: false }, { pid: ids.B, t: '8:40', mark: false }, { pid: ids.C, t: '8:50', mark: false }, { pid: ids.D, t: '9:00', mark: false }] }, walkers: [], others: [], un: [], driver: {}, dropMode: 'custom', drop: { cars: { [carId]: [{ pid: ids.A }, { pid: ids.B }] }, walkers: [], others: [], un: [] }, _savedAt: now - 60000,
       _base: { cars: { [carId]: [{ pid: ids.A, t: '8:30' }, { pid: ids.B, t: '8:40' }, { pid: ids.C, t: '8:50' }, { pid: ids.D, t: '9:00' }] }, walkers: [], others: [], driver: {} }, _baseAt: now - 86400000 * 2, _baseId: 'chk', _chgAt: { [ids.A]: now - 60000 } };
+    // ★ trial510: 基本の送迎表(2099-01-05〜の週の同じ曜日)に A・B・D を乗せておく(「この週を基本にする」は廃止されたので、型は直接置く)
+    const tplIso = (() => { const x = new Date('2099-01-05T00:00:00'); x.setDate(x.getDate() + (dow === 0 ? 6 : dow - 1)); return iso(x); })();
+    d.transportPlans[`${tplIso}_AM`] = { cars: { [carId]: [{ pid: ids.A, t: '8:30', mark: false }, { pid: ids.B, t: '8:40', mark: false }, { pid: ids.D, t: '9:00', mark: false }] }, walkers: [], others: [], un: [], driver: {}, _savedAt: now - 86400000 };
     localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiTpDriveAck', String(now));
-    sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'transport', pid: null, t: Date.now(), ampm: 'AM', ...(extra || {}) })); return { ids, names, today, carId, dow }; }, extra);
+    sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'transport', pid: null, t: Date.now(), ampm: 'AM', ...(extra || {}) })); return { ids, names, today, carId, dow, tplIso }; }, extra);
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(3000); return S;
 };
 const planOf = (page, key) => page.evaluate((k) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); return (d.transportPlans || {})[k] || null; }, key);
@@ -41,15 +44,18 @@ const planOf = (page, key) => page.evaluate((k) => { const d = JSON.parse(localS
   await dotA.click(); await page.waitForTimeout(900);
   r.A_done = (await dotA.getAttribute('data-done')) === '1' && (await timeA.getAttribute('data-tel')) === '0';
   r.count_0 = (await page.getByTestId('tp-chg-btn').count()) === 0;
-  // ④ コピーの画面
+  // ④ コピーの画面(trial510: ①前の週から／基本の送迎表から → ②この週で直したところは残す／全部上書き・「この週を基本にする」は無い)
   await page.getByTestId('tp-copy-prev').click(); await page.waitForTimeout(600);
-  r.copy_2opts = (await page.getByTestId('tp-copy-all').count()) === 1 && (await page.getByTestId('tp-copy-base').count()) === 1 && (await page.getByTestId('tp-copy-fill').count()) === 0;
-  r.copy_base_disabled = await page.getByTestId('tp-copy-base').isDisabled();
-  await page.getByTestId('tp-copy-setbase').click(); await page.waitForTimeout(1200);
-  // ★ trial509: 基本の送迎表は 2099-01-05(月)〜の週のコマ
-  const tplIso = (() => { const d = new Date('2099-01-05T00:00:00'); d.setDate(d.getDate() + (S.dow === 0 ? 6 : S.dow - 1)); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
-  const base = await planOf(page, `${tplIso}_AM`);
-  r.base_saved = !!(base && base.cars && Object.values(base.cars).flat().some(m => String(m.pid) === String(S.ids.A)) && !Object.values(base.cars).flat().some(m => String(m.pid) === String(S.ids.C)) && !base._base && !base.un);
+  r.copy_2opts = (await page.getByTestId('tp-copy-all').count()) === 1 && (await page.getByTestId('tp-copy-base').count()) === 1 && (await page.getByTestId('tp-copy-setbase').count()) === 0 && (await page.getByTestId('tp-copy-fill').count()) === 0;
+  r.copy_base_enabled = !(await page.getByTestId('tp-copy-base').isDisabled());
+  await page.getByTestId('tp-copy-all').click(); await page.waitForTimeout(500);
+  r.copy_step2 = (await page.getByTestId('tp-copy-fill').count()) === 1 && (await page.getByTestId('tp-copy-over').count()) === 1 && /前の週からコピー/.test(await page.getByTestId('tp-copy-ask').innerText());
+  await page.getByTestId('tp-copy-back').click(); await page.waitForTimeout(400);
+  r.copy_back = (await page.getByTestId('tp-copy-all').count()) === 1;
+  await page.getByTestId('tp-copy-base').click(); await page.waitForTimeout(500);
+  r.copy_step2_base = /基本の送迎表からコピー/.test(await page.getByTestId('tp-copy-ask').innerText()) && (await page.getByTestId('tp-copy-over').count()) === 1;
+  await page.locator('[data-testid="tp-copy-ask"] button', { hasText: /^やめる$/ }).first().click(); await page.waitForTimeout(400);
+  const tplIso = S.tplIso;
   // ⑧ trial509: 「基本の送迎表」ボタンで型の週(曜日ごと)を開ける。見出しは曜日・コピー/確定/要連絡は出ない・A〜D が型に居る(さっき登録した A・B・D は車、C は基本利用曜日から未割当)。戻るボタンで今週へ
   await page.getByTestId('tp-base-open').click(); await page.waitForTimeout(1500);
   r.base_head = (await page.getByTestId('tp-base-head').count()) === 1 && (await page.getByTestId('tp-base-banner').count()) === 1;
