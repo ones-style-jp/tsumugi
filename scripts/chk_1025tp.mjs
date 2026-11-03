@@ -18,8 +18,8 @@ async function start(vw, prep) {
   r.noFinalize = (await page.getByTestId('tp-finalize').count()) === 0 && (await page.getByTestId('tp-next-reminder').count()) === 0 && (await page.getByTestId('tp-chg-btn').count()) === 0;
   const ar = page.getByTestId(`tp-arrive-${iso(mon)}-AM-car1`); r.arriveBlack = (await ar.count()) === 1 && /text-slate-800/.test(await ar.getAttribute('class')) && (await ar.getAttribute('data-auto')) === '1';
   r.dropShownDefault = (await page.getByTestId(`tp-dropsame-${iso(mon)}-AM`).count()) === 1 && (await page.getByTestId(`tp-dat-${ids[0]}`).count()) >= 1;
-  await page.getByTestId('tp-drop-toggle').click(); await page.waitForTimeout(900);
-  r.dropHidden = (await page.getByTestId(`tp-dropsame-${iso(mon)}-AM`).count()) === 1 && (await page.getByTestId(`tp-dat-${ids[0]}`).count()) === 0 && /非表示/.test(await page.getByTestId('tp-drop-toggle').innerText()); /* trial401: 座席表(迎えと同じ)は残り、各人の「送」だけ消える */
+  await page.getByTestId('tp-more').click(); await page.waitForTimeout(300); await page.getByTestId('tp-drop-toggle').click(); await page.waitForTimeout(900); /* ★ 2026-11-04 trial512: 切替は「その他」の中 */
+  await page.getByTestId('tp-more').click(); await page.waitForTimeout(300); const _tg = page.getByTestId('tp-drop-toggle'); r.dropHidden = (await page.getByTestId(`tp-dropsame-${iso(mon)}-AM`).count()) === 1 && (await page.getByTestId(`tp-dat-${ids[0]}`).count()) === 0 && (await _tg.getAttribute('data-shown')) === '0' && /非表示/.test(await _tg.innerText()); /* trial401: 座席表(迎えと同じ)は残り、各人の「送」だけ消える */
   r.dropSaved = await page.evaluate(() => JSON.parse(localStorage.getItem('daycareAppData_v3')).systemSettings.tpDropShown === false);
   await page.getByTestId('tp-drop-toggle').click(); await page.waitForTimeout(600); r.dropBack = (await page.getByTestId(`tp-dat-${ids[0]}`).count()) >= 1;
   r.noNoticePc = (await page.getByTestId('tp-drive-notice').count()) === 0;
