@@ -39312,7 +39312,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _dropShown = (appData.systemSettings?.tpDropShown !== false);
   const _toggleDropShown = () => { try { onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), tpDropShown: !_dropShown, _updatedAt: syncNow() } }, { manual: true, message: _dropShown ? '✓ 送りを表示しません（お迎えだけの送迎表）' : '✓ 送りを表示します' }); } catch {} };
   const [legTick, setLegTick] = useState(0); const _legWantRef = React.useRef(new Set()); // ★ 2026-10-16: 移動時間を調べ終わった合図
-  const runPrevWeekCopy = (mode) => {
+  // ★ 2026-11-03 trial510(ユーザー決定): srcKind='prev'(前の週)|'base'(基本の送迎表) × how='all'(全部上書き)|'fill'(この週で直したところは残す=見比べて写す)
+  const runPrevWeekCopy = (srcKind, how = 'all') => { const mode = how; const _fromBase = srcKind === 'base'; const _srcNm = _fromBase ? '基本の送迎表' : '前の週';
             setCopyAsk(false);
 
             let n = 0, nSkip = 0, nKeep = 0, nFill = 0, nAdded = 0, nMoved = 0, nDrv = 0, nArr = 0, nBaseOnly = 0;
@@ -39322,7 +39323,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             const np = { ...plans };
             days.forEach(d => { ['AM','PM'].forEach(sl => {
               const prevD = new Date(d); prevD.setDate(prevD.getDate() - 7);
-              const src = mode === 'base' ? plans[`${_tpBaseIsoOf(d.getDay())}_${sl}`] : plans[`${_iso(prevD)}_${sl}`]; // ★ 2026-11-03 trial508: 基本の送迎表からも(trial509: 型の週のキー)
+              const src = _fromBase ? plans[`${_tpBaseIsoOf(d.getDay())}_${sl}`] : plans[`${_iso(prevD)}_${sl}`]; // ★ 2026-11-03 trial508: 基本の送迎表からも(trial509: 型の週のキー)
               if (!src) return;
               const cp = JSON.parse(JSON.stringify(src));
               // 赤丸(時間変更マーク)はコピーしない
@@ -39387,21 +39388,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               cp._copyBase = _copySnap(cp); // ★ 2026-10-16: 次回「見比べて写す」ときの控え(写した時点の前の週の内容)
               np[`${_iso(d)}_${sl}`] = { ...cp, _savedAt: syncNow() }; n++;
             }); });
-            if (n || nFill || nBaseOnly) _saveBulk(mode === 'base' ? '基本の送迎表からコピー' : '前の週からコピー', np);
-            const _fillMsg = nFill ? `\n（作成済みの ${nFill}コマは、前の週で変わったところだけ写しました: ${[nAdded ? `新しく乗せた方 ${nAdded}名` : '', nMoved ? `車・時間が変わった方 ${nMoved}名` : '', nDrv ? `運転者 ${nDrv}台` : '', nArr ? `到着 ${nArr}台` : ''].filter(Boolean).join('・')}。直したところはそのまま）` : '';
-            alert((n || nFill) ? `${n ? `${mode === 'base' ? '基本の送迎表' : '前の週'}から${n}コマをコピーしました。` : '前の週と見比べて写しました。'}${_fillMsg}${nKeep ? `\n（作成済みの ${nKeep}コマは変更なし）` : ''}${nSkip ? `\n（この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : (nKeep ? `この週の ${nKeep}コマは、前の週から写すものがありませんでした。` : (mode === 'base' ? '基本の送迎表がまだありません（コピーの画面の「この週を基本の送迎表にする」で作れます）。' : '前の週に保存済みの送迎表がありませんでした。')));
+            if (n || nFill || nBaseOnly) _saveBulk(`${_srcNm}からコピー`, np);
+            const _fillMsg = nFill ? `\n（作成済みの ${nFill}コマは、${_srcNm}で変わったところだけ写しました: ${[nAdded ? `新しく乗せた方 ${nAdded}名` : '', nMoved ? `車・時間が変わった方 ${nMoved}名` : '', nDrv ? `運転者 ${nDrv}台` : '', nArr ? `到着 ${nArr}台` : ''].filter(Boolean).join('・')}。直したところはそのまま）` : '';
+            alert((n || nFill) ? `${n ? `${_srcNm}から${n}コマをコピーしました。` : `${_srcNm}と見比べて写しました。`}${_fillMsg}${nKeep ? `\n（作成済みの ${nKeep}コマは変更なし）` : ''}${nSkip ? `\n（この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : (nKeep ? `この週の ${nKeep}コマは、${_srcNm}から写すものがありませんでした。` : (_fromBase ? '基本の送迎表がまだありません（送迎表の上の「基本の送迎表」ボタンで作れます）。' : '前の週に保存済みの送迎表がありませんでした。')));
   };
-  // ★ 2026-11-03 trial508: この週の作成済みのコマを、曜日×午前/午後の「基本の送迎表」として覚える(未割当・確定の控え・変更の時刻・連絡済は持たない)
-  const saveWeekAsBase = () => {
-    const np = { ...plans }; let n = 0;
-    days.forEach(d => ['AM','PM'].forEach(sl => { const pl = plans[`${_iso(d)}_${sl}`]; if (!pl || typeof pl !== 'object' || pl._draft) return;
-      const { un, _draft, _final, _finalAt, _finalId, _base, _baseAt, _baseId, _chgAt, _telDone, _copyBase, _cbT, _savedAt, _fromBase, ...rest } = pl;
-      const snap = JSON.parse(JSON.stringify(rest)); Object.keys(snap.cars||{}).forEach(cid => (snap.cars[cid]||[]).forEach(m => { if (m) m.mark = false; }));
-      np[`${_tpBaseIsoOf(d.getDay())}_${sl}`] = { ...snap, _savedAt: syncNow() }; n++; })); // ★ trial509: 型の週のキーへ
-    if (!n) { alert('この週にはまだ保存済みの送迎表がありません。'); return; }
-    onSave({ ...appData, transportPlans: np }, { manual: true, message: `✓ この週の ${n}コマを基本の送迎表にしました（新しい週はこの並びで自動で作ります）` });
-    setCopyAsk(false);
-  };
+  // ★ 2026-11-03 trial510: 「この週を基本の送迎表にする」(saveWeekAsBase)は廃止(基本は上の「基本の送迎表」ボタンの画面で作る・ユーザー決定)
   const [arrKp, setArrKp] = useState(null); // ★ 2026-10-15: 迎えの到着時間のテンキー {iso, sl, cid}
   React.useEffect(() => { if (legTick) _applyLegs(); }, [legTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const [seatView, setSeatView] = useState(null); // ★ 2026-10-15: スマホの送りの座席表(見るだけ) {iso, sl, cid}
@@ -41323,25 +41314,39 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <TsuTimeKeypad title={`${_pname(seatAtKp.pid)} 様　家に着く時間`} hint={dep ? `出発 ${dep}` : '車の出発時間はまだです'} initial={m0.at || ''}
           suggest={m0.at && m0.atAuto ? { label: `目安 ${m0.at} で決める`, value: m0.at } : null}
           onClose={() => setSeatAtKp(null)} onCommit={(v) => { setDropAt(seatAtKp.iso, seatAtKp.sl, seatAtKp.cid, seatAtKp.pid, v); setSeatAtKp(null); }}/>); })()}
-      {copyAsk && ReactDOM.createPortal((() => { let made = 0, fill = 0; days.forEach(d => ['AM','PM'].forEach(sl => { const pd = new Date(d); pd.setDate(pd.getDate() - 7); if (!plans[`${_iso(pd)}_${sl}`]) return; if (plans[`${_iso(d)}_${sl}`]) made++; else fill++; })); return (
+      {copyAsk && ReactDOM.createPortal((() => { const step = (copyAsk && typeof copyAsk === 'object' && copyAsk.src) ? copyAsk.src : '';
+        const _srcKey = (d, sl) => step === 'base' ? `${_tpBaseIsoOf(d.getDay())}_${sl}` : (() => { const pd = new Date(d); pd.setDate(pd.getDate() - 7); return `${_iso(pd)}_${sl}`; })();
+        let made = 0, fill = 0; days.forEach(d => ['AM','PM'].forEach(sl => { if (!plans[_srcKey(d, sl)]) return; const cur = plans[`${_iso(d)}_${sl}`]; if (cur && !cur._draft) made++; else fill++; }));
+        const _srcNm = step === 'base' ? '基本の送迎表' : '前の週'; return (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4" style={{ zIndex: 10000 }} onClick={() => setCopyAsk(false)} data-testid="tp-copy-ask">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
-            <div className="text-lg font-bold text-slate-800 mb-1">コピー</div>
-            {/* ★ 2026-11-03 trial508(ユーザー決定): 「前の週に合わせる(見比べて写す)」は分かりにくいので廃止。前の週から／基本の送迎表から の2択(どちらも丸ごと)＋この週を基本にする */}
-            <div className="text-[13px] text-slate-600 mb-3">この週（{fill + made}コマ）を、写した内容に置き換えます。この週に来ない方（振替・臨時・お休み）は写しません。</div>
-            <button type="button" data-testid="tp-copy-all" onClick={() => runPrevWeekCopy('all')} className="w-full text-left rounded-xl border-2 border-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-3 mb-2">
-              <div className="font-bold text-blue-800">前の週からコピー</div>
-              <div className="text-[12px] text-slate-600 mt-0.5">順番・時間・運転者・送りの席・送りの時間を、前の週のとおりにします。</div>
-            </button>
-            <button type="button" data-testid="tp-copy-base" disabled={!_hasBaseAny} onClick={() => runPrevWeekCopy('base')} className="w-full text-left rounded-xl border-2 border-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-4 py-3 mb-2 disabled:opacity-40">
-              <div className="font-bold text-emerald-800">基本の送迎表からコピー</div>
-              <div className="text-[12px] text-slate-600 mt-0.5">{_hasBaseAny ? `いつもの並び（基本の送迎表・${_baseStamp}）のとおりにします。` : 'まだ基本の送迎表がありません。下の「この週を基本の送迎表にする」で作れます。'}</div>
-            </button>
-            <button type="button" data-testid="tp-copy-setbase" onClick={() => { if (window.confirm(`この週の送迎表（作成済みのコマ）を「基本の送迎表」として覚えます。${_hasBaseAny ? '今の基本の送迎表は置き換わります。' : ''}よろしいですか？`)) saveWeekAsBase(); }} className="w-full text-left rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-4 py-2.5 mb-3">
-              <div className="font-bold text-slate-800 text-[14px]">この週を基本の送迎表にする</div>
-              <div className="text-[12px] text-slate-600 mt-0.5">曜日ごと・午前/午後ごとの「いつもの並び」として覚えます（休みの方が居る週から作ると、その方は入りません。上の「基本の送迎表」ボタンで直接作る・直すのが確実です）。</div>
-            </button>
-            <div className="flex justify-end"><button type="button" onClick={() => setCopyAsk(false)} className="whitespace-nowrap px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold">やめる</button></div>
+            {!step ? (<>
+              <div className="text-lg font-bold text-slate-800 mb-1">コピー</div>
+              {/* ★ 2026-11-03 trial510(ユーザー決定): ①どこから写すか(前の週／基本の送迎表) → ②この週で直したところを残すか(残す／全部上書き) の2段。「この週を基本の送迎表にする」は廃止(基本は上の「基本の送迎表」ボタンで作る) */}
+              <div className="text-[13px] text-slate-600 mb-3">どこからこの週へ写しますか？（この週に来ない方＝振替・臨時・お休みは写しません）</div>
+              <button type="button" data-testid="tp-copy-all" onClick={() => setCopyAsk({ src: 'prev' })} className="w-full text-left rounded-xl border-2 border-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-3 mb-2">
+                <div className="font-bold text-blue-800">前の週からコピー</div>
+                <div className="text-[12px] text-slate-600 mt-0.5">前の週の順番・時間・運転者・送りの席・送りの時間を写します。</div>
+              </button>
+              <button type="button" data-testid="tp-copy-base" disabled={!_hasBaseAny} onClick={() => setCopyAsk({ src: 'base' })} className="w-full text-left rounded-xl border-2 border-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-4 py-3 mb-3 disabled:opacity-40">
+                <div className="font-bold text-emerald-800">基本の送迎表からコピー</div>
+                <div className="text-[12px] text-slate-600 mt-0.5">{_hasBaseAny ? `いつもの並び（基本の送迎表・${_baseStamp}）を写します。` : 'まだ基本の送迎表がありません。送迎表の上の「基本の送迎表」ボタンで作れます。'}</div>
+              </button>
+              <div className="flex justify-end"><button type="button" onClick={() => setCopyAsk(false)} className="whitespace-nowrap px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold">やめる</button></div>
+            </>) : (<>
+              <div className="text-lg font-bold text-slate-800 mb-1">{_srcNm}からコピー</div>
+              <div className="text-[13px] text-slate-600 mb-3">この週で直したところはどうしますか？{fill ? `（未作成の ${fill}コマはそのまま写します）` : ''}</div>
+              {!fill && !made ? <div className="text-[13px] text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 mb-3" data-testid="tp-copy-none">{_srcNm}に写せるコマがありません。</div> : null}
+              <button type="button" data-testid="tp-copy-fill" disabled={!fill && !made} onClick={() => runPrevWeekCopy(step, 'fill')} className="w-full text-left rounded-xl border-2 border-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-3 mb-2 disabled:opacity-40">
+                <div className="font-bold text-blue-800">この週で直したところは残す</div>
+                <div className="text-[12px] text-slate-600 mt-0.5">作成済みの {made}コマは、{_srcNm}で変わったところ（新しく乗った方・変わった時間・運転者・到着）だけ写し、この週で動かした方・直した時間はそのままにします。</div>
+              </button>
+              <button type="button" data-testid="tp-copy-over" disabled={!fill && !made} onClick={() => runPrevWeekCopy(step, 'all')} className="w-full text-left rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-4 py-3 mb-3 disabled:opacity-40">
+                <div className="font-bold text-slate-800">全部上書きする（{fill + made}コマ）</div>
+                <div className="text-[12px] text-red-700 mt-0.5">この週で直したところも消えて、{_srcNm}の内容そのままになります。</div>
+              </button>
+              <div className="flex justify-between"><button type="button" data-testid="tp-copy-back" onClick={() => setCopyAsk(true)} className="whitespace-nowrap px-4 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 text-sm font-bold">戻る</button><button type="button" onClick={() => setCopyAsk(false)} className="whitespace-nowrap px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold">やめる</button></div>
+            </>)}
           </div>
         </div>); })(), document.body)}
       {arrKp && (() => { const c = cars.find(x => x.id === arrKp.cid) || {}; const r = _svcRangeTp(arrKp.sl); const pl0 = getPlan(arrKp.iso, arrKp.sl); return (
