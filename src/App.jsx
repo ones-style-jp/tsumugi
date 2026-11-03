@@ -10914,6 +10914,10 @@ const getPickupTimeForDow = (patient, dow, appData) => {
   return ampm === 'AM' ? '8時' : '13時';
 };
 
+// ★ 2026-11-03 trial507(ユーザー要望・西馬込: 帰りの時間も利用者マスタに): 基本の送り時間。利用者ごとに「基本の送り時間も設定する」(dropTimeOn)にした方だけ、
+//   曜日ごとの dropTimes[dow]("12:30" の形・時と分がそろったものだけ)を送迎表の「送りの時間」(dropAt)の初期値にする。お迎え時間と同じく、その週の時間は送迎表で直す
+const getDropTimeForDow = (patient, dow) => { if (!patient || !patient.dropTimeOn || dow == null) return ''; const v = String((patient.dropTimes || [])[dow] || '').trim(); const m = v.match(/^(\d{1,2}):(\d{2})$/); return m ? `${parseInt(m[1], 10)}:${m[2]}` : ''; };
+
 // ★ 厚労省バイタルサイン基準値に合わせた色判定 (正常値は黒)
 // 血圧: 正常 100~129/60~84 / I度 130~139/85~89 / II度 140~159/90~99 / III度 160+/100+ / 低血圧 <90
 const getBpColorClass = (upStr, dnStr) => {
@@ -38575,7 +38579,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       else un.push({ pid: a.pid, t: a.time, mark: false });
     });
     Object.keys(carsMap).forEach(cid => carsMap[cid].sort((x,y) => _tMin(x.t) - _tMin(y.t) || String(x.t).localeCompare(String(y.t))));
-    return { cars: carsMap, walkers, others, un, memo: '', _draft: true };
+    // ★ 2026-11-03 trial507: 利用者マスタの「基本の送り時間」(設定した方だけ)を送りの時間の初期値に(車に乗る方だけ・徒歩/その他は入れない)
+    const dropAt = {}; { const dow = new Date(`${iso}T00:00:00`).getDay(); [...Object.values(carsMap).flat(), ...un].forEach(m => { const pt = (appData.patients||[]).find(p => p.id === m.pid); const v = getDropTimeForDow(pt, dow); if (v) dropAt[String(m.pid)] = v; }); }
+    return { cars: carsMap, walkers, others, un, memo: '', ...(Object.keys(dropAt).length ? { dropAt } : {}), _draft: true };
   };
   const getPlan = (iso, sl) => {
     const _saved0 = plans[`${iso}_${sl}`];
@@ -38590,7 +38596,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const extraAll = _attendees(iso, sl).filter(a => !inPlan.has(a.pid));
       const extra = extraAll.filter(a => !a.walk).map(a => ({ pid: a.pid, t: a.time, mark: false }));
       const extraWalk = extraAll.filter(a => a.walk).map(a => ({ pid: a.pid, t: '徒歩' })); // ★ 2026-09-28: 徒歩の方は補充時も徒歩欄へ
-      return { cars: {}, memo: '', ...saved, walkers: [ ...(saved.walkers||[]), ...extraWalk ], un: [ ...(saved.un||[]), ...extra ] };
+      // ★ 2026-11-03 trial507: 補充した方(車に乗る方)にも利用者マスタの基本の送り時間を初期値に
+      let _dA = null; if (extra.length) { const dow = new Date(`${iso}T00:00:00`).getDay(); extra.forEach(m => { if ((saved.dropAt||{})[String(m.pid)]) return; const v = getDropTimeForDow((appData.patients||[]).find(p => p.id === m.pid), dow); if (v) { _dA = _dA || { ...(saved.dropAt||{}) }; _dA[String(m.pid)] = v; } }); }
+      return { cars: {}, memo: '', ...saved, ...(_dA ? { dropAt: _dA } : {}), walkers: [ ...(saved.walkers||[]), ...extraWalk ], un: [ ...(saved.un||[]), ...extra ] };
     }
     return _draftPlan(iso, sl);
   };
@@ -44655,6 +44663,28 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                             }}/>
                         ))}
                       </div>
+                      {/* ★ 2026-11-03 trial507(ユーザー要望・西馬込「帰りの時間も」): 基本の送り時間。店舗の設定ではなく利用者ごとのチェックで出す(帰りの時間を伝える方だけ) */}
+                      {tsumugiTransportOn(appData) && (
+                        <div className="mt-3 pt-3 border-t border-slate-200" data-testid="pm-droptime">
+                          <label className="inline-flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer">
+                            <input type="checkbox" data-testid="pm-droptime-on" disabled={isOff} checked={!!localPatient.dropTimeOn} onChange={e => updateLP('dropTimeOn', e.target.checked)} className="w-4 h-4 accent-emerald-600" />
+                            基本の送り時間も設定する（帰りに家へ着く時間）
+                          </label>
+                          {localPatient.dropTimeOn ? (
+                            <>
+                              <div className="grid gap-2 mt-2" style={{gridTemplateColumns:`repeat(${Math.min(activeDays.length, 7)}, 1fr)`}}>
+                                {activeDays.map(({d, i, slot}) => (
+                                  <PickupTimeCell key={`${localPatient.id}_d${i}`}
+                                    day={d} idx={i} slot={slot} isOff={isOff}
+                                    initial={localPatient.dropTimes?.[i] || ''}
+                                    onCommit={(val) => { const arr = [...(localPatient.dropTimes || ['','','','','','','']) ]; arr[i] = val; updateLP('dropTimes', arr); }}/>
+                                ))}
+                              </div>
+                              <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">・送迎表の「送りの時間」の初期値になります（時と分の両方を入れた曜日だけ）。その週の時間は送迎表で直します<br/>・送迎表で「送りの時間」を表示しない店舗では、ここに入れても送迎表・連絡帳には出ません</div>
+                            </>
+                          ) : <div className="text-[11px] text-slate-500 mt-1">帰りの時間を決めている方だけチェックしてください。チェックしない方は、送迎表の送りの時間は自動計算の目安のままです。</div>}
+                        </div>
+                      )}
                       <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
                         ・基本利用日に設定した曜日のみ表示されます<br/>
                         ・時間が決まっていない場合は「時」だけ入力（例: 9 → 9:--、後で 30 を追加すると 9:30）<br/>
