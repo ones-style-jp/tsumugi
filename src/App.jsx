@@ -8,7 +8,7 @@ import {
   ChevronLeft, ChevronRight, Save, UserPlus, Clock, CalendarOff, CalendarRange, PenTool, History,
   ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2, MessageSquare, Briefcase, Car,
   ArrowUpDown, Maximize2, Undo2, CheckCheck, // ★ 2026-10-22: 上の帯のアイコン(試し)
-  SquareUser, Dumbbell, ScrollText, CalendarDays, // ★ 2026-10-29: 提供記録の名前から開く行き先(基本情報・運動メニュー・支援経過表・月間スケジュール)
+  SquareUser, Dumbbell, ScrollText, CalendarDays, Info, // ★ 2026-11-04 trial513: 説明のマーク(TsuHint) // ★ 2026-10-29: 提供記録の名前から開く行き先(基本情報・運動メニュー・支援経過表・月間スケジュール)
 } from 'lucide-react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
@@ -816,9 +816,9 @@ HTML ファイルをブラウザで開き、
           <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs font-bold text-blue-800">
             ✓ 利用者基本情報（緊急連絡先・ケアマネ事業所/担当者を含む）
           </div>
-          <div className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+          <div className="tsu-hint-row mt-1.5"><TsuHint>
             提供記録・体力測定・日誌・休み連絡・各種連絡は、それぞれの画面から出力してください（こちらの一括エクスポートには含まれません）。
-          </div>
+          </TsuHint></div>
         </div>
         {/* 実行 */}
         <div>
@@ -828,12 +828,12 @@ HTML ファイルをブラウザで開き、
           </button>
           {progress && <div className="text-[11px] text-slate-600 mt-2 text-center font-bold">{busy && <BusySpin/>}{progress}</div>}
         </div>
-        <div className="text-[10px] text-slate-500 leading-relaxed">
+        <div className="tsu-hint-row"><TsuHint>
           ・<b>PDF形式</b>: そのまま開ける PDF を生成 (記録数が多いと数十秒〜数分かかります)<br/>
           ・<b>HTML形式</b>: ブラウザで開いて「印刷 → PDFとして保存」が必要、ただし瞬時に生成<br/>
           ・CSV は UTF-8 (BOM付き) で Excel でそのまま開けます<br/>
           ・お知らせ・写真・モニタリング等はアプリ内で随時参照する想定のため対象外
-        </div>
+        </TsuHint></div>
       </div>
     </div>
   );
@@ -846,6 +846,22 @@ const toHankaku = (s) => String(s == null ? '' : s)
   .replace(/　/g, ' ').replace(/：/g, ':').replace(/[．。]/g, '.').replace(/[ー－−—]/g, '-').replace(/／/g, '/');
 
 // === お迎え時間セル: 時/分を別入力。分は空欄可 ("9:--" として保存)。 ===
+// ★ 2026-11-04 trial513(ユーザー要望「薄い灰色の説明文は、分かりやすいマークにして、押す／カーソルを合わせたときだけ出す。全部の項目で」):
+//   共通の説明マーク。PC はマウスを合わせると開き、iPad/スマホは押すと開く(もう一度押す・外を押すと閉じる)。説明の中身(children)は今までの文のまま。
+//   置き換えは scratchpad/hint_codemod.py(薄い灰色の説明文 <div className="text-[11px] text-slate-500">…</div> → <div className="tsu-hint-row"><TsuHint>…</TsuHint></div>)。
+//   状態や件数の文(まだ記録がありません・選択中 n名 など)は説明ではないので対象外
+function TsuHint({ children, className }) {
+  const [open, setOpen] = useState(false); const btnRef = useRef(null); const tRef = useRef(null); const [pos, setPos] = useState(null);
+  const hover = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(hover: hover)').matches;
+  const place = () => { try { const r = btnRef.current.getBoundingClientRect(); const w = Math.min(360, window.innerWidth - 16); const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)); const up = r.bottom + 200 > window.innerHeight; setPos({ left, w, up, top: r.bottom + 6, bottom: window.innerHeight - r.top + 6 }); } catch { setPos(null); } };
+  useEffect(() => { if (!open) return; place(); const close = (e) => { if (btnRef.current && btnRef.current.contains(e.target)) return; if (e.target && e.target.closest && e.target.closest('[data-tsu-hint-pop]')) return; setOpen(false); }; document.addEventListener('pointerdown', close, true); window.addEventListener('scroll', place, true); window.addEventListener('resize', place); return () => { document.removeEventListener('pointerdown', close, true); window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place); }; }, [open]);
+  const _enter = () => { if (!hover) return; clearTimeout(tRef.current); setOpen(true); };
+  const _leave = () => { if (!hover) return; clearTimeout(tRef.current); tRef.current = setTimeout(() => setOpen(false), 180); };
+  return (<>
+    <button ref={btnRef} type="button" data-testid="tsu-hint" aria-label="説明を見る" aria-expanded={open} onClick={(e) => { e.preventDefault(); e.stopPropagation(); clearTimeout(tRef.current); if (hover) setOpen(true); else setOpen(v => !v); }} onMouseEnter={_enter} onMouseLeave={_leave} className={`tsu-hint-btn inline-flex items-center gap-1 h-5 pl-0.5 pr-1.5 rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700 align-middle shrink-0 ${className || ''}`}><Info size={13} /><span className="text-[10px] font-bold leading-none">説明</span></button>
+    {open && pos && ReactDOM.createPortal(<span data-tsu-hint-pop="1" role="tooltip" onMouseEnter={_enter} onMouseLeave={_leave} className="fixed z-[11000] block rounded-xl border border-slate-300 bg-white shadow-xl px-3 py-2.5 text-[12px] font-normal text-slate-700 leading-relaxed text-left whitespace-normal" style={{ left: pos.left, width: pos.w, ...(pos.up ? { bottom: pos.bottom } : { top: pos.top }) }}>{children}</span>, document.body)}
+  </>);
+}
 const PickupTimeCell = ({ day, idx, slot, isOff, initial, onCommit }) => {
   // 保存形式: "" / "9:--" / "9:30" 等。"HH" は0埋めしない (入力中の自然な数字反映のため)
   const splitTime = (t) => {
@@ -11111,7 +11127,7 @@ function TsuNextDateJumpModal({ appData, selectedDate, records, onClose, onJump 
       <div className="bg-white sm:rounded-2xl shadow-2xl w-full h-full sm:h-auto sm:max-w-lg max-h-full sm:max-h-[92vh] flex flex-col">
         <div className="px-4 sm:px-5 pt-4 pb-2 border-b border-slate-200">
           <div className="flex items-center justify-between"><div className="text-lg font-bold text-slate-800">次回の日付</div><button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none px-2" aria-label="閉じる">✕</button></div>
-          <div className="text-[12px] text-slate-600 mt-1">次回の日付は月間スケジュールで変えます（送迎表・ご家族の画面もそろいます）。</div>
+          <div className="tsu-hint-row mt-1"><TsuHint>次回の日付は月間スケジュールで変えます（送迎表・ご家族の画面もそろいます）。</TsuHint></div>
         </div>
         <div className="flex-1 overflow-y-auto px-2 sm:px-3 py-2" style={{ overscrollBehavior: 'contain' }}>
           {!rows.length ? <div className="text-sm text-slate-500 p-4">この日の連絡帳の方がいません。</div> : rows.map(x => (
@@ -11488,7 +11504,7 @@ function RecordOrderModal({ rows, onSave, onClose, onReset, label }) {
         <div className="px-4 py-3 border-b border-slate-200">
           <div className="text-base font-bold text-slate-800">利用者の並び替え{label ? `（${label}）` : ''}</div>
           {label && <div data-testid="rec-order-class" className="text-xs font-bold text-indigo-700 mt-0.5">{label}のクラスだけの並び順です（ほかの曜日・午前午後には効きません）</div>}
-          <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">名前を長押しして動かすか「上へ」「下へ」で並べ、「この順で保存」。欠席・休止の方は下にまとまります。</div>
+          <div className="tsu-hint-row mt-0.5"><TsuHint>名前を長押しして動かすか「上へ」「下へ」で並べ、「この順で保存」。欠席・休止の方は下にまとまります。</TsuHint></div>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-1.5" data-testid="rec-order-list">
           {list.map((r, i) => (
@@ -14537,7 +14553,7 @@ function DisasterView({ appData, onSave, staffSession }) {
                 </table>
               </div>
             </div>
-            <div className="text-[11px] text-slate-500 mt-2">電話番号をタップすると発信できます（タブレット・スマホ）。安否をここで選ぶと、「緊急連絡」タブの文面にそのまま入ります。</div>
+            <div className="tsu-hint-row mt-2"><TsuHint>電話番号をタップすると発信できます（タブレット・スマホ）。安否をここで選ぶと、「緊急連絡」タブの文面にそのまま入ります。</TsuHint></div>
           </div>
         </div>
       )}
@@ -14754,7 +14770,7 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
                   <button key={t.key} type="button" onClick={() => { setSubject(t.subject); setText(t.body(place)); setScope(t.key === 'safe' ? 'now' : t.key === 'check' ? 'others' : 'all'); }} className="px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-red-800 text-sm font-bold hover:bg-red-100">{t.label}</button>
                 ))}
               </div>
-              <div className="text-[11px] text-slate-500 mb-3">「避難完了」は通所中の方のご家族へ、「安否確認」は通所していない方のご家族へ、「営業状況」は全員へ、が自動で選ばれます（下の送信先で変更できます）。</div>
+              <div className="tsu-hint-row mb-3"><TsuHint>「避難完了」は通所中の方のご家族へ、「安否確認」は通所していない方のご家族へ、「営業状況」は全員へ、が自動で選ばれます（下の送信先で変更できます）。</TsuHint></div>
               {/* ★ 安否は名前を見てタップで選ぶ(緊急時に文章を直す時間はない) */}
               <div className="mb-3 border border-slate-200 rounded-xl overflow-hidden">
                 <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 flex-wrap">
@@ -14779,7 +14795,7 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
                   ); })}
                   {!scopedPats.length && <div className="px-3 py-3 text-xs text-slate-400">対象の利用者がいません（右の「対象の利用者」を変更してください）</div>}
                 </div>
-                <div className="px-3 py-1.5 text-[11px] text-slate-500 bg-slate-50 border-t border-slate-200">選んだ方は、ご家族へのメールと家族画面のお知らせに「○○様: 無事（避難先: …）」の行が自動で入ります。ケアマネには担当の方の一覧が入ります。</div>
+                <div className="tsu-hint-row px-3 py-1.5"><TsuHint>選んだ方は、ご家族へのメールと家族画面のお知らせに「○○様: 無事（避難先: …）」の行が自動で入ります。ケアマネには担当の方の一覧が入ります。</TsuHint></div>
               </div>
               <label className="block text-xs font-bold text-slate-600 mb-1">避難場所（「避難完了」の定型文と「避難済み」の方の状況に入ります）</label>
               {/* ★ 避難場所は登録済み(一時避難場所/指定避難所)から選ぶ＋その他は自由記述 */}
@@ -14796,7 +14812,7 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
               <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="例: 【重要】避難完了と皆さまの無事のご連絡" className={inp + ' mb-3'} maxLength={100} />
               <label className="block text-xs font-bold text-slate-600 mb-1">本文</label>
               <textarea value={text} onChange={e => setText(e.target.value)} rows={10} placeholder="定型文を選ぶか、ここに本文を入力してください" className={inp + ' leading-relaxed'} maxLength={4000} />
-              <div className="text-[11px] text-slate-400 mt-1">メールの冒頭に「{facility} からの緊急連絡」、末尾に事業所への連絡案内が自動で付きます。</div>
+              <div className="tsu-hint-row mt-1"><TsuHint>メールの冒頭に「{facility} からの緊急連絡」、末尾に事業所への連絡案内が自動で付きます。</TsuHint></div>
             </div>
             {result && (
               <div className={`rounded-2xl border p-4 ${result.mail && (result.mail.error || (result.mail.failed || []).length) ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
@@ -14840,11 +14856,11 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
             <button type="button" onClick={send} disabled={sending || fam === null} className={`w-full py-4 rounded-2xl text-white text-base font-bold shadow-lg ${sending || fam === null ? 'bg-slate-400' : 'bg-red-600 hover:bg-red-700'}`}>
               {sending ? <><BusySpin/>送信中…</> : '緊急連絡を送信する'}
             </button>
-            <div className="text-[11px] text-slate-500 leading-relaxed">
+            <div className="tsu-hint-row"><TsuHint>
               ・送信前に確認画面が出ます。<br/>
               ・メールは1件ずつ送るため、宛先同士のアドレスは見えません。<br/>
               ・1回に送れるのは300件までです（メール送信サービスの1日の上限も300通です）。
-            </div>
+            </TsuHint></div>
           </div>
         </div>
       </div>
@@ -15456,7 +15472,7 @@ function FamilyAdminView({ appData, onSave }) {
                     {historyDetail.item._group === 'mon' ? (
                       <div data-testid="mon-group-detail">
                         <div className="text-base font-bold text-slate-800 mb-2">{historyDetail.item.title}</div>
-                        <div className="text-[11px] text-slate-500 mb-3">確定した順に、各利用者の個人のお知らせ（ケアマネ向け）へ配信した一覧です。</div>
+                        <div className="tsu-hint-row mb-3"><TsuHint>確定した順に、各利用者の個人のお知らせ（ケアマネ向け）へ配信した一覧です。</TsuHint></div>
                         <table className="w-full text-xs border-collapse">
                           <thead><tr className="bg-slate-50 border-b border-slate-200"><th className="px-2 py-1 text-left text-slate-500">配信日</th><th className="px-2 py-1 text-left text-slate-500">利用者</th><th className="px-2 py-1 text-left text-slate-500">種別</th></tr></thead>
                           <tbody>{historyDetail.item.members.slice().sort((a, b) => String(b.postedAt || b.date || '').localeCompare(String(a.postedAt || a.date || ''))).map((m, i) => { const pp = (appData.patients || []).find(p => p.id === m.patientId); return <tr key={i} className="border-b border-slate-100"><td className="px-2 py-1 text-slate-500 whitespace-nowrap">{m.date}</td><td className="px-2 py-1 font-bold text-slate-800">{pp ? pp.name : `ID ${m.patientId}`} 様</td><td className="px-2 py-1 text-slate-500">{m.updated ? '更新' : '作成'}</td></tr>; })}</tbody>
@@ -19781,7 +19797,7 @@ function GlobalKkPresetsPanel() {
   return (
     <div data-testid="global-kk-panel" className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mt-3">
       <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between gap-2 text-left">
-        <div><div className="text-sm font-bold text-slate-800">計画書の定型文（全店共通）</div><div className="text-xs text-slate-500">3-3・3-2・3-1・通所介護計画書の「定型文から ▼」で選べる文言。1行に1つ。空にすると既定に戻ります。</div></div>
+        <div><div className="text-sm font-bold text-slate-800">計画書の定型文（全店共通）</div><div className="tsu-hint-row"><TsuHint>3-3・3-2・3-1・通所介護計画書の「定型文から ▼」で選べる文言。1行に1つ。空にすると既定に戻ります。</TsuHint></div></div>
         <span className="text-xs font-bold text-slate-500 whitespace-nowrap">{open ? '閉じる' : '開く'}</span>
       </button>
       {open && (vals ? (
@@ -24481,7 +24497,7 @@ export default function App() {
                 <div className="text-center py-8">
                   
                   <div className="font-bold text-slate-800">送信しました</div>
-                  <div className="text-xs text-slate-500 mt-1">本部で内容を確認します。ご協力ありがとうございます。</div>
+                  <div className="tsu-hint-row mt-1"><TsuHint>本部で内容を確認します。ご協力ありがとうございます。</TsuHint></div>
                 </div>
               ) : (<>
                 <div className="text-xs text-slate-500 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">どんな操作で・どこが・どうおかしいかを書いて送信してください。<b>今の画面・端末・直近のエラー</b>も自動で添付されます（個人情報の本文は送りません）。</div>
@@ -25463,7 +25479,7 @@ export default function App() {
               <span className="text-xl"></span>
               <h3 className="text-lg font-bold text-slate-800">{staffAddForm.editId ? 'スタッフ情報を編集' : 'スタッフを追加'}</h3>
             </div>
-            <p className="text-xs text-slate-500 mb-4">姓・名・役職を分けて入力してください。{staffAddForm.editId ? '（日誌の担当職員名も連動して更新されます）' : ''}</p>
+            <div className="tsu-hint-row mb-4"><TsuHint>姓・名・役職を分けて入力してください。{staffAddForm.editId ? '（日誌の担当職員名も連動して更新されます）' : ''}</TsuHint></div>
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -25514,7 +25530,7 @@ export default function App() {
                         <button type="button" onClick={() => { try { navigator.clipboard.writeText(url); tsuPopNotice('招待URLをコピーしました'); } catch {} }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">URLをコピー</button>
                         <button type="button" onClick={issue} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">コードを発行し直す</button>
                       </div>
-                      <div className="text-xs text-slate-500 mt-1">本人にこのURL（またはコード）を渡します。本人がID・パスワード・PINを決めると登録完了です。</div>
+                      <div className="tsu-hint-row mt-1"><TsuHint>本人にこのURL（またはコード）を渡します。本人がID・パスワード・PINを決めると登録完了です。</TsuHint></div>
                     </div>
                   ) : (
                     <div className="text-sm text-slate-700 leading-6">
@@ -27795,7 +27811,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 shrink-0">
                         <div className="min-w-0">
                           <div className="text-base font-bold text-slate-800">個別機能訓練のグループ（{timeFilter === 'PM' ? '午後' : '午前'}）</div>
-                          <div className="text-xs text-slate-500">名前を長押しして動かします（名前→グループの順にタップでも可）。1グループ最大{KINOU_GROUP_MAX}名。</div>
+                          <div className="tsu-hint-row"><TsuHint>名前を長押しして動かします（名前→グループの順にタップでも可）。1グループ最大{KINOU_GROUP_MAX}名。</TsuHint></div>
                         </div>
                         <button type="button" data-testid="kg-reset" disabled={!isEditMode} onClick={resetKinouGroups} title="表示中の午前/午後のグループ分けを全員「グループなし」に戻します" className="ml-auto shrink-0 px-3 py-2 rounded-xl border border-red-300 bg-white text-red-600 text-sm font-bold hover:bg-red-50 disabled:opacity-50">リセット</button>
                         <button type="button" data-testid="kg-copy-last-week" disabled={!isEditMode} onClick={copyKinouGroupsFromLastWeek} title="先週の同じ曜日・時間帯の割り振りを使います（最大4週前まで）" className="shrink-0 px-3 py-2 rounded-xl border border-emerald-400 bg-emerald-50 text-emerald-800 text-sm font-bold hover:bg-emerald-100 disabled:opacity-50">先週の割り振りをコピー</button>
@@ -36520,7 +36536,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     <button type="button" data-testid="cb-timebold-1" onClick={()=>setSS({renrakuTimeBold:true})} className={tabBtn(ss.renrakuTimeBold!==false)}>太字</button>
                     <button type="button" data-testid="cb-timebold-0" onClick={()=>setSS({renrakuTimeBold:false})} className={tabBtn(ss.renrakuTimeBold===false)}>ふつう</button>
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-1">「次回お迎え時間」の時刻に付く色です（日付は黒）。</div>
+                  <div className="tsu-hint-row mt-1"><TsuHint>「次回お迎え時間」の時刻に付く色です（日付は黒）。</TsuHint></div>
                 </div>
                 <div>
                   <div className="text-[11px] font-bold text-slate-500 mb-1">面数（1枚に何人分）</div>
@@ -36562,7 +36578,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         <button onClick={()=>setSS({renrakuPunchPos:'top'})} className={tabBtn(ss.renrakuPunchPos==='top')}>上（上綴じ）</button>
                       </div>
                     )}
-                    <div className="text-[10px] text-slate-400 mt-1">B5横に2人分→中央でカット。奇数のときは最後が空欄。「上」は上に余白を取って少し小さく印刷します。</div>
+                    <div className="tsu-hint-row mt-1"><TsuHint>B5横に2人分→中央でカット。奇数のときは最後が空欄。「上」は上に余白を取って少し小さく印刷します。</TsuHint></div>
                   </div>
                 )}
                 {/* ★ 2026-10-05(ユーザー要望): プレビューが無くなったので、印刷位置の微調整をここに戻す。図で用紙のどこに出るかが見える */}
@@ -36585,7 +36601,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         </div>
                         <div className="flex-1 min-w-0">
                           <div data-testid="cb-pos-value" className="text-xs font-bold text-slate-700">{desc}</div>
-                          <div className="text-[10px] text-slate-400 mt-0.5">1回で1mm（最大10mm）。中身だけ動きます。</div>
+                          <div className="tsu-hint-row mt-0.5"><TsuHint>1回で1mm（最大10mm）。中身だけ動きます。</TsuHint></div>
                           <button type="button" data-testid="cb-pos-test" onClick={() => doPrintBlank(1)} disabled={cbPdfBusy} className="mt-1.5 px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 font-bold text-[11px] disabled:opacity-50">{cbPdfBusy ? '作成中…' : '試し刷り用（空の連絡帳1枚）をダウンロード'}</button>
                         </div>
                       </div>
@@ -36617,9 +36633,9 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 <h2 className="text-base font-bold text-slate-800">次回予定の残骸チェック（自動計算と食い違う保存値）</h2>
                 <button onClick={()=>setOvCleanup(null)} className="text-slate-400 hover:text-slate-600 font-bold text-xl">✕</button>
               </div>
-              <div className="px-6 py-2 text-[11px] text-slate-500 border-b border-slate-100">
+              <div className="tsu-hint-row px-6 py-2"><TsuHint>
                 チェックした行の保存値を消して、自動の計算に戻します。分なしの時刻（例「8時」）は最初からチェックしています。
-              </div>
+              </TsuHint></div>
               <div className="flex-1 overflow-y-auto p-4">
                 {ovCleanup.items.length === 0 ? (
                   <div className="text-center text-slate-400 py-10 font-bold">食い違いはありません（全て自動計算どおりです）</div>
@@ -36832,7 +36848,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           <div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-start justify-center p-4 pt-24" onClick={() => setBlankDl(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()} data-testid="cb-blank-modal">
               <div className="font-bold text-slate-800">空の連絡帳をダウンロード</div>
-              <div className="text-xs text-slate-500 mt-1">氏名・記録が空欄の連絡帳をPDFにします（手書き用）。</div>
+              <div className="tsu-hint-row mt-1"><TsuHint>氏名・記録が空欄の連絡帳をPDFにします（手書き用）。</TsuHint></div>
               <div className="flex items-center justify-center gap-3 my-4">
                 <button type="button" onClick={() => setBlankDl(v => ({ n: Math.max(1, v.n - 1) }))} className="w-10 h-10 rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700">−</button>
                 <div className="text-center"><div data-testid="cb-blank-n" className="text-3xl font-bold text-slate-800 tabular-nums">{blankDl.n}</div><div className="text-[11px] text-slate-500">枚（{(appData.systemSettings?.renrakuMode === '1' ? 1 : 2) * blankDl.n}人分）</div></div>
@@ -37495,7 +37511,7 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-1">表示項目リスト</h3>
             {/* ★ 2026-10-13(ユーザー要望): 連絡帳と同じ配置(左右2列・上から順)で編集する。非表示の項目は連絡帳では詰めて並ぶ */}
-            <p className="text-xs text-slate-400 mb-3">{itemDnd.hint}　連絡帳と同じ並び（左→右、上→下）です。「表示」を外した項目は連絡帳では詰めて並びます。</p>
+            <div className="tsu-hint-row mb-3"><TsuHint>{itemDnd.hint}　連絡帳と同じ並び（左→右、上→下）です。「表示」を外した項目は連絡帳では詰めて並びます。</TsuHint></div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-3 gap-y-2">
               {localConfig.items.map((item, index) => (
                 <React.Fragment key={item.id}>
@@ -38083,11 +38099,11 @@ function TsuTokkiPresetCard({ appData, onSave }) {
         {Array.isArray(appData?.systemSettings?.tokkiPresets) && <button type="button" onClick={() => { if (!window.confirm('一言を最初の内容（体調不良・歩行不安定 など）に戻しますか？')) return; save({ tokkiPresets: TOKKI_PRESETS_DEFAULT }, '✓ 一言を最初の内容に戻しました'); }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-600">最初の内容に戻す</button>}
       </div>
       <label className="flex items-center justify-between gap-3 cursor-pointer border-t border-slate-100 pt-3">
-        <div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">特記にマイク（音声入力）のボタンを出す</div><div className="text-xs text-slate-500">押してから話すと特記に入ります（端末の音声認識を使います）。</div></div>
+        <div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">特記にマイク（音声入力）のボタンを出す</div><div className="tsu-hint-row"><TsuHint>押してから話すと特記に入ります（端末の音声認識を使います）。</TsuHint></div></div>
         <input type="checkbox" data-testid="tokki-voice-toggle" checked={!voiceOff} onChange={e => save({ tokkiVoiceOff: !e.target.checked }, e.target.checked ? '✓ マイクのボタンを出します' : 'マイクのボタンを出さないようにしました')} className="w-6 h-6 shrink-0"/>
       </label>
       <label className="flex items-center justify-between gap-3 cursor-pointer border-t border-slate-100 pt-3 mt-3">{/* ★ 2026-10-26(ユーザー要望「一言の方にも出すかどうかのチェックを」) */}
-        <div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">特記に「一言」のボタンを出す</div><div className="text-xs text-slate-500">上の言葉から選んで特記に足すボタンです。出さないときは特記の欄だけになります。</div></div>
+        <div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">特記に「一言」のボタンを出す</div><div className="tsu-hint-row"><TsuHint>上の言葉から選んで特記に足すボタンです。出さないときは特記の欄だけになります。</TsuHint></div></div>
         <input type="checkbox" data-testid="tokki-preset-toggle" checked={!appData?.systemSettings?.tokkiPresetOff} onChange={e => save({ tokkiPresetOff: !e.target.checked }, e.target.checked ? '✓ 一言のボタンを出します' : '一言のボタンを出さないようにしました')} className="w-6 h-6 shrink-0"/>
       </label>
     </div>
@@ -40264,7 +40280,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/* ★ 2026-10-21(ユーザー要望「到着時間と帰りの時間だけも選んで自動計算」) */}
           <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-arrivecalc" checked={!!autoCalc.arrive} onChange={e=>setAutoCalc(o=>({...o, arrive:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>到着の時間</b>（施設に着く目安）</span></label>
           <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-drop" checked={!!autoCalc.drop} onChange={e=>setAutoCalc(o=>({...o, drop:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>送りの時間</b>（家に着く目安）</span></label>
-          <div className="text-[11px] text-slate-500 pl-9">配車は最初に組むときだけ使います。到着・送りは、手で直した時間はそのままです</div>
+          <div className="tsu-hint-row pl-9"><TsuHint>配車は最初に組むときだけ使います。到着・送りは、手で直した時間はそのままです</TsuHint></div>
         </div>
         <div className="text-[12px] font-bold text-slate-500 mb-1">曜日</div>
         <div className="flex flex-col gap-1.5 mb-3" data-testid="ac-days">
@@ -40405,7 +40421,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-24" style={{zIndex:10000}} onClick={()=>setFinalMenu(false)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e=>e.stopPropagation()} data-testid="tp-final-menu">
                 <div className="font-bold text-slate-800 mb-1">この週は確定済みです</div>
-                <div className="text-[11px] text-slate-500 mb-3">確定 {_fmtStamp(_finalAtOfWeek())}。連絡が必要な変更は時間が赤い枠です。</div>
+                <div className="tsu-hint-row mb-3"><TsuHint>確定 {_fmtStamp(_finalAtOfWeek())}。連絡が必要な変更は時間が赤い枠です。</TsuHint></div>
                 {/* ★ 2026-10-13(ユーザー指示): 変更の一覧はこのメニューに出さない(上部の「変更内容」ボタンから) */}
                 <div className="space-y-2">
                   <button onClick={()=>{ setFinalMenu(false); finalizeWeek(); }} className="w-full py-2.5 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-700 text-white">確定を更新（今の内容で確定し直す）</button>
@@ -40926,7 +40942,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                     </label>
                   ); })}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1.5">1日1枚に、午前・午後の迎え（住所・電話つき）と送りを並べます。</div>
+                <div className="tsu-hint-row mt-1.5"><TsuHint>1日1枚に、午前・午後の迎え（住所・電話つき）と送りを並べます。</TsuHint></div>
               </div>
             )}
             <div className="flex gap-2">
@@ -40965,7 +40981,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 <button onClick={()=>{ setEditP(null); setEditCall(null); }} className="whitespace-nowrap px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
                 <button onClick={()=>{ const pv=document.getElementById('tp-edit-place')?.value||''; const mv=document.getElementById('tp-edit-min')?.value||''; const dmv=document.getElementById('tp-edit-dmin')?.value; savePatientPickup(pt.id, pv, mv, editCall || { callTo: pt.pickupCallTo || '', name: pt.pickupCallName || '', phone: pt.pickupCallPhone || '' }, dmv); setEditP(null); setEditCall(null); }} className="whitespace-nowrap px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">保存</button>
               </div>
-              <div className="text-[10px] text-slate-400 mt-3">利用者マスタと同じ項目に保存されます。</div>
+              <div className="tsu-hint-row mt-3"><TsuHint>利用者マスタと同じ項目に保存されます。</TsuHint></div>
             </div>
           </div>
         );
@@ -41108,7 +41124,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 </div>
               ) : (
                 <div className="p-4 space-y-4">
-                  <div className="text-[12px] text-slate-500">名前を長押しして席へ。<b className="text-slate-700">丸の番号が送りの順番</b>（押すと変更）。運転席で運転者、車の上で出発時間、席の「着」で家に着く時間を入れます。</div>
+                  <div className="tsu-hint-row"><TsuHint>名前を長押しして席へ。<b className="text-slate-700">丸の番号が送りの順番</b>（押すと変更）。運転席で運転者、車の上で出発時間、席の「着」で家に着く時間を入れます。</TsuHint></div>
                   {/* ★ 2026-10-15: 席が決まっていない方(共通の置き場)。席の方をここへ落とすと席から外れる(車の人数=席の数なので定員を超えない) */}
                   <div data-tpdrop="dsu" data-tpiso={iso} data-tpslot={sl} className={`rounded-xl border px-3 py-2 text-[13px] min-h-[44px] ${_over('dsu') ? 'border-amber-600 ring-2 ring-amber-300 bg-amber-100' : 'border-amber-300 bg-amber-50'}`} data-testid="tp-seat-notyet">
                     <span className="text-[11px] font-bold text-amber-800 mr-2">席が決まっていない方</span>
@@ -41131,7 +41147,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       {!(dr.others||[]).length && <span className="text-[11px] text-slate-400">{_dragging ? 'ここへ' : 'なし'}</span>}
                     </div>
                   </div>
-                  <div className="text-[11px] text-slate-400">決めた送りは、日誌の「送迎表取込」で日誌にも入ります。席の数は「設定」の「座席表の並び」で変えられます。</div>
+                  <div className="tsu-hint-row"><TsuHint>決めた送りは、日誌の「送迎表取込」で日誌にも入ります。席の数は「設定」の「座席表の並び」で変えられます。</TsuHint></div>
                 </div>)}
               {/* ★ 2026-10-15(ユーザー要望「午前に送ってそのまま午後のお迎えに行くので、午前の送りの座席表の下に午後の送迎表が見えると使いやすい」): 見るだけ(変えるのは送迎表で) */}
               {sl === 'AM' && (() => { const pm = getPlan(iso, 'PM'); const pmCars = cars.filter(c => ((pm.cars||{})[c.id]||[]).length); const pmWalk = pm.walkers || [], pmOther = pm.others || [], pmUn = pm.un || [];
@@ -41176,7 +41192,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <div className="text-[13px] text-slate-600 mb-3">どこからこの週へ写しますか？（この週に来ない方＝振替・臨時・お休みは写しません）</div>
               <button type="button" data-testid="tp-copy-all" onClick={() => setCopyAsk({ src: 'prev' })} className="w-full text-left rounded-xl border-2 border-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-3 mb-2">
                 <div className="font-bold text-blue-800">前の週からコピー</div>
-                <div className="text-[12px] text-slate-600 mt-0.5">前の週の順番・時間・運転者・送りの席・送りの時間を写します。</div>
+                <div className="tsu-hint-row mt-0.5"><TsuHint>前の週の順番・時間・運転者・送りの席・送りの時間を写します。</TsuHint></div>
               </button>
               <button type="button" data-testid="tp-copy-base" disabled={!_hasBaseAny} onClick={() => setCopyAsk({ src: 'base' })} className="w-full text-left rounded-xl border-2 border-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-4 py-3 mb-3 disabled:opacity-40">
                 <div className="font-bold text-emerald-800">基本の送迎表からコピー</div>
@@ -41254,7 +41270,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                     </div>); })}
                 </div>
               </div>
-              <div className="text-[11px] text-slate-400">スマホでは見るだけです（変更はパソコン・iPadで）。</div>
+              <div className="tsu-hint-row"><TsuHint>スマホでは見るだけです（変更はパソコン・iPadで）。</TsuHint></div>
             </>)}
           </div>
         </div>); })(), document.body)}
@@ -41271,7 +41287,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 mb-4 text-[12px] text-slate-600" data-testid="tp-set-arrive-info">
               <div className="font-bold text-slate-700 mb-0.5">施設に着く時間（自動計算）</div>
               {['AM','PM'].map(s2 => { const st = _classStart(s2); return <div key={s2}>{s2 === 'AM' ? '午前' : '午後'}: {st ? <><b>{tsuHmMinus(st, 1)}</b><span className="text-slate-400">（{s2 === 'PM' ? '2単位目' : '1単位目'}の開始 {st} の1分前）</span></> : <span className="text-amber-700 font-bold">事業所情報の{s2 === 'PM' ? '2単位目' : '1単位目'}の時間が未入力です（各種設定→事業所情報）</span>}</div>; })}
-              <div className="text-[11px] text-slate-500 mt-1">お迎え時間＝家に着く時間。開始の1分前に施設へ着くよう逆算します。</div>
+              <div className="tsu-hint-row mt-1"><TsuHint>お迎え時間＝家に着く時間。開始の1分前に施設へ着くよう逆算します。</TsuHint></div>
             </div>
             <div className="font-bold text-sm text-slate-700 mb-2">車の定員（運転者を除く乗車人数）</div>
             <div className="space-y-2 mb-4">
@@ -41728,7 +41744,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
               <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-16" style={{zIndex:100000}} onClick={() => setFitUndoOpen(false)}>
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5" onClick={e => e.stopPropagation()} data-testid="fit-undo-modal">
                   <div className="font-bold text-slate-800 mb-1">{selectedPat?.name} 様の体力測定を元に戻す</div>
-                  <div className="text-[11px] text-slate-500 mb-3">保存のたびに直前の値を控えます（10回まで）。「1つ前に戻す」で戻せます。</div>
+                  <div className="tsu-hint-row mb-3"><TsuHint>保存のたびに直前の値を控えます（10回まで）。「1つ前に戻す」で戻せます。</TsuHint></div>
                   <div className="max-h-72 overflow-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
                     {patRecords.length === 0 && <div className="p-4 text-xs text-slate-500">記録がありません</div>}
                     {patRecords.slice().sort((a, b) => (Number(b._savedAt) || 0) - (Number(a._savedAt) || 0)).map(r => { const h = (r._hist || [])[0]; return (
@@ -42329,7 +42345,7 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
             {staffCtx.role === 'manager' && (
               <div className="mt-3 pt-3 border-t border-emerald-200">
                 <div className="text-sm font-bold text-emerald-900">この端末をみんなで使う</div>
-                <div className="text-xs text-slate-600 mt-1 mb-2 leading-5">共有の iPad で設定します。職員は「どなたですか」で名前と PIN を選んで使います。</div>
+                <div className="tsu-hint-row mt-1 mb-2"><TsuHint>共有の iPad で設定します。職員は「どなたですか」で名前と PIN を選んで使います。</TsuHint></div>
                 <button type="button" onClick={async () => { if (!window.confirm('この端末を「みんなで使う」端末にします。あなたのログインは解除され、職員が名前と PIN で使えるようになります。よろしいですか？')) return; try { await staffCtx.sharedDevice(); } catch (e) { alert(e?.message || '設定できませんでした'); } }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-emerald-400 text-emerald-800">この端末をみんなで使う</button>
               </div>
             )}
@@ -42337,8 +42353,8 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
         )}
         {(isAdmin || staffCtx.role === 'manager' || staffCtx.role === 'super_admin') ? (
           <div className="grid gap-3">
-            <div className="text-xs text-slate-600 leading-5 bg-slate-50 rounded-lg p-2">「PIN を必須にする」と、さわらない時間が過ぎると <b>「どなたですか」(PIN)</b> に戻ります。ID・パスワードは「完全にログアウトするまで」の時間で求めます。</div>
-            <div className="flex items-center justify-between gap-3"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">記録者の選択(PIN)に戻るまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、操作が無いとき。画面から利用者情報が消えます</div></div>
+            <div className="tsu-hint-row"><TsuHint>「PIN を必須にする」と、さわらない時間が過ぎると <b>「どなたですか」(PIN)</b> に戻ります。ID・パスワードは「完全にログアウトするまで」の時間で求めます。</TsuHint></div>
+            <div className="flex items-center justify-between gap-3"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">記録者の選択(PIN)に戻るまで</div><div className="tsu-hint-row"><TsuHint>PIN 必須の店舗で、操作が無いとき。画面から利用者情報が消えます</TsuHint></div></div>
               <div className="shrink-0"><Sel value={Math.min(Number(sec.lockMin) || TSU_IDLE_MIN_DEFAULT, 60)} opts={[[10,'10分'],[30,'30分'],[40,'40分'],[60,'60分']]} onChange={v => setSec({ lockMin: v })}/></div></div>
             <div className="flex items-center justify-between gap-3"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">完全にログアウトするまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、端末を使わなかった時間。次に使うときは ID・パスワードから</div></div>
               <div className="shrink-0"><Sel value={Math.min(Number(sec.logoutHours) || 168, 168)} opts={[[24,'24時間'],[168,'7日間']]} onChange={v => setSec({ logoutHours: v })}/></div></div>
@@ -42347,7 +42363,7 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
             <label data-testid="sec-row-storeid" className="flex items-center justify-between gap-3 cursor-pointer"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">店舗IDでのログインを止める</div><div className="text-xs text-slate-500">全員が本人登録を終えたら入れます</div></div>
               <input type="checkbox" checked={!!sec.storeLoginDisabled} onChange={e => { if (e.target.checked && !window.confirm('店舗IDでのログインを止めます。管理者の本人ログインから「この端末をみんなで使う」を設定できることを確認してから入れてください。よろしいですか？')) return; setSec({ storeLoginDisabled: e.target.checked }); }} className="w-6 h-6 shrink-0"/></label>
           </div>
-        ) : <div className="text-xs text-slate-500">ロックや PIN の設定は管理者が行います。</div>}
+        ) : <div className="tsu-hint-row"><TsuHint>ロックや PIN の設定は管理者が行います。</TsuHint></div>}
       </div>
     </SectionCard>
   );
@@ -42370,7 +42386,7 @@ function TsuOnboardingDocsPanel({ appData, onSave }) {
   };
   return (
     <SectionCard title="導入時の書類整理（つむぎより前の分をまとめて記録）">
-      <p className="text-xs text-slate-500 mb-3">つむぎを使い始める前から紙やパソコンで保管している書類を、ここでまとめて「別の場所で保管」として記録します。導入直後に一度使う画面です（各書類の画面でも1人ずつ記録できます）。</p>
+      <div className="tsu-hint-row mb-3"><TsuHint>つむぎを使い始める前から紙やパソコンで保管している書類を、ここでまとめて「別の場所で保管」として記録します。導入直後に一度使う画面です（各書類の画面でも1人ずつ記録できます）。</TsuHint></div>
       <div data-testid="onboard-ir" className="border border-slate-200 rounded-xl">
         <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between px-3 py-3 text-left">
           <span className="text-sm font-bold text-slate-800">初回ご利用報告</span>
@@ -42396,7 +42412,7 @@ function TsuOnboardingDocsPanel({ appData, onSave }) {
           </div>
         ))}
       </div>
-      <p className="text-[11px] text-slate-400 mt-2">※ 計画書・アセスメント・契約書類も同じ形でここに追加していく予定です。</p>
+      <div className="tsu-hint-row mt-2"><TsuHint>※ 計画書・アセスメント・契約書類も同じ形でここに追加していく予定です。</TsuHint></div>
     </SectionCard>
   );
 }
@@ -44152,7 +44168,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     <InfoRow label="負担割合">{localPatient.costBurden}</InfoRow>
                     <InfoRow label="負担割合の有効期間">{localPatient.costBurdenFrom ? `${warekiStr(localPatient.costBurdenFrom)||localPatient.costBurdenFrom} 〜 ${localPatient.costBurdenTo?(warekiStr(localPatient.costBurdenTo)||localPatient.costBurdenTo):'（終了日なし）'}` : ''}</InfoRow>
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-2">※ 介護度・負担割合・認定期間は「保険証」「負担割合証」、被保険者番号は「フェイスシート」で編集します（いずれも個人ファイル内）</div>
+                  <div className="tsu-hint-row mt-2"><TsuHint>※ 介護度・負担割合・認定期間は「保険証」「負担割合証」、被保険者番号は「フェイスシート」で編集します（いずれも個人ファイル内）</TsuHint></div>
                 </div>
               </div>
 
@@ -44195,7 +44211,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     </div>
                     {/* ★ ケアマネの閲覧アカウント表示・招待はサイドバー「ケアマネ事業所・担当者」へ一本化(2026-08-31 店舗要望)。
                         ここ(利用者マスタ)からのケアマネアカウント管理は撤去した */}
-                    <div className="text-[10px] text-slate-400 mt-2">※ ケアマネの招待は「ケアマネ事業所・担当者」から。担当の変更は「担当を変更」から。</div>
+                    <div className="tsu-hint-row mt-2"><TsuHint>※ ケアマネの招待は「ケアマネ事業所・担当者」から。担当の変更は「担当を変更」から。</TsuHint></div>
                   </div>);
                 })()}
 
@@ -44504,7 +44520,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               })()}
               <div><label className="block text-sm font-bold text-slate-600 mb-1.5">留意点（スタッフへの申し送り）</label><textarea disabled={isOff} value={localPatient.ryui || ""} onChange={e => updateLP('ryui', e.target.value)} rows={2} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl outline-none resize-none text-base disabled:opacity-60 leading-relaxed" /></div>
               <div><label className="block text-sm font-bold text-slate-600 mb-3">基本利用曜日</label><div className="grid grid-cols-7 gap-2 tsu-sched7">{['日', '月', '火', '水', '木', '金', '土'].map((d, i) => { const v = localPatient.scheduleAmPm?.[i] || ""; const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(i); const colorCls = isClosed ? 'bg-slate-100 border-slate-200 text-slate-400' : v === 'AM' ? 'bg-red-50 border-red-300 text-red-700' : v === 'PM' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'; return (<div key={d} className="flex flex-col"><span className={`text-center text-[13px] font-bold mb-1 ${i===0?'text-red-400':i===6?'text-blue-400':'text-slate-500'}`}>{d}</span>{isClosed ? (<div className={`w-full h-[42px] flex items-center justify-center text-[14px] font-bold text-center border rounded-xl box-border bg-slate-100 border-slate-200 text-slate-400`}>定休</div>) : (<select disabled={isOff} value={v} onChange={e => updateSched(i, e.target.value)} className={`w-full h-[42px] text-[14px] font-bold text-center border rounded-xl box-border outline-none cursor-pointer disabled:opacity-60 ${colorCls}`}><option value="">無</option><option value="AM">AM</option><option value="PM">PM</option></select>)}</div>); })}</div>
-                <p className="text-[11px] text-slate-500 mt-1.5">毎週の決まった利用日です。「その日だけ」の変更（振替・欠席・休止など）は下の月間スケジュールで。</p>
+                <div className="tsu-hint-row mt-1.5"><TsuHint>毎週の決まった利用日です。「その日だけ」の変更（振替・欠席・休止など）は下の月間スケジュールで。</TsuHint></div>
                 {/* ★ 基本利用曜日の変更履歴(最新5件)と「削除」(2026-09-23): 誤って変えて手で戻した後に残った履歴の復旧用 */}
                 {(() => {
                   const dN=['日','月','火','水','木','金','土'];
@@ -44565,16 +44581,16 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                     onCommit={(val) => { const arr = [...(localPatient.dropTimes || ['','','','','','','']) ]; arr[i] = val; updateLP('dropTimes', arr); }}/>
                                 ))}
                               </div>
-                              <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">・送迎表の「送りの時間」の初期値になります（時と分の両方を入れた曜日だけ）。その週の時間は送迎表で直します<br/>・送迎表で「送りの時間」を表示しない店舗では、ここに入れても送迎表・連絡帳には出ません</div>
+                              <div className="tsu-hint-row mt-2"><TsuHint>・送迎表の「送りの時間」の初期値になります（時と分の両方を入れた曜日だけ）。その週の時間は送迎表で直します<br/>・送迎表で「送りの時間」を表示しない店舗では、ここに入れても送迎表・連絡帳には出ません</TsuHint></div>
                             </>
-                          ) : <div className="text-[11px] text-slate-500 mt-1">帰りの時間を決めている方だけチェックしてください。チェックしない方は、送迎表の送りの時間は自動計算の目安のままです。</div>}
+                          ) : <div className="tsu-hint-row mt-1"><TsuHint>帰りの時間を決めている方だけチェックしてください。チェックしない方は、送迎表の送りの時間は自動計算の目安のままです。</TsuHint></div>}
                         </div>
                       )}
-                      <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                      <div className="tsu-hint-row mt-2"><TsuHint>
                         ・基本利用日に設定した曜日のみ表示されます<br/>
                         ・時間が決まっていない場合は「時」だけ入力（例: 9 → 9:--、後で 30 を追加すると 9:30）<br/>
                         {tsumugiTransportOn(appData) ? '・毎週の決まった時間です。その週の時間は送迎表で直します（連絡帳には送迎表の時間が入ります）' : '・連絡帳のお迎え時間にも入ります（その回だけの時間は連絡帳の次回予定で）'}
-                      </div>
+                      </TsuHint></div>
                       {/* ★ 送迎表連動(2026-09-12 試験版): 待ち合わせ場所・所要時間。送迎表の利用者名タップでも編集可 */}
                       {/* ★ 2026-10-08: スマホは1項目1行(2列だと見出しが1文字ずつ縦に折れていた) */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-200">
@@ -44601,9 +44617,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         <div className="sm:col-span-2 min-w-0">
                           <label className="block text-xs font-bold text-slate-600 mb-1">送迎時の連絡先</label>
                           <PickupCallField disabled={isOff} patient={localPatient} value={{ callTo: localPatient.pickupCallTo || '', name: localPatient.pickupCallName || '', phone: localPatient.pickupCallPhone || '' }} onChange={v => { setLocalPatient(prev => ({ ...(prev || localPatient), pickupCallTo: v.callTo || '', pickupCallName: v.name || '', pickupCallPhone: v.phone || '' })); if (dirtyRef) dirtyRef.current = true; }} />
-                          <div className="text-[11px] text-slate-500 mt-1">送迎のときにかける相手です（送迎表のスマホ表示・連絡先一覧の先頭に出ます）。</div>
+                          <div className="tsu-hint-row mt-1"><TsuHint>送迎のときにかける相手です（送迎表のスマホ表示・連絡先一覧の先頭に出ます）。</TsuHint></div>
                         </div>
-                        <div className="sm:col-span-2 text-[11px] text-slate-500">乗車にかかる時間＝車を停めてから乗せ終わるまで（送迎表の自動計算に使います・未入力は1分）。「徒歩」は送迎表で最初から徒歩欄に入ります。</div>
+                        <div className="tsu-hint-row sm:col-span-2"><TsuHint>乗車にかかる時間＝車を停めてから乗せ終わるまで（送迎表の自動計算に使います・未入力は1分）。「徒歩」は送迎表で最初から徒歩欄に入ります。</TsuHint></div>
                       </div>
                     </div>
                   </div>
@@ -44695,7 +44711,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                               </div>
                             ))}
                           </div>
-                          {enabledMenu.length === 0 && <div className="text-[11px] text-slate-400 mt-1">※ 上で個別運動メニューを選択すると、ここで既定に設定できます。</div>}
+                          {enabledMenu.length === 0 && <div className="tsu-hint-row mt-1"><TsuHint>※ 上で個別運動メニューを選択すると、ここで既定に設定できます。</TsuHint></div>}
                         </div>
                       );
                     })()}
@@ -44908,10 +44924,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl p-6">
             <h3 className="text-base font-bold text-slate-800 mb-1">サービス提供内容の変更を反映</h3>
             <p className="text-xs text-slate-500 mb-4">運動メニュー／個別運動の設定値が変わりました。反映方法を選んでください。</p>
-            <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 mb-3 text-[11px] text-slate-600 leading-relaxed">
+            <div className="tsu-hint-row px-3 py-2.5 mb-3"><TsuHint>
               <b className="text-slate-800">過去全ての記録に反映</b>：これまでの全部の期間が新しい値になります（入力の誤りを直すとき）。<br/>
               <b className="text-slate-800">日付を指定して反映</b>：選んだ日から新しい値（それより前は元のまま）。備考に変更が自動で入ります。
-            </div>
+            </TsuHint></div>
             <div className="flex items-center gap-2 mb-5">
               <span className="text-sm text-slate-500">変更日：</span>
               <input type="date" value={plannedExModal.fromDate||''} onChange={e=>setPlannedExModal(m=>({...m,fromDate:e.target.value}))} className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
@@ -45496,7 +45512,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         <input type="radio" name="csvDupMode" checked={csvModal.dupMode==='keepBoth'} onChange={()=>setCsvModal({...csvModal,dupMode:'keepBoth'})} className="mt-0.5"/>
                         <span className="text-slate-700"><b>両方残す（新規追加）</b> … 同じ氏名でも別の利用者として追加</span>
                       </label>
-                      <div className="text-[11px] text-slate-400 mt-1">※ 氏名が重複する人がいた場合は、次の画面で<b>1人ずつ</b>「更新／新規追加／スキップ」を選べます（上はその初期値）。</div>
+                      <div className="tsu-hint-row mt-1"><TsuHint>※ 氏名が重複する人がいた場合は、次の画面で<b>1人ずつ</b>「更新／新規追加／スキップ」を選べます（上はその初期値）。</TsuHint></div>
                     </div>
                     {csvModal.error && <div className="text-xs font-bold text-red-600">エラー: {csvModal.error}</div>}
                     <button data-testid="csv-import-go" disabled={!csvModal.importText.trim()} onClick={()=>doImport()} className="w-full py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40">取り込みを実行</button>
@@ -45869,10 +45885,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] whitespace-nowrap">印刷</button>
                         <button onClick={()=>{ const facility = tsumugiFacilityInfo(appData); openInviteSheet({ kind: 'common', title: '登録のご案内（共通）', facilityName: facility.name||'', facilityPhone: facility.phone||'', url: `${baseUrl}/?family&join=1`, loginUrl }); }} className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-bold text-[11px] whitespace-nowrap" title="全利用者共通の登録用紙。招待コードは渡すときに職員が手書き">共通の登録用紙</button>
                       </div>
-                      <div className="text-[10px] text-slate-600 leading-relaxed">
+                      <div className="tsu-hint-row"><TsuHint>
                         家族はこのQRを読み取ってログイン画面に行き、下記のID・パスワードを入力します。<br/>
                         連絡帳の「ご家族専用」欄にも同じQRが自動で印字されます。
-                      </div>
+                      </TsuHint></div>
                     </div>
                   </div>
                 </div>
@@ -46178,7 +46194,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 size={32} /></div>
             <h3 className="text-lg font-bold text-slate-800 mb-2">完全に削除しますか？</h3>
             <p className="text-sm text-slate-500 mb-2">{localPatient?.name} 様のデータを削除します。</p>
-            <p className="text-xs text-slate-400 mb-6">関連する提供記録・体力測定なども全て削除されます。</p>
+            <div className="tsu-hint-row mb-6"><TsuHint>関連する提供記録・体力測定なども全て削除されます。</TsuHint></div>
             <div className="flex gap-3 justify-center">
               <button onClick={() => setDeleteConfirmModal(false)} className="whitespace-nowrap px-6 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
               <button onClick={() => setDeleteConfirmStep2(true)} className="px-6 py-2.5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg active:scale-95">はい、削除する</button>
@@ -46941,7 +46957,7 @@ function TsuPushDeviceCard() {
   const btn = 'px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50';
   return (
     <div data-testid="push-device-card">
-      <p className="text-xs text-slate-500 mb-3">カレンダーの予定（担当者会議など）を、前日とはじまる前にこの端末へお知らせします。通知の文には利用者名は出ません。</p>
+      <div className="tsu-hint-row mb-3"><TsuHint>カレンダーの予定（担当者会議など）を、前日とはじまる前にこの端末へお知らせします。通知の文には利用者名は出ません。</TsuHint></div>
       {st.loading ? <div className="text-xs text-slate-500">確認しています…</div> : !st.supported ? (
         <div data-testid="push-unsupported" className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">{iosNeedsHome ? <>iPhone・iPad は、<b>ホーム画面に追加したつむぎ</b>で使えます（Safari の共有ボタン → ホーム画面に追加）。追加したつむぎを開いて、ここをもう一度開いてください。iOS 16.4 以上が必要です。</> : 'この端末・ブラウザは通知に対応していません（Chrome・Edge・Safari の新しい版で使えます）。'}</div>
       ) : (
@@ -46980,7 +46996,7 @@ function TsuPushStoreCard({ appData, saveSS }) {
   const sel = 'px-2 py-1 border border-slate-300 rounded-lg text-sm bg-white';
   return (
     <div data-testid="push-store-card" className="space-y-3">
-      <p className="text-xs text-slate-500">この店舗の、通知を届ける端末すべてに共通の設定です。夜（20時〜7時）は送りません。</p>
+      <div className="tsu-hint-row"><TsuHint>この店舗の、通知を届ける端末すべてに共通の設定です。夜（20時〜7時）は送りません。</TsuHint></div>
       <label className="flex items-center gap-2 text-sm font-bold text-slate-700"><input type="checkbox" data-testid="push-cfg-on" checked={cfg.on !== false} onChange={e => set({ on: e.target.checked })} className="w-5 h-5"/>予定のお知らせを送る</label>
       <div className={`space-y-2 ${cfg.on === false ? 'opacity-50 pointer-events-none' : ''}`}>
         <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-daybefore" checked={cfg.dayBefore !== false} onChange={e => set({ dayBefore: e.target.checked })} className="w-5 h-5"/>前日にお知らせ</label>
@@ -46998,7 +47014,7 @@ function TsuPushStoreCard({ appData, saveSS }) {
           <div className="flex flex-wrap gap-2">{labels.filter(l => l && l.color).map(l => { const on = !off.has(String(l.color).toLowerCase()); return (
             <button key={l.color} type="button" data-testid={`push-cfg-label-${String(l.color).replace('#','')}`} onClick={() => { const next = new Set(off); if (on) next.add(String(l.color).toLowerCase()); else next.delete(String(l.color).toLowerCase()); set({ offColors: [...next] }); }}
               className={`px-3 py-1.5 rounded-full text-xs font-bold border ${on ? 'text-white' : 'bg-white text-slate-400 line-through'}`} style={on ? { background: l.color, borderColor: l.color } : { borderColor: '#cbd5e1' }}>{l.label || 'ラベル'}</button>); })}</div>
-          <div className="text-[11px] text-slate-500 mt-1">押すと切り替わります（線が引かれたラベルはお知らせしません）。</div>
+          <div className="tsu-hint-row mt-1"><TsuHint>押すと切り替わります（線が引かれたラベルはお知らせしません）。</TsuHint></div>
         </div>
       </div>
     </div>
@@ -47133,7 +47149,7 @@ function AdminSettingsSection({ appData, onSave }) {
       </div>
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
         <div className="text-sm font-bold text-slate-700 mb-1">再設定用メールアドレス</div>
-        <div className="text-[11px] text-slate-500 mb-2">パスワードを忘れた時の再設定に使います（任意・推奨）。</div>
+        <div className="tsu-hint-row mb-2"><TsuHint>パスワードを忘れた時の再設定に使います（任意・推奨）。</TsuHint></div>
         <div className="flex gap-2">
           <input type="email" autoComplete="off" name="tsu-adm-mail" value={email} onChange={e=>{setEmail(e.target.value);setEmailMsg('');}} placeholder="admin@example.com" className={inp}/>
           <button type="button" onClick={()=>{ saveSS({adminAuth:{...auth, email:email.trim()}}, '✓ メールを保存しました'); setEmailMsg('保存しました'); }} className="px-4 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm whitespace-nowrap">保存</button>
@@ -48097,7 +48113,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e=>e.stopPropagation()}>
             <div className="text-base font-bold text-slate-800 mb-1">{cmEditModal.kind==='office'?'ケアマネ事業所を編集':'担当ケアマネを編集'}</div>
-            <div className="text-[11px] text-slate-400 mb-4">変更すると、この事業所/担当者を設定している<b>全利用者の担当ケアマネ情報も自動で更新</b>されます。</div>
+            <div className="tsu-hint-row mb-4"><TsuHint>変更すると、この事業所/担当者を設定している<b>全利用者の担当ケアマネ情報も自動で更新</b>されます。</TsuHint></div>
             {cmEditModal.kind==='office' ? (
               <div className="space-y-3">
                 <div><label className="block text-xs font-bold text-slate-500 mb-1">事業所名</label>
@@ -48265,7 +48281,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
           {activeTab === 'kibun' && (
             <SectionCard title="体調の理由（カスタマイズ）">
               <div className="flex items-start justify-between gap-2 mb-3">
-                <p className="text-xs text-slate-500">提供記録で体調を選んだ後に出る「理由」の選択肢を、<b>通所時・帰宅時・体調ごと</b>に追加・削除できます。空欄でも自由入力は常に使えます。</p>
+                <div className="tsu-hint-row"><TsuHint>提供記録で体調を選んだ後に出る「理由」の選択肢を、<b>通所時・帰宅時・体調ごと</b>に追加・削除できます。空欄でも自由入力は常に使えます。</TsuHint></div>
                 <button type="button" onClick={_resetKibunReasons} className="shrink-0 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold whitespace-nowrap">既定に戻す</button>
               </div>
               {/* 通所時 / 帰宅時 切替 */}
@@ -48349,7 +48365,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
           {activeTab === 'life' && (<>
             <SectionCard title="LIFE連携（科学的介護）">
               <div className="space-y-4">
-                <div className="text-xs text-slate-600 leading-relaxed">LIFEへ出すCSVに使う情報です。事業所番号・保険者番号・サービス種類コードは「事業所情報」のタブで入力します（請求などでも使うため）。</div>
+                <div className="tsu-hint-row"><TsuHint>LIFEへ出すCSVに使う情報です。事業所番号・保険者番号・サービス種類コードは「事業所情報」のタブで入力します（請求などでも使うため）。</TsuHint></div>
                 {/* ★ LIFE(科学的介護)連携: CSV出力で使う事業所番号・保険者番号・サービス種類コード。 LIFE画面はここから読み込む。 */}
                 <div className="border border-cyan-200 bg-cyan-50/50 rounded-xl p-3">
                   <div className="text-sm font-bold text-cyan-800 mb-2">LIFE連携（科学的介護）用の情報</div>
@@ -48366,14 +48382,14 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">記入者の職種の既定値 <span className="font-normal text-slate-400">（生活機能チェックで職種未選択のときに使う）</span></label>
                       <select value={facilityInfo.lifeDefaultJob || ''} onChange={e => setFacilityInfo({...facilityInfo, lifeDefaultJob: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"><option value="">（未設定）</option>{LIFE_STAFF_JOBS.map(j => <option key={j.c} value={j.n}>{j.n}（{j.c}）</option>)}</select></div>
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-2">※ 保険者番号が利用者ごとに違うときは、各利用者の画面で上書きできます。</div>
+                  <div className="tsu-hint-row mt-2"><TsuHint>※ 保険者番号が利用者ごとに違うときは、各利用者の画面で上書きできます。</TsuHint></div>
                 </div>
               </div>
             </SectionCard>
           </>)}
           {activeTab === 'sidebar' && (
             <SectionCard title="サイドバーに表示する画面">
-              <div className="text-xs text-slate-500 mb-3 leading-relaxed">使わない画面のチェックを外すと、サイドバーに出なくなります（店舗の全端末・データは消えません）。ホーム・提供記録・連絡帳・日誌・利用者マスタ・ケアマネ事業所・各種設定はいつも出ます。</div>
+              <div className="tsu-hint-row mb-3"><TsuHint>使わない画面のチェックを外すと、サイドバーに出なくなります（店舗の全端末・データは消えません）。ホーム・提供記録・連絡帳・日誌・利用者マスタ・ケアマネ事業所・各種設定はいつも出ます。</TsuHint></div>
               <div className="space-y-2" data-testid="set-sidebar-list">
                 {(() => { let lastGroup = null; return SIDEBAR_OPTIONAL.map(it => { const on = tsumugiSideShown(appData, it.key); const head = it.group && it.group !== lastGroup ? it.group : null; lastGroup = it.group || null;
                   const toggle = (v) => {
@@ -48445,7 +48461,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                 {/* ★ 電話/FAX: ハイフン自動付与 (数字のみ入力 → formatJpPhone で表示) */}
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号</label><ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(facilityInfo.phone || "")} onChange={e => setFacilityInfo({...facilityInfo, phone: toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)})} placeholder="0312345678" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">FAX</label><ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(facilityInfo.fax || "")} onChange={e => setFacilityInfo({...facilityInfo, fax: toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)})} placeholder="0312345679" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
-                <div><label className="block text-sm font-bold text-slate-600 mb-1.5">メールアドレス</label><input type="email" value={facilityInfo.email || ""} onChange={e => setFacilityInfo({...facilityInfo, email: e.target.value})} placeholder="store@example.com" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/><div className="text-[11px] text-slate-400 mt-1">つむぎ管理局の店舗登録時に入力されたメールアドレスが初期反映されます。</div></div>
+                <div><label className="block text-sm font-bold text-slate-600 mb-1.5">メールアドレス</label><input type="email" value={facilityInfo.email || ""} onChange={e => setFacilityInfo({...facilityInfo, email: e.target.value})} placeholder="store@example.com" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/><div className="tsu-hint-row mt-1"><TsuHint>つむぎ管理局の店舗登録時に入力されたメールアドレスが初期反映されます。</TsuHint></div></div>
                 <div className="border-t border-slate-200 pt-4"><h4 className="text-sm font-bold text-slate-700 mb-3">サービス提供時間</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">{/* ★ 2026-10-08(店舗報告: スマホで時間の欄が重なる): スマホは1項目1行・時間の欄は幅を分け合う */}
                     <div><label className="block text-sm font-bold text-slate-600 mb-1.5">1単位目</label>
@@ -48511,7 +48527,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
 
             {/* 営業曜日・祝日設定 */}
             <SectionCard title="営業曜日・祝日の設定">
-              <p className="text-xs text-slate-500 mb-4">定休日に設定した曜日は全利用者のシフトに反映されます。</p>
+              <div className="tsu-hint-row mb-4"><TsuHint>定休日に設定した曜日は全利用者のシフトに反映されます。</TsuHint></div>
               <div className="mb-4">
                 <label className="block text-xs font-bold text-slate-500 mb-2">定休日（チェック＝休み）</label>
                 <div className="flex gap-3 flex-wrap">
@@ -48549,7 +48565,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
             {/* 施設休業日 */}
             <div ref={holidaySectionRef} className="scroll-mt-20">
             <SectionCard title="施設休業日の設定">
-              <p className="text-xs text-slate-500 mb-4">年末年始・夏休みなどを入れると、その日は全員「休業」になります（年ごとに登録）。雪などで午前だけ・午後だけ休むときは「午前のみ」「午後のみ」を選びます。</p>
+              <div className="tsu-hint-row mb-4"><TsuHint>年末年始・夏休みなどを入れると、その日は全員「休業」になります（年ごとに登録）。雪などで午前だけ・午後だけ休むときは「午前のみ」「午後のみ」を選びます。</TsuHint></div>
               {/* 西暦(年)の切替 + 前年コピー */}
               <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <div className="flex items-center gap-1">
@@ -48626,9 +48642,9 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
           {/* サービス提供内容 */}
           {activeTab === 'record' && (<>
             <SectionCard title="運動メニューの項目">
-              <p className="text-xs text-slate-500 mb-3">利用者マスタの「運動メニュー」に表示される項目を管理します。<br/>
+              <div className="tsu-hint-row mb-3"><TsuHint>利用者マスタの「運動メニュー」に表示される項目を管理します。<br/>
                 <b className="text-amber-700">※ 項目を足す・消すときは、下の「適用開始月」を選びます（過去の記録はそのまま）。</b>
-              </p>
+              </TsuHint></div>
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 flex items-center gap-3 flex-wrap">
                 <label className="text-xs font-bold text-amber-800">この変更の適用開始月:</label>
                 <input type="month" value={exerciseApplyFrom} onChange={e=>setExerciseApplyFrom(e.target.value)} className="px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-sm font-bold outline-none"/>
@@ -48748,7 +48764,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               )}
             </SectionCard>
             <SectionCard title="個別運動メニューの項目">
-              <p className="text-xs text-slate-500 mb-3">提供記録の「個別運動」で選べる項目です（屋外歩行・平行棒など）。利用者ごとの項目は利用者マスタで選びます。</p>
+              <div className="tsu-hint-row mb-3"><TsuHint>提供記録の「個別運動」で選べる項目です（屋外歩行・平行棒など）。利用者ごとの項目は利用者マスタで選びます。</TsuHint></div>
               <p className="text-xs text-slate-400 mb-2">{indDnd.hint}</p>
               <div className="space-y-2 mb-3">
                 {individualExerciseItems.map((item, i) => (
@@ -48792,14 +48808,14 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               </div>
             </SectionCard>
             <SectionCard title="テンキー（点キー）の表示">
-              <p className="text-xs text-slate-500 mb-3">提供記録入力で、体温・血圧・脈・運動などの欄をタップしたときに表示される<b>テンキー（点キー）</b>の表示/非表示を切り替えます。<b>非表示</b>にすると、各欄を<b>スマホ・パソコンの通常キーボードで直接入力</b>できます（テンキーを使わない店舗向け）。</p>
+              <div className="tsu-hint-row mb-3"><TsuHint>提供記録入力で、体温・血圧・脈・運動などの欄をタップしたときに表示される<b>テンキー（点キー）</b>の表示/非表示を切り替えます。<b>非表示</b>にすると、各欄を<b>スマホ・パソコンの通常キーボードで直接入力</b>できます（テンキーを使わない店舗向け）。</TsuHint></div>
               <label className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 cursor-pointer">
                 <input type="checkbox" checked={ss.keypadDisabled !== true} onChange={e=>saveSS({ keypadDisabled: !e.target.checked }, e.target.checked ? '✓ テンキーを表示します' : '✓ テンキーを非表示にしました（通常キーボードで入力）')} className="w-5 h-5" style={{accentColor:'#2563eb'}}/>
                 <span className="text-sm font-bold text-slate-700">テンキー（点キー）を表示する{ss.keypadDisabled===true && <span className="ml-2 text-xs font-normal text-amber-600">現在OFF：通常キーボードで入力します</span>}</span>
               </label>
             </SectionCard>
             <SectionCard title="体調の入力（通所時・帰宅時）">
-              <p className="text-xs text-slate-500 mb-3">提供記録の「体調」欄（通所・帰宅）を使うか選べます。OFFにすると欄が消えます（入力済みの体調は残ります）。</p>
+              <div className="tsu-hint-row mb-3"><TsuHint>提供記録の「体調」欄（通所・帰宅）を使うか選べます。OFFにすると欄が消えます（入力済みの体調は残ります）。</TsuHint></div>
               <label className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 cursor-pointer">
                 <input type="checkbox" data-testid="kibun-toggle" checked={ss.kibunDisabled !== true} onChange={e=>saveSS({ kibunDisabled: !e.target.checked }, e.target.checked ? '✓ 体調の入力欄を表示します' : '✓ 体調の入力欄を非表示にしました')} className="w-5 h-5" style={{accentColor:'#2563eb'}}/>
                 <span className="text-sm font-bold text-slate-700">通所時・帰宅時の体調を入力する{ss.kibunDisabled===true && <span className="ml-2 text-xs font-normal text-amber-600">現在OFF：体調の欄は表示されません</span>}</span>
@@ -48814,7 +48830,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               )}
             </SectionCard>
             <SectionCard title="血圧・脈の測定">
-              <p className="text-xs text-slate-500 mb-3">提供記録の血圧・脈の列を選べます。「開始時のみ」にすると終了時の列は出ません。測り直しは各列の<b>「再」ボタン</b>で記録します（前の値は「○回目」として残ります）。</p>
+              <div className="tsu-hint-row mb-3"><TsuHint>提供記録の血圧・脈の列を選べます。「開始時のみ」にすると終了時の列は出ません。測り直しは各列の<b>「再」ボタン</b>で記録します（前の値は「○回目」として残ります）。</TsuHint></div>
               <div className="flex flex-col gap-2">
                 {[['end','開始時 ＋ 終了時（標準）'],['startOnly','開始時のみ（終了時は測らない）'],...((ss.secondBpMode==='recheckStart') ? [['recheckStart','開始時 ＋ 再測定（旧方式・2列目に再測定値を入力）']] : [])].map(([v,label])=>(
                   <label key={v} className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 cursor-pointer">
@@ -48827,7 +48843,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
             {/* ★ 同意ポリシーの編集は管理局(アプリ運営)専用のため、各事業所の各種設定には表示しない。
                 閲覧はサイドバー最下部の「利用規約・同意ポリシー」から。 */}
             <SectionCard title="テンキー補完ボタンの管理">
-              <p className="text-xs text-slate-500 mb-3">運動入力テンキーの下部に表示される「+◯◯」ボタンを管理します。{ss.keypadDisabled===true && <span className="text-amber-600 font-bold">（テンキー非表示中は使われません）</span>}</p>
+              <div className="tsu-hint-row mb-3"><TsuHint>運動入力テンキーの下部に表示される「+◯◯」ボタンを管理します。{ss.keypadDisabled===true && <span className="text-amber-600 font-bold">（テンキー非表示中は使われません）</span>}</TsuHint></div>
               <div className="flex flex-wrap gap-2 mb-4">
                 {exerciseQuickButtons.map((btn, i) => (
                   <div key={i} className="flex items-center gap-1 bg-blue-50 border border-blue-200 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-bold">
@@ -48850,11 +48866,11 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               
             </SectionCard>
             <SectionCard title="介護整体者の登録">
-              <p className="text-xs text-slate-500 mb-3">「、」または「,」区切りで入力。提供記録入力の介護整体欄に表示されます。</p>
+              <div className="tsu-hint-row mb-3"><TsuHint>「、」または「,」区切りで入力。提供記録入力の介護整体欄に表示されます。</TsuHint></div>
               <input type="text" value={massageStaffInput} onChange={e=>setMassageStaffInput(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none mb-3"/>
             </SectionCard>
             <SectionCard title="サービス提供内容の項目管理">
-              <p className="text-xs text-slate-500 mb-4">利用者マスタの「サービス提供内容」の項目です。「ポップアップ表示」にチェックすると、提供記録で名前を押したときに出ます。</p>
+              <div className="tsu-hint-row mb-4"><TsuHint>利用者マスタの「サービス提供内容」の項目です。「ポップアップ表示」にチェックすると、提供記録で名前を押したときに出ます。</TsuHint></div>
               <div className="space-y-2 mb-4">
                 {serviceItems.map((item, i) => (
                   <div key={item.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3">
@@ -49206,7 +49222,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
           })()}
           {activeTab === 'cm-OLD' && (<>
             <SectionCard title="ケアマネ事業所の登録">
-              <p className="text-xs text-slate-500 mb-3">事業所を登録すると、担当者登録時にプルダウンで選択できます。</p>
+              <div className="tsu-hint-row mb-3"><TsuHint>事業所を登録すると、担当者登録時にプルダウンで選択できます。</TsuHint></div>
               {/* ★ 縦並びレイアウト + 郵便番号→住所自動補完 */}
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 space-y-3">
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">事業所名</label><input type="text" value={newOffice.name} onChange={e => setNewOffice({...newOffice, name: e.target.value})} placeholder="例: あおぞら居宅介護" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/></div>
@@ -49241,7 +49257,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
             </SectionCard>
 
             <SectionCard title="担当ケアマネジャーの登録">
-              <p className="text-xs text-slate-500 mb-3">利用者マスタの「担当ケアマネジャー」のプルダウンに表示されます。</p>
+              <div className="tsu-hint-row mb-3"><TsuHint>利用者マスタの「担当ケアマネジャー」のプルダウンに表示されます。</TsuHint></div>
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4">
                 <div className="grid grid-cols-3 gap-3 mb-3">
                   <div><label className="block text-sm font-bold text-slate-600 mb-1.5">所属事業所</label><select value={newPerson.office} onChange={e => setNewPerson({...newPerson, office: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"><option value="">選択...</option>{cmOffices.map((o,i)=><option key={i} value={o.name}>{o.name}</option>)}</select></div>
@@ -49357,7 +49373,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               {/* 項目設定カード */}
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                 <h3 className="text-base font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">体力測定 項目設定</h3>
-                <p className="text-xs text-slate-500 mb-4">身長・体重は固定項目です。それ以外は追加・削除・編集できます。</p>
+                <div className="tsu-hint-row mb-4"><TsuHint>身長・体重は固定項目です。それ以外は追加・削除・編集できます。</TsuHint></div>
                 {/* ★ 要支援 / 要介護 で同じ項目にするかチェック */}
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 flex items-center gap-2">
                   <input type="checkbox" id="fitness-sync-toggle" checked={!!(appData.systemSettings?.fitnessItemsSync ?? true)}
@@ -49367,7 +49383,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                     要支援と要介護で同じ項目にする (チェックを外すと項目ごとに対象を指定)
                   </label>
                 </div>
-                <p className="text-xs text-slate-400 mb-1">{fitDnd.hint}（左端の「⋮⋮」を長押し）。握力など左右を測る項目は「左右の組にする」で1つにまとめられます（入力は右・左を続けて、グラフは1つに2本）。</p>
+                <div className="tsu-hint-row mb-1"><TsuHint>{fitDnd.hint}（左端の「⋮⋮」を長押し）。握力など左右を測る項目は「左右の組にする」で1つにまとめられます（入力は右・左を続けて、グラフは1つに2本）。</TsuHint></div>
                 <table className="w-full text-sm border-collapse mb-4" data-testid="fit-items-table">
                   <thead><tr className="border-b border-slate-200 text-xs text-slate-500">
                     <th className="w-7"></th>
@@ -49485,7 +49501,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               {/* ★ 2026-10-08(ユーザー要望): テンキーの数字の並び(この端末だけ) */}
               <div className="mb-4 pb-4 border-b border-slate-200" data-testid="kp-layout-setting">
                 <div className="text-sm font-bold text-slate-700 mb-1">テンキーの数字の並び（この端末だけ）</div>
-                <p className="text-xs text-slate-500 mb-2">テンキーの数字の並びです（この端末だけ）。</p>
+                <div className="tsu-hint-row mb-2"><TsuHint>テンキーの数字の並びです（この端末だけ）。</TsuHint></div>
                 <div className="flex gap-2 flex-wrap">
                   {[['calc','電卓型','7 8 9 が上（これまでの並び）'],['phone','電話型','1 2 3 が上（スマホと同じ）']].map(([k,l,sub]) => (
                     <button key={k} type="button" data-testid={`kp-layout-${k}`} onClick={() => { try { localStorage.setItem(TSU_KP_LAYOUT_KEY, k); } catch {} setKpLayoutTick(t => t + 1); }}
@@ -49507,7 +49523,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
             <SectionCard title="この端末の通知"><TsuPushDeviceCard/></SectionCard>
             <SectionCard title="予定のお知らせ（店舗の設定）"><TsuPushStoreCard appData={appData} saveSS={saveSS}/></SectionCard>
             <SectionCard title="この端末の名前・最終更新">
-              <p className="text-xs text-slate-500 mb-3">端末に名前を付けると、「どの端末で最後に更新したか」が表示されます（名前はこの端末だけに保存）。</p>
+              <div className="tsu-hint-row mb-3"><TsuHint>端末に名前を付けると、「どの端末で最後に更新したか」が表示されます（名前はこの端末だけに保存）。</TsuHint></div>
               {/* ★ 保存済みの端末名を常時表示(確定値がどこにも出ず、保存されたか分からない問題の解消) */}
               <div className="mb-2 bg-slate-100 border border-slate-200 rounded-xl px-4 py-2.5 flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-500 shrink-0">現在の端末名</span>
@@ -49580,7 +49596,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
           {/* ★ 2026-10-23(ユーザー指示): マニュアルは別のタブに(今後、請求・LIFE などのマニュアルも入れる) */}
           {activeTab === 'manual' && (<>
             <SectionCard title="操作マニュアル・ご利用ガイド">
-              <p className="text-xs text-slate-500 mb-3">新しいタブで開きます（印刷・PDF保存も可）。ご家族・ケアマネ用はURLをそのまま渡せます。</p>
+              <div className="tsu-hint-row mb-3"><TsuHint>新しいタブで開きます（印刷・PDF保存も可）。ご家族・ケアマネ用はURLをそのまま渡せます。</TsuHint></div>
               <div className="grid sm:grid-cols-3 gap-3">
                 <a href="/manual-jigyosho.html" target="_blank" rel="noopener noreferrer" className="block p-4 rounded-xl border-2 border-green-200 bg-green-50 hover:bg-green-100 transition-colors text-center">
                   <div className="text-2xl mb-1"></div>
@@ -49628,7 +49644,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                             <div className="font-bold text-base text-slate-800 px-3 py-2 bg-white border border-slate-200 rounded-lg tracking-widest">{'•'.repeat(Math.min(12, cred.pass?.length || 0))}</div>
                           </div>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-3">※ ログインID の変更は別途実装予定（再発行はメール経由）</p>
+                        <div className="tsu-hint-row mt-3"><TsuHint>※ ログインID の変更は別途実装予定（再発行はメール経由）</TsuHint></div>
                       </div>
                     ) : (
                       <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
@@ -49769,10 +49785,10 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                     {/* ★ 残骸データ(日付が基本利用日と一致しない提供記録)の検査・削除 */}
                     <div className="border-t border-slate-200 pt-3">
                       <div className="text-sm font-bold text-slate-700 mb-1.5">日付がおかしい記録（残骸）の検査・削除</div>
-                      <div className="text-[11px] text-slate-500 leading-relaxed mb-2">
+                      <div className="tsu-hint-row mb-2"><TsuHint>
                         利用者の<b>基本利用日と一致しない曜日</b>に残ってしまった提供記録（他曜日の複製・過去の誤登録など）と、<b>利用終了日より後・利用開始日より前</b>の記録を検出します。<br/>
                         <b>振替・臨時は除外</b>して安全な候補だけを一覧表示します。内容を確認してから削除でき、削除は<b>全端末に同期</b>されます（墓石付きで復活しません）。
-                      </div>
+                      </TsuHint></div>
                       <div className="flex gap-2 flex-wrap">
                         <button type="button" onClick={()=>{
                           const _todayEnd = new Date(); _todayEnd.setHours(23,59,59,999);
@@ -49907,7 +49923,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                         <option value={60}>60ヶ月 (5年)</option>
                         <option value={0}>削除しない</option>
                       </select>
-                      <div className="text-[11px] text-slate-500 mt-1.5">投稿日からこの期間が経過したお知らせ・写真は次回アプリ起動時に自動削除されます。<br/>※ 法定の保存期間（多くの自治体で 2〜5 年）にあわせて選択してください。</div>
+                      <div className="tsu-hint-row mt-1.5"><TsuHint>投稿日からこの期間が経過したお知らせ・写真は次回アプリ起動時に自動削除されます。<br/>※ 法定の保存期間（多くの自治体で 2〜5 年）にあわせて選択してください。</TsuHint></div>
                     </div>
                   </div>
                 );
@@ -50148,7 +50164,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
   return (
     <div className="space-y-6">
       <SC title="担当職員">
-        <p className="text-xs text-slate-500 mb-3">役職ごとに職員を登録します。「○○を追加」で役職が決まり、副の役職と資格（2つまで）を選べます。日誌で足した「この日だけ」の担当はここに出ません。</p>
+        <div className="tsu-hint-row mb-3"><TsuHint>役職ごとに職員を登録します。「○○を追加」で役職が決まり、副の役職と資格（2つまで）を選べます。日誌で足した「この日だけ」の担当はここに出ません。</TsuHint></div>
         <div className="space-y-2">
           {/* ★ 役職ごとのグループ表示(2026-09-29 ユーザー指示): 枠の「○○を追加」で追加すると役職は自動、副の役職だけ選ぶ */}
           {(() => {
@@ -50286,13 +50302,13 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
               <div className="text-[11px] font-bold text-slate-500 mb-1">追加した役職</div>
               <div className="flex flex-wrap gap-1 mb-2">{(ds.customRoles||[]).map(r=>(<span key={r} className="inline-flex items-center gap-1 text-[11px] font-bold bg-white border border-slate-300 rounded-full px-2 py-0.5">{r}<button onClick={()=>{ const nd={...dsRef.current, customRoles:(dsRef.current.customRoles||[]).filter(x=>x!==r)}; dsRef.current=nd; _markEd('customRoles'); setRenderKey(k=>k+1); _md(); }} className="text-red-400 hover:text-red-600" title="削除">×</button></span>))}{!(ds.customRoles||[]).length && <span className="text-[11px] text-slate-400">なし</span>}</div>
               <div className="flex gap-1"><input id="ds-new-role" placeholder="例: 送迎ドライバー、事務" className="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400"/><button onClick={()=>{ const el=document.getElementById('ds-new-role'); const v=(el?.value||'').trim(); if(!v) return; if (STAFF_BASE_ROLES.includes(v) || (dsRef.current.customRoles||[]).includes(v)) { alert('その役職は既にあります'); return; } const nd={...dsRef.current, customRoles:[...(dsRef.current.customRoles||[]), v]}; dsRef.current=nd; _markEd('customRoles'); if(el) el.value=''; setRenderKey(k=>k+1); _md(); }} className="whitespace-nowrap px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">追加</button></div>
-              <div className="text-[10px] text-slate-400 mt-1">追加した役職はログイン・スタッフ切替では「その他」の枠に表示されます。</div>
+              <div className="tsu-hint-row mt-1"><TsuHint>追加した役職はログイン・スタッフ切替では「その他」の枠に表示されます。</TsuHint></div>
             </div>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 min-w-0">
               <div className="text-[11px] font-bold text-slate-500 mb-1">追加した資格</div>
               <div className="flex flex-wrap gap-1 mb-2">{(ds.customQuals||[]).map((q,qi)=>(<span key={qi} className="inline-flex items-center gap-1 text-[11px] font-bold bg-white border border-slate-300 rounded-full px-2 py-0.5">{q.name}<span className="text-[9px] font-normal text-slate-400">（{q.role||'全役職'}）</span><button onClick={()=>{ const nd={...dsRef.current, customQuals:(dsRef.current.customQuals||[]).filter((_,j)=>j!==qi)}; dsRef.current=nd; _markEd('customQuals'); setRenderKey(k=>k+1); _md(); }} className="text-red-400 hover:text-red-600" title="削除">×</button></span>))}{!(ds.customQuals||[]).length && <span className="text-[11px] text-slate-400">なし</span>}</div>
               <div className="flex gap-1 flex-wrap sm:flex-nowrap"><input id="ds-new-qual" placeholder="例: 介護福祉士（登録番号あり）" className="flex-1 basis-full sm:basis-auto min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400"/><select id="ds-new-qual-role" className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none"><option value="">全役職</option>{[...STAFF_BASE_ROLES, ...((ds.customRoles||[]))].map(r=><option key={r} value={r}>{r}</option>)}</select><button onClick={()=>{ const el=document.getElementById('ds-new-qual'); const rl=document.getElementById('ds-new-qual-role'); const v=(el?.value||'').trim(); const role=(rl?.value||''); if(!v) return; const nd={...dsRef.current, customQuals:[...(dsRef.current.customQuals||[]), {name:v, role}]}; dsRef.current=nd; _markEd('customQuals'); if(el) el.value=''; setRenderKey(k=>k+1); _md(); }} className="whitespace-nowrap px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">追加</button></div>
-              <div className="text-[10px] text-slate-400 mt-1">役職を選ぶとその役職の候補に、「全役職」にするとすべての職員の候補に出ます。</div>
+              <div className="tsu-hint-row mt-1"><TsuHint>役職を選ぶとその役職の候補に、「全役職」にするとすべての職員の候補に出ます。</TsuHint></div>
             </div>
           </div>
         </div>
@@ -50304,7 +50320,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
         </label>
       </SC>
       <SC title="送迎車両">
-        <p className="text-xs text-slate-500 mb-3">送迎に使用する車両を登録します（2〜4台）。定員は運転者を除いた人数です。</p>
+        <div className="tsu-hint-row mb-3"><TsuHint>送迎に使用する車両を登録します（2〜4台）。定員は運転者を除いた人数です。</TsuHint></div>
         <div className="space-y-2">
           {ds.cars.map((c,i)=>(
             <div key={c.id} className="flex items-center gap-2">
@@ -52086,7 +52102,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={()=>setKenmuModal(null)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e=>e.stopPropagation()} data-testid="kenmu-modal">
                 <div className="text-base font-bold text-slate-800 mb-1">「{kenmuModal}」を兼務する職員</div>
-                <div className="text-xs text-slate-500 mb-3">この日の担当職員から選びます。本来の役職の人数が足りなくならないかご確認ください。</div>
+                <div className="tsu-hint-row mb-3"><TsuHint>この日の担当職員から選びます。本来の役職の人数が足りなくならないかご確認ください。</TsuHint></div>
                 {stl.length === 0 ? (
                   <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">先に担当職員欄で出勤者を選んでください（兼務できるのは別の役職の人です）。</div>
                 ) : (
@@ -53313,7 +53329,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
             {/* Ⅲ 実施後の対応 */}
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="text-sm font-bold text-blue-700 mb-1">Ⅲ 個別機能訓練実施後の対応</div>
-              <div className="text-[10px] text-slate-400 mb-3">※ 初回作成時は記載不要</div>
+              <div className="tsu-hint-row mb-3"><TsuHint>※ 初回作成時は記載不要</TsuHint></div>
               <div className="grid md:grid-cols-2 gap-3">
                 <KKField label="個別機能訓練の実施による変化" box={TSU_BOXCAP.kk.henka} value={editing.henka} onChange={v=>upd({henka:v})} rows={2} presets={_kkP.henka}/>
                 <KKField label="個別機能訓練実施における課題とその要因" box={TSU_BOXCAP.kk.kadai} value={editing.kadai} onChange={v=>upd({kadai:v})} rows={2} presets={_kkP.kadai}/>
@@ -53414,7 +53430,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                         </div>
                       ))}
                     </div>
-                    <div className="text-[10px] text-slate-400 mt-1">※ プログラムコードは訓練内容から自動で入ります（空欄でOK）。機能訓練指導員は保有資格の職種を選びます。</div>
+                    <div className="tsu-hint-row mt-1"><TsuHint>※ プログラムコードは訓練内容から自動で入ります（空欄でOK）。機能訓練指導員は保有資格の職種を選びます。</TsuHint></div>
                   </div>
                 </div>
               );
@@ -54414,7 +54430,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="text-sm font-bold text-blue-700 mb-1">{_shien ? 'Ⅲ　サービス提供内容（①〜④）' : 'Ⅱ　サービス提供内容（①〜⑤）'}</div>
-              <div className="text-[11px] text-slate-400 mb-3">長期・短期目標を達成するために必要なプログラムを具体的に設定してください。</div>
+              <div className="tsu-hint-row mb-3"><TsuHint>長期・短期目標を達成するために必要なプログラムを具体的に設定してください。</TsuHint></div>
               <div className="space-y-3">
                 {(editing.services||[]).slice(0, _shien ? 4 : 5).map((sv,i)=>(
                   <div key={i} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
@@ -54484,7 +54500,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                   <div className="text-sm font-bold text-teal-700">Ⅳ　個別の運動（機能訓練）の実施内容</div>
                   <button type="button" data-testid="tk-ex-fill" onClick={fillEx} className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg text-xs font-bold">提供記録の運動から入れる</button>
                 </div>
-                <div className="text-[11px] text-slate-500 mb-3">要支援の方は、この計画書に運動の内容を書けば、運動の計画書を別に作らなくて済みます（運動器機能向上加算は令和6年度に基本報酬へ包括）。</div>
+                <div className="tsu-hint-row mb-3"><TsuHint>要支援の方は、この計画書に運動の内容を書けば、運動の計画書を別に作らなくて済みます（運動器機能向上加算は令和6年度に基本報酬へ包括）。</TsuHint></div>
                 <div className="space-y-2">
                   {(editing.exercises || []).map((x, i) => (
                     <div key={i} className="grid grid-cols-12 gap-2 items-start bg-slate-50 border border-slate-200 rounded-lg p-2" data-testid="tk-ex-row">
@@ -55393,7 +55409,7 @@ function AdlGainEstimate({ appData, navigateTo }) {
       <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
         <div>
           <div className="text-sm font-bold text-orange-700">ADL維持等加算の目安（ADL利得の自動計算）</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">要介護の方の初月と6月目のADL評価（Barthel Index）から計算します。正式な判定は、届出の前に新LIFEで確認してください。</div>
+          <div className="tsu-hint-row mt-0.5"><TsuHint>要介護の方の初月と6月目のADL評価（Barthel Index）から計算します。正式な判定は、届出の前に新LIFEで確認してください。</TsuHint></div>
         </div>
         <div className="flex items-center gap-2 flex-wrap text-xs font-bold text-slate-500">
           評価対象期間
@@ -55968,9 +55984,9 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   <div className="text-sm text-indigo-900 flex-1 min-w-[12em]">{batch._copiedFrom ? <>前回（{_bPrev.replace(/-/g,'/')}）の内容を写しました。<b>変わったところだけ</b>直してください。</> : <>前回（{_bPrev.replace(/-/g,'/')}）の評価があります。写してから、変わったところだけ直せます。</>}</div>
                   {!batch._copiedFrom && <button type="button" data-testid="kk-copy-prev" onClick={batchCopyPrev} className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">前回の内容を写す</button>}
                 </div>)}
-              <div className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-2.5">
+              <div className="tsu-hint-row px-4 py-2.5"><TsuHint>
                 ここで入力した内容は保存時に <b>ADL評価(LIFE・加算)・生活機能チェック(様式3-2)・興味関心チェック(様式3-1)</b> にまとめて入ります。④でADLを選ぶと、②のBarthel点数の空欄に自動で入ります。
-              </div>
+              </TsuHint></div>
               {/* ① 基本 */}
               <div className="bg-white rounded-xl border border-slate-200 p-4">
                 <div className="text-sm font-bold text-indigo-700 mb-3">① 基本情報</div>
@@ -56073,7 +56089,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   )}
                 </div>
                 {batch.plan?.available && batch.plan?.on && (<>
-                  <div className="text-[10px] text-slate-400 mb-3">保存すると前回の計画を引き継いで更新します（計画書(3-3)画面でいつでも直せます）。</div>
+                  <div className="tsu-hint-row mb-3"><TsuHint>保存すると前回の計画を引き継いで更新します（計画書(3-3)画面でいつでも直せます）。</TsuHint></div>
                   {batch.plan.prevId && (
                     <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
                       <div className="text-xs font-bold text-amber-700 mb-2">前回計画（作成日: {batch.plan.prevDate||'—'}）の達成度</div>
@@ -56124,9 +56140,9 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
               <h2 className="text-base font-bold text-slate-800">LIFEデータ取込(移行) — 突合結果の確認</h2>
               <button onClick={()=>setLifeImport(null)} className="text-slate-400 hover:text-slate-600 font-bold text-xl">✕</button>
             </div>
-            <div className="px-6 py-2 text-[11px] text-slate-500 border-b border-slate-100">
+            <div className="tsu-hint-row px-6 py-2"><TsuHint>
               被保険者番号(10桁)で利用者と突合しています。チェックした行を、様式ごとの記録（科学的介護推進・ADL維持等→ADL評価、生活機能チェック→様式3-2、個別機能訓練計画→様式3-3）として取り込みます。利用者の自立度・保険者番号が空欄なら補完します。同じ評価日の既存レコードがある行(重複)は既定でチェックを外しています。
-            </div>
+            </TsuHint></div>
             <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
               {(lifeImport.errs||[]).map((e,i)=>(<div key={'e'+i} className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{e}</div>))}
               {lifeImport.items.map((it,i)=>(
@@ -56162,7 +56178,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div>
                 <div className="text-sm font-bold text-indigo-700">LIFE提出の流れ（毎月）</div>
-                <div className="text-[11px] text-slate-500 mt-0.5">評価した月の翌月10日までに提出します（科学的介護推進体制加算は少なくとも3か月に1回）。</div>
+                <div className="tsu-hint-row mt-0.5"><TsuHint>評価した月の翌月10日までに提出します（科学的介護推進体制加算は少なくとも3か月に1回）。</TsuHint></div>
               </div>
               {enabledForms.length > 0 && (
                 <div className="flex items-center gap-2 flex-wrap">
@@ -56237,7 +56253,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             <div className="flex items-center justify-between flex-wrap gap-2 mb-2 mt-3">
               <div>
                 <div className="text-sm font-bold text-indigo-700">利用者情報CSV（新LIFEへの利用者登録・SERVICE_USER_INFO）</div>
-                <div className="text-[11px] text-slate-500 mt-0.5">様式CSVの前に、この利用者情報CSVを取り込みます（同時も可）。保険者番号・被保険者番号・性別・生年月日は保険証と完全に一致が必要です。</div>
+                <div className="tsu-hint-row mt-0.5"><TsuHint>様式CSVの前に、この利用者情報CSVを取り込みます（同時も可）。保険者番号・被保険者番号・性別・生年月日は保険証と完全に一致が必要です。</TsuHint></div>
                 <div className="text-[11px] text-red-700 mt-0.5 font-bold">注意: カイポケ（まるっとLIFE）など他のソフトで新LIFEに登録済みの利用者には取り込まないでください（二重登録になります）。</div>
               </div>
               <div className="flex gap-2 flex-wrap">
@@ -56412,7 +56428,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                           </div>);
                         })}
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-1">※ 別紙様式3（生活・認知機能尺度）準拠。点数ボタンにカーソルを合わせると選択肢の説明が出ます。</div>
+                      <div className="tsu-hint-row mt-1"><TsuHint>※ 別紙様式3（生活・認知機能尺度）準拠。点数ボタンにカーソルを合わせると選択肢の説明が出ます。</TsuHint></div>
                     </div>
                     {(() => { const setV=(v)=>{ const arr=[...(sci.vitality||[])]; arr[0]=v; setSci('vitality', arr); }; const cur=(sci.vitality||[])[0]; return (
                       <div className="flex items-center gap-3 flex-wrap"><div className="w-44 text-xs font-bold text-slate-500">Vitality Index:意思疎通</div><div className="flex gap-1">{['2','1','0'].map(n=>{ const on=String(cur)===n; return <button key={n} type="button" onClick={()=>setV(n)} className={`px-3 py-1.5 rounded text-xs font-bold border ${on?'bg-blue-600 text-white border-blue-600':'bg-white text-slate-500 border-slate-300'}`}>{n}</button>; })}</div></div>
@@ -56495,7 +56511,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   {vr.warns.length>0 && <div className="bg-amber-50 border border-amber-200 rounded-lg p-3"><div className="text-xs font-bold text-amber-700 mb-1">要確認（{vr.warns.length}件）</div><ul className="text-[11px] text-amber-700 list-disc pl-4 space-y-0.5">{vr.warns.map((e,i)=><li key={i}>{e}</li>)}</ul></div>}
                   {vr.errors.length===0 && <div className="text-xs font-bold text-emerald-600">✓ 必須項目は揃っています。出力できます。</div>}
                 </>)}
-                <div className="text-[10px] text-slate-400 leading-relaxed">※ 文字コードUTF-8・改行CR-LF。ファイル名に氏名・被保険者番号は含めません。{f.id==='TIFI2024'?'提出頻度は令和6年度改定で概ね3ヶ月ごと。「帳票印刷」で評価内容を紙様式で出力できます。':f.id==='AINT2024'?'「対象月区分」で初月・6か月後を指定します（「帳票印刷」でBI一覧を印刷）。【経過措置】新LIFE移行に伴い、ADL維持等加算(Ⅰ)(Ⅱ)は令和9年3月提供分まで従前の区分を継続できます（旧LIFEで7か月以上の評価がある場合等・移管Q&A問7〜9）。適用中もADL値の新LIFEへの登録は続ける必要があります。':f.id==='FUNC2024'?'生活機能チェック(様式3-2)を元に出力します。帳票は生活機能チェックシート画面の「印刷/PDF」から。':f.id==='IDUA2024'?'個別機能訓練計画書(様式3-3)を元に出力します。帳票は計画書画面の「印刷/PDF」から。目標ICF・合併症・職種等のコードは計画書の「LIFE提出用コード」で指定（職種コードは要確認）。':''}事業所番号・保険者番号は各種設定→事業所情報で登録できます。</div>
+                <div className="tsu-hint-row"><TsuHint>※ 文字コードUTF-8・改行CR-LF。ファイル名に氏名・被保険者番号は含めません。{f.id==='TIFI2024'?'提出頻度は令和6年度改定で概ね3ヶ月ごと。「帳票印刷」で評価内容を紙様式で出力できます。':f.id==='AINT2024'?'「対象月区分」で初月・6か月後を指定します（「帳票印刷」でBI一覧を印刷）。【経過措置】新LIFE移行に伴い、ADL維持等加算(Ⅰ)(Ⅱ)は令和9年3月提供分まで従前の区分を継続できます（旧LIFEで7か月以上の評価がある場合等・移管Q&A問7〜9）。適用中もADL値の新LIFEへの登録は続ける必要があります。':f.id==='FUNC2024'?'生活機能チェック(様式3-2)を元に出力します。帳票は生活機能チェックシート画面の「印刷/PDF」から。':f.id==='IDUA2024'?'個別機能訓練計画書(様式3-3)を元に出力します。帳票は計画書画面の「印刷/PDF」から。目標ICF・合併症・職種等のコードは計画書の「LIFE提出用コード」で指定（職種コードは要確認）。':''}事業所番号・保険者番号は各種設定→事業所情報で登録できます。</TsuHint></div>
               </div>
             );
           })}
@@ -58241,7 +58257,7 @@ function InsuranceOcrModal({ onApply, onClose }) {
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3">
             <div className="text-xs font-bold text-slate-600 mb-2">1. 介護保険証 / 負担割合証 の写真を選択</div>
             <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" onChange={onFileChange} className="block w-full text-xs"/>
-            <div className="text-[10px] text-slate-500 mt-1">※ 紙の上から撮影 (なるべく文字がくっきり映るように)</div>
+            <div className="tsu-hint-row mt-1"><TsuHint>※ 紙の上から撮影 (なるべく文字がくっきり映るように)</TsuHint></div>
           </div>
 
           {previewUrl && (
@@ -60859,7 +60875,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                             {_f.from.replace(/-/g,'/')} から「{_f.value}」に変更予定（開始日に自動で切り替わります。それまで現在の介護度のままです）
                           </div>
                         ) : null; })()}
-                        <div className="text-[10px] text-slate-400">認定開始日が先の日付なら「変更予定」になり、開始日までは今の介護度のままです。</div>
+                        <div className="tsu-hint-row"><TsuHint>認定開始日が先の日付なら「変更予定」になり、開始日までは今の介護度のままです。</TsuHint></div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-500 mb-0.5">介護度</label>
                           <select value={d.careLevel} onChange={e=>upd({careLevel:e.target.value})} style={{maxWidth:200}} className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none">
@@ -60968,7 +60984,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 })}
               </div>
               {!hasAddon(appData,'tsusho_keikaku') && !hasAddon(appData,'kinou_keikaku') && (
-                <div className="text-[11px] text-slate-500">計画書アドオンが無効です。各種設定→アドオンで有効にしてください。</div>
+                <div className="tsu-hint-row"><TsuHint>計画書アドオンが無効です。各種設定→アドオンで有効にしてください。</TsuHint></div>
               )}
             </div>
           )}
@@ -61161,7 +61177,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                       onSave({ ...appData, initialReports: [..._others, _entry] }, { manual: true, message: '✓ 初回ご利用報告を「別の場所で保管」として完了にしました' }); }}
                     className="bg-slate-50 border-2 border-slate-300 hover:border-slate-500 rounded-2xl p-5 text-left active:scale-95 sm:col-span-2">
                     <div className="text-base font-bold text-slate-800 mb-1">別の場所で保管している（添付せずに完了）</div>
-                    <div className="text-xs text-slate-600">つむぎ以外（紙など）で保管している方はこちら。添付せずに完了になります。</div>
+                    <div className="tsu-hint-row"><TsuHint>つむぎ以外（紙など）で保管している方はこちら。添付せずに完了になります。</TsuHint></div>
                   </button>
                 </div>
               </div>
@@ -61493,7 +61509,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 <button onClick={()=>printSupportProgress(spSelectedYear(), spMonth)} className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1"><Printer size={13}/>{spMonth ? 'この月を印刷 / PDF' : 'この年を印刷 / PDF'}</button>
               </div>
             </div>
-            <p className="text-[11px] text-slate-400 mb-2">休み/各種連絡・体力測定・モニタリング・担当者会議・ケアマネ/介護度変更・サービス内容変更・基本情報変更・休止・初回報告などが<b>自動で表に反映</b>されます。内容は編集でき、表の下の「＋ 行を追加」で追記できます。<b>下の年と月のボタンで絞り込める</b>ほか、印刷も選んだ年（月）だけになります（A4縦・複数ページ）。</p>
+            <div className="tsu-hint-row mb-2"><TsuHint>休み/各種連絡・体力測定・モニタリング・担当者会議・ケアマネ/介護度変更・サービス内容変更・基本情報変更・休止・初回報告などが<b>自動で表に反映</b>されます。内容は編集でき、表の下の「＋ 行を追加」で追記できます。<b>下の年と月のボタンで絞り込める</b>ほか、印刷も選んだ年（月）だけになります（A4縦・複数ページ）。</TsuHint></div>
             {(() => {
               const list = spMergedList();
               const byYear={}; list.forEach(e=>{ const y=(String(e.date||'').slice(0,4))||'未設定'; (byYear[y]=byYear[y]||[]).push(e); });
@@ -62580,7 +62596,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                       placeholder="氏名を入力" className={inputCls + ' mt-2'}/>
                   )}
                   {staffList.length === 0 && (
-                    <div className="text-[10px] text-slate-400 mt-1">※ 各種設定で従業員を登録するとリストに表示されます</div>
+                    <div className="tsu-hint-row mt-1"><TsuHint>※ 各種設定で従業員を登録するとリストに表示されます</TsuHint></div>
                   )}
                 </>)}
               </Field>
@@ -62664,7 +62680,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                 <div><b>負担割合：</b>{patient.costBurden || '-'}</div>
                 <div className="col-span-2"><b>認定有効期間：</b>{patient.careLevelFrom ? `${warekiStr(patient.careLevelFrom)||patient.careLevelFrom} 〜 ${patient.careLevelTo?(warekiStr(patient.careLevelTo)||patient.careLevelTo):'（終了日なし）'}` : '-'}</div>
               </div>
-              <div className="text-[10px] text-slate-400 mt-1">※ 介護度・負担割合・認定有効期間は「保険証」「負担割合証」の欄で編集します</div>
+              <div className="tsu-hint-row mt-1"><TsuHint>※ 介護度・負担割合・認定有効期間は「保険証」「負担割合証」の欄で編集します</TsuHint></div>
             </div>
           </div>
           {/* ③ 連絡先(緊急連絡先・関係者)。家族構成・ジェノグラム・キーパーソンは廃止(緊急連絡先で登録・最初の方がキーパーソン: 2026-10-03 ユーザー指示) */}
@@ -62699,7 +62715,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                     </div>
                   ))}
                 </div>
-                <div className="text-[10px] text-slate-500 mt-1.5">※ 基本情報の緊急連絡先にも入ります。「削除」して保存すると基本情報からも消えます。</div>
+                <div className="tsu-hint-row mt-1.5"><TsuHint>※ 基本情報の緊急連絡先にも入ります。「削除」して保存すると基本情報からも消えます。</TsuHint></div>
               </div>
             ) : (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-2">
@@ -62712,7 +62728,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                 </div>
               </div>
             )}
-            <div className="text-[11px] text-slate-500 -mt-1 mb-2">※ 緊急連絡先の1番目の方がキーパーソン（主たる介護者・意思決定者）です</div>
+            <div className="tsu-hint-row mb-2"><TsuHint>※ 緊急連絡先の1番目の方がキーパーソン（主たる介護者・意思決定者）です</TsuHint></div>
             <div data-fs-sec="related"></div>
             <Field label="その他関係者 (訪問看護・かかりつけ以外の連携先 等)">
               <div className="space-y-2">

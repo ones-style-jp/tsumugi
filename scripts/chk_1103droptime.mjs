@@ -35,7 +35,9 @@ const seed = async (page, view, extra) => {
   await page.locator('button:visible', { hasText: new RegExp('^' + S.names.P2) }).first().click(); await page.waitForTimeout(1500);
   await page.locator('button:visible', { hasText: /^サービス提供内容$/ }).first().click(); await page.waitForTimeout(1000); // 基本のお迎え時間はこのタブ
   const cb = page.getByTestId('pm-droptime-on'); r.master_checkbox = (await cb.count()) > 0;
-  if (r.master_checkbox) { r.master_unchecked_hint = (await page.getByText('帰りの時間を決めている方だけ', { exact: false }).count()) > 0; await cb.scrollIntoViewIfNeeded(); await cb.click(); await page.waitForTimeout(600); r.master_grid_after_check = (await page.getByText('送迎表の「送りの時間」の初期値になります', { exact: false }).count()) > 0; }
+  // ★ 2026-11-04 trial513: 説明文は「?」マーク(tsu-hint)を押すと出る
+  const hintText = async (scope) => { const b = scope.getByTestId('tsu-hint').first(); if (!(await b.count())) return ''; await b.scrollIntoViewIfNeeded(); await b.click(); await page.waitForTimeout(400); const t = await page.locator('[data-tsu-hint-pop]').first().innerText().catch(() => ''); await page.keyboard.press('Escape').catch(() => {}); await page.locator('body').click({ position: { x: 3, y: 3 } }).catch(() => {}); await page.waitForTimeout(250); return t; };
+  if (r.master_checkbox) { const box = page.getByTestId('pm-droptime'); r.master_unchecked_hint = /帰りの時間を決めている方だけ/.test(await hintText(box)); await cb.scrollIntoViewIfNeeded(); await cb.click(); await page.waitForTimeout(600); r.master_grid_after_check = /送迎表の「送りの時間」の初期値になります/.test(await hintText(box)); }
   await page.screenshot({ path: '/tmp/chk_1103droptime_master.png', fullPage: false }).catch(() => {});
   await page.context().close(); }
 // 3) スマホの送迎表
