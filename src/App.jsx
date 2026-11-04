@@ -50329,23 +50329,11 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
                 <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-2">
                 {/* ★ 2026-09-28 ユーザー指示: 役職 ｜ 氏名 ｜ 資格(右側) を縦線で区切って1行に */}
                 {/* ★ 2026-10-08(ユーザー要望: スマホで「資格」の見出しだけ別の行になり見づらい): スマホは 1行目=役職・副の役職 / 2行目=氏名 / 3行目=資格1・資格2(×は右上) */}
-                <div className="tsu-staffrow flex items-center gap-2 flex-wrap">
-                  <div className="tsu-st-role flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
-                  <span className="tsu-st-lbl">役職</span>
-                  <span className="w-[122px] px-2 py-2 text-sm font-bold text-slate-800 truncate" title="役職を変えるときは右の「変更…」から（いつからかを入れます）">{s.role||'（役職なし）'}</span>
-                  {/* ★ 2026-11-04 trial519: 役職の変更は日付つき(削除→追加だと過去の日誌から消えるため) */}
-                  <select value="" data-testid={`staff-role-change-${s.id}`} onChange={e=>{ if (e.target.value) _changeStaffRole(i, 'role', e.target.value); }} title="役職を変える（いつからかを入れます）" className="w-[86px] px-1 py-2 bg-white border border-slate-300 rounded-lg text-[11px] font-bold outline-none text-slate-600">
-                    <option value="">変更…</option>
-                    {_staffRoleList().filter(r=>r!==s.role).map(r=><option key={r} value={r}>→ {r}</option>)}
-                  </select>
-                  <select value={s.role2||''} onChange={e=>{ _changeStaffRole(i,'role2',e.target.value); }} title="役職（副・兼務）・変えるときは いつからかを入れます" className="w-[116px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600">
-                    <option value="">副の役職: なし</option>
-                    {[...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))].filter(r=>r!==s.role).map(r=><option key={r} value={r}>副: {r}</option>)}
-                  </select>
-                  </div>
-                  <div className="tsu-st-name flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
-                  <span className="tsu-st-lbl">氏名</span>
-                  {/* ★ 姓・名を分割入力。 onBlur で結合した name フィールドも同時に更新 (既存表示と互換) */}
+                {/* ★ 2026-11-04 trial520(ユーザー「役職が見出しと被る・資格が2行になる・見づらい」): 役職は枠の見出しにあるので行には書かない。
+                    1行目 = 氏名(姓・名)・副の役職・資格1・資格2・×／2行目(小さく) = 在籍の期間・役職を変える */}
+                <div className="tsu-sr flex flex-col gap-1.5" data-testid={`staff-row-${s.id}`}>
+                  <div className="tsu-sr-main flex items-center gap-2 flex-wrap" style={{justifyContent:'flex-start'}}>{/* 各種設定の狭い幅では右寄せの共通 CSS が効くので左寄せに戻す */}
+                  <div className="flex items-center gap-1.5 shrink-0">
                   <input defaultValue={s.lastName ?? ((s.name||'').split(/[ 　]+/)[0]||'')}
                     onBlur={e=>{
                       const last = e.target.value.trim();
@@ -50355,7 +50343,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
                       _markEd('staff'); const a=[...dsRef.current.staff]; a[i]={...a[i], lastName: last, name: combined}; dsRef.current={...dsRef.current,staff:a}; _md();
                     }}
                     placeholder="姓"
-                    className="w-[84px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                    className="w-[80px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
                   <input defaultValue={s.firstName ?? ((s.name||'').split(/[ 　]+/).slice(1).join(' ')||'')}
                     onBlur={e=>{
                       const first = e.target.value.trim();
@@ -50365,23 +50353,34 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
                       _markEd('staff'); const a=[...dsRef.current.staff]; a[i]={...a[i], firstName: first, name: combined}; dsRef.current={...dsRef.current,staff:a}; _md();
                     }}
                     placeholder="名"
-                    className="w-[84px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                    className="w-[80px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
                   </div>
-                  {/* ★ 保有資格(2つまで・役職に合ったものだけ)は右側 */}
-                  <span className="tsu-st-qlbl text-[11px] font-bold text-slate-500">資格</span>
+                  <select value={s.role2||''} onChange={e=>{ _changeStaffRole(i,'role2',e.target.value); }} title="副の役職（兼務）・変えるときは いつからかを入れます" className="w-[128px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600 shrink-0">
+                    <option value="">副の役職: なし</option>
+                    {[...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))].filter(r=>r!==s.role).map(r=><option key={r} value={r}>副: {r}</option>)}
+                  </select>
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1" style={{flexBasis:'260px'}}>
                   {[0,1].map(qi => { const opts = staffQualOptions(s.role, s.role2, ds.customQuals); const cur = (s.quals||[])[qi] || ''; const other = (s.quals||[])[qi===0?1:0] || ''; return (
-                    <select key={qi} value={cur} onChange={e=>{ const q=[...(s.quals||['',''])]; q[qi]=e.target.value; onBlurStaff(i,'quals',q); setRenderKey(k=>k+1); }} className="tsu-st-q w-[150px] px-1.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400">
-                      <option value="">— 資格{qi+1}（任意）—</option>
+                    <select key={qi} value={cur} onChange={e=>{ const q=[...(s.quals||['',''])]; q[qi]=e.target.value; onBlurStaff(i,'quals',q); setRenderKey(k=>k+1); }} title={`資格${qi+1}（任意）`} className="flex-1 min-w-0 px-1.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400">
+                      <option value="">資格{qi+1}: なし</option>
                       {opts.filter(o=>o!==other || o===cur).map(o=><option key={o} value={o}>{o}</option>)}
                       {cur && !opts.includes(cur) && <option value={cur}>{cur}</option>}
                     </select>
                   ); })}
-                  {/* ★ 2026-11-04 trial519: いつから・いつまで。×は削除ではなく「いつまで」を付ける(過去の日誌・送迎表に残す) */}
-                  <span className="tsu-st-dates flex items-center gap-1 text-[10px] text-slate-500 whitespace-nowrap" title="在籍の期間。空なら制限なし">
-                    <input type="date" value={s._from||''} onChange={e=>{ onBlurStaff(i,'_from',e.target.value); setRenderKey(k=>k+1); }} data-testid={`staff-from-${s.id}`} className="px-1 py-1 bg-white border border-slate-200 rounded text-[11px] w-[122px]" title="いつから（この日から担当の一覧に出ます）"/>〜
-                    <input type="date" value={s._to||''} onChange={e=>{ onBlurStaff(i,'_to',e.target.value); setRenderKey(k=>k+1); }} data-testid={`staff-to-${s.id}`} className="px-1 py-1 bg-white border border-slate-200 rounded text-[11px] w-[122px]" title="いつまで（この日までは出て、翌日から出ません）"/>
-                  </span>
-                  <button type="button" data-testid={`staff-retire-${s.id}`} onClick={(e)=>{ if (!tsuAdminClick(e, 'スタッフの削除')) return; _retireStaff(i); }} className="tsu-st-del text-red-400 hover:text-red-600 shrink-0 ml-auto" aria-label="いつまでを決めて外す" title="いつまで在籍かを入れて一覧から外します（過去の日誌・送迎表には残ります）"><X size={16}/></button>
+                  </div>
+                  <button type="button" data-testid={`staff-retire-${s.id}`} onClick={(e)=>{ if (!tsuAdminClick(e, 'スタッフの削除')) return; _retireStaff(i); }} className="text-red-400 hover:text-red-600 shrink-0 ml-auto p-1" aria-label="いつまでを決めて外す" title="いつまで在籍かを入れて一覧から外します（過去の日誌・送迎表には残ります）"><X size={16}/></button>
+                  </div>
+                  <div className="tsu-sr-sub flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px] text-slate-500" style={{justifyContent:'flex-start'}}>
+                    {/* ★ trial519: いつから・いつまで(空なら制限なし)・役職の変更は日付つき */}
+                    <span className="flex items-center gap-1 whitespace-nowrap" title="在籍の期間。空なら制限なし">在籍
+                      <input type="date" value={s._from||''} onChange={e=>{ onBlurStaff(i,'_from',e.target.value); setRenderKey(k=>k+1); }} data-testid={`staff-from-${s.id}`} className="px-1 py-0.5 bg-white border border-slate-200 rounded text-[11px] w-[118px]" title="いつから（この日から担当の一覧に出ます）"/>〜
+                      <input type="date" value={s._to||''} onChange={e=>{ onBlurStaff(i,'_to',e.target.value); setRenderKey(k=>k+1); }} data-testid={`staff-to-${s.id}`} className="px-1 py-0.5 bg-white border border-slate-200 rounded text-[11px] w-[118px]" title="いつまで（この日までは出て、翌日から出ません）"/>
+                    </span>
+                    <select value="" data-testid={`staff-role-change-${s.id}`} onChange={e=>{ if (e.target.value) _changeStaffRole(i, 'role', e.target.value); }} title="役職を変える（いつからかを入れます）" className="px-1 py-0.5 bg-white border border-slate-200 rounded text-[11px] text-slate-600 outline-none">
+                      <option value="">役職を変える…</option>
+                      {_staffRoleList().filter(r=>r!==s.role).map(r=><option key={r} value={r}>→ {r}</option>)}
+                    </select>
+                  </div>
                 </div>
                 </div>
                     ))}
