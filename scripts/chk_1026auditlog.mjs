@@ -19,7 +19,8 @@ async function open(view, prep) {
   await page.context().close(); }
 // ② 定型文は案内だけ
 { const { page } = await open('settings', "");
-  await page.getByTestId('settings-search-input').fill('計画書'); await page.waitForTimeout(300); await page.locator('[data-testid^="settings-search-hit-"]', { hasText: /計画書の定型文/ }).first().click(); await page.waitForTimeout(700);
-  r.kkInfo = (await page.getByTestId('kk-presets-info').count()) === 1; r.kkNoEdit = (await page.locator('[data-sec-title^=\"計画書の定型文\"] textarea').count()) === 0;
+  // ★ 2026-11-05 trial521: 計画書の定型文の欄は各種設定から外した → 検索に出ない・欄が無いこと
+  await page.getByTestId('settings-search-input').fill('定型文'); await page.waitForTimeout(400);
+  r.kkInfo = (await page.locator('[data-testid^="settings-search-hit-"]', { hasText: /計画書の定型文/ }).count()) === 0; r.kkNoEdit = (await page.getByTestId('kk-presets-info').count()) === 0;
   await page.context().close(); }
 console.log(r, Object.values(r).every(Boolean) ? 'PASS' : 'FAIL'); await b.close();
