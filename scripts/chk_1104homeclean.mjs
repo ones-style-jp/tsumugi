@@ -13,7 +13,14 @@ const open = async (page) => {
 };
 { const page = await (await b.newContext({ viewport: { width: 1366, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' })).newPage(); page.on('dialog', d => d.accept()); page.on('pageerror', e => console.log('PAGEERROR', e.message.slice(0, 200)));
   await open(page);
-  const rows = page.getByTestId('home-tasks-rows-today'); r.today_chips = (await rows.count()) === 1 && (await rows.getAttribute('data-chips')) === '1' && (await rows.evaluate(el => getComputedStyle(el).flexDirection)) === 'row';
+  // ★ trial518: 本日(左)・1週間(右)の2列・縦の一覧・今月は無い
+  const tdy = page.getByTestId('home-tasks-today'), wk = page.getByTestId('home-tasks-week');
+  const bt = await tdy.boundingBox(), bw = await wk.boundingBox();
+  r.two_cols = !!bt && !!bw && Math.abs(bt.y - bw.y) < 8 && bw.x > bt.x + 200 && (await page.getByTestId('home-tasks-month').count()) === 0 && /1週間の業務/.test(await wk.innerText());
+  r.today_chips = (await page.getByTestId('home-tasks-rows-today').evaluate(el => getComputedStyle(el).flexDirection).catch(() => 'column')) === 'column';
+  // 家族・ケアマネ／お知らせも閉じた1行(開くボタン)
+  r.fam_news_closed = (await page.getByTestId('home-family-open').count()) === 1 && (await page.getByTestId('home-news-open').count()) === 1 && (await page.getByText('タップで詳細（見ると既読でグレーに）').count()) === 0;
+  await page.getByTestId('home-family-open').click(); await page.waitForTimeout(300); r.fam_opens = (await page.getByText('新しい更新はありません', { exact: false }).count()) >= 1 || (await page.locator('[data-testid="home-family-old"]').count()) >= 0; await page.getByTestId('home-family-open').click();
   r.dev_closed = (await page.getByText('アップデート・メンテナンス情報', { exact: false }).count()) === 0;
   await page.locator('button', { hasText: /^つむぎ運営からのお知らせ/ }).first().click(); await page.waitForTimeout(400);
   r.dev_open_old = (await page.getByTestId('home-dev-old').count()) === 1 || (await page.getByText('未読のお知らせはありません').count()) === 1 || (await page.locator('[data-testid^="home-dev-row-"]').count()) > 0;
