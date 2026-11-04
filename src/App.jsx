@@ -13128,7 +13128,13 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
   const [devPage, setDevPage] = React.useState(0);   // つむぎ運営からのお知らせ(4件/頁)
   // ★ 運営からのお知らせは既定で閉じたバー表示(2026-08-18): 業務ではスケジュール・家族/ケアマネ更新が主役のため。
   //   新着があればバーに件数バッジを出し、タップで開閉する。
-  const [devOpen, setDevOpen] = React.useState(true); // ★ 2026-10-23(ユーザー要望): 家族・ケアマネからの更新と同じく、閉じずに表示
+  // ★ 2026-11-04 trial517(ユーザー「ホームに足しすぎて逆にごちゃごちゃ」): 運営からのお知らせは閉じた状態が既定(未読は件数の札で分かる)。開いても未読だけ・既読は「過去のお知らせ」に畳む
+  const [devOpen, setDevOpen] = React.useState(false);
+  const [devOld, setDevOld] = React.useState(false);   // 過去(既読)のお知らせを開く
+  const [extOld, setExtOld] = React.useState(false);   // 家族・ケアマネの既読の分を開く
+  const [newsAll, setNewsAll] = React.useState(false); // 店舗のお知らせを全部見る
+  const _hcfg = ((appData.systemSettings || {}).homeTasks) || {}; // ホームの表示設定(店舗)
+  const _narrowHome = tsuViewW() < 768;
   const [extPage, setExtPage] = React.useState(0);   // 家族・ケアマネからの更新(5件/頁)
   const [newsPage, setNewsPage] = React.useState(0); // お知らせ(5件/頁)
   const _pageSlice = (arr, page, size) => { const pages = Math.max(1, Math.ceil((arr.length||0)/size)); const p = Math.min(Math.max(0,page), pages-1); return arr.slice(p*size, p*size+size); };
@@ -13265,13 +13271,13 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const _ph3 = tsuViewW() < 640;
           const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'white',border:'1px solid rgba(255,255,255,0.6)',borderRadius:12,padding: _ph3 ? '6px 8px' : '6px 14px',color:'#1e293b',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto',boxShadow:'0 1px 3px rgba(0,0,0,0.15)'}}><div style={{fontSize:11,color:'#4f46e5',fontWeight:'bold',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</div><div style={{fontSize: _ph3 ? 20 : 22,fontWeight:'bold',lineHeight:1.15,color:'#1e293b'}}>{value}</div>{sub && <div style={{fontSize:10,color:'#64748b',whiteSpace: _ph3 ? 'normal' : 'nowrap',lineHeight:1.35}}>{sub}</div>}</button>; // ★ 2026-10-27: スマホは3つを1行に(下の小さい字は折り返す・文字はそのまま)
           const _taskBtnPlain = (t, big) => (
-            <button key={t.key} type="button" data-testid={`home-task-${t.key}`} title={t.sub || ''} onClick={() => { if (t.onOpen) { t.onOpen(); return; } try { if (t.jump) sessionStorage.setItem('tsumugiTpJump', t.jump); if (t.ss) sessionStorage.setItem(t.ss[0], t.ss[1]); } catch {} navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>
+            <button key={t.key} type="button" data-testid={`home-task-${t.key}`} title={t.sub || ''} onClick={() => { if (t.onOpen) { t.onOpen(); return; } try { if (t.jump) sessionStorage.setItem('tsumugiTpJump', t.jump); if (t.ss) sessionStorage.setItem(t.ss[0], t.ss[1]); } catch {} navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width: big ? 'auto' : '100%',maxWidth:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>{/* ★ 2026-11-04 trial517: 本日の業務は横に並ぶ札 */}
               <span style={{fontSize: big ? 14 : 12.5,fontWeight:'bold',color:'#1e293b'}}>{t.label}</span>{/* ★ 2026-10-27(ユーザー): 「開く →」は不要(押せば飛ぶと分かる) */}
               {/* ★ 2026-10-26(ユーザー「下の字は不要」): 説明は出さない(title の吹き出しだけ) */}
             </button>);
           // ★ 2026-10-30: タスクは左に四角(押すと済み・ホームから消える)。右は押すとカレンダーのその日
           const taskBtn = (t, big) => !t.check ? _taskBtnPlain(t, big) : (
-            <div key={t.key} data-testid={`home-task-${t.key}`} style={{display:'flex',alignItems:'stretch',width:'100%',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,overflow:'hidden'}}>
+            <div key={t.key} data-testid={`home-task-${t.key}`} style={{display:'flex',alignItems:'stretch',width: big ? 'auto' : '100%',maxWidth:'100%',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,overflow:'hidden'}}>
               <button type="button" role="checkbox" aria-checked="false" data-testid={`home-task-check-${t.key}`} onClick={t.check} title="済んだら押します" style={{flex:'none',width:_ph3?48:40,minHeight:_ph3?44:0,display:'flex',alignItems:'center',justifyContent:'center',background:'transparent',border:'none',borderRight:'1px solid #f1f5f9',cursor:'pointer',padding:0}}><span style={{width:20,height:20,border:`2px solid ${TSU_TASK_COLOR}`,borderRadius:5,display:'block',background:'white'}}/></button>
               <button type="button" onClick={() => t.onOpen && t.onOpen()} style={{flex:1,minWidth:0,textAlign:'left',background:'transparent',border:'none',padding: big ? '8px 12px' : '6px 10px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1}}>
                 <span style={{fontSize: big ? 14 : 12.5,fontWeight:'bold',color:'#1e293b',overflowWrap:'anywhere'}}>{t.label}</span>
@@ -13302,7 +13308,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                   const _gk = (t) => (tier === 'week') ? ((!(String(t.key).startsWith('events_') || String(t.key).startsWith('task_')) && t._due >= weekEnd) ? '今週中' : `${t._due.getMonth()+1}/${t._due.getDate()}（${'日月火水木金土'[t._due.getDay()]}）`) : '';
                   const _rows = []; let _lastG = null; show.forEach(t => { const g = _gk(t); if (g && g !== _lastG) { _rows.push(<div key={`g_${g}`} data-testid="home-week-day" style={{fontSize:11,fontWeight:'bold',color:'#1e40af',marginTop:_rows.length ? 4 : 0}}>{g}</div>); _lastG = g; } _rows.push(taskBtn(t, big)); });
                   return (
-                <div style={{display:'flex',flexDirection:'column',gap:6}}>{_rows}
+                <div data-testid={`home-tasks-rows-${tier}`} data-chips={big ? '1' : '0'} style={{display:'flex',flexDirection: big ? 'row' : 'column',flexWrap: big ? 'wrap' : 'nowrap',gap:6}}>{_rows}{/* ★ 2026-11-04 trial517: 本日の業務は札を横に並べる */}
                   {more > 0 && <button type="button" data-testid={`home-tasks-more-${tier}`} onClick={() => setHtMore(m => ({ ...m, [tier]: !m[tier] }))} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>{htMore[tier] ? '少なく表示' : `他${more}件を見る`}</button>}
                 </div>); })() /* ★ 2026-10-26(ユーザー「予定が多いと下に溜まる」): 期限が近い順・5件まで・残りは「他n件」 */
               )}
@@ -13310,10 +13316,10 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           );
           const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
-                      {[['tpNotice','送迎の時間が変わった方（連絡が要る）※「本日だけ」=明日の分は出さない'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                      {[['tpNotice','送迎の時間が変わった方（連絡が要る）※「本日だけ」=明日の分は出さない'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をパソコン・iPadにも出す（スマホは常に出ます）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
-                          <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
-                          {k !== 'diary' && k !== 'events' && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
+                          <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={k === 'shortcuts' ? !!c.on : c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
+                          {['tpNotice','tasks','fitness','keikaku','monitoring'].includes(k) && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
                         </div>); })}
                       <div style={{textAlign:'right',marginTop:6}}><button type="button" onClick={() => setHtCfgOpen(false)} style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'none',borderRadius:8,padding:'4px 12px',cursor:'pointer'}}>閉じる</button></div>
                     </>);
@@ -13340,7 +13346,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               </div>
               <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd',position:'relative'}}>
                 <TsuHomeTpNotice appData={appData} onSave={onSave} navigateTo={navigateTo} />{/* ★ 2026-11-04 trial514: 送迎の時間が変わった方(連絡が要る)・今日と明日・午前/午後 */}
-                <TsuHomeMemos appData={appData} onSave={onSave} isRead={isRead} markRead={markRead} />{/* ★ 2026-10-30: 今日の申し送り(本日の業務の上) */}
+                {_hcfg.memos?.on !== false && <TsuHomeMemos appData={appData} onSave={onSave} isRead={isRead} markRead={markRead} />}{/* ★ 2026-10-30: 今日の申し送り(本日の業務の上) ★ trial517: 表示設定で切替 */}
                 {section('today', '本日の業務', 'home-tasks-today', true)}
                 {section('week', '今週の業務', 'home-tasks-week', false)}
                 {section('month', '今月の業務', 'home-tasks-month', false)}
@@ -13350,7 +13356,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
         } catch { return <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',borderRadius:16,color:'white',padding:'12px 22px'}}>{_greet}</div>; } })()}
         {/* ★ 2026-10-23: つむぎ運営のお知らせは下(本日のスケジュールの場所)へ。来週の送迎表の未確定の赤い帯は「今週の業務」の1行に */}
         {/* 本日のスケジュール + お知らせ */}
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16,alignItems:'start'}}>{/* ★ trial517: 中身が無い札は低いまま(高さをそろえない) */}
           {/* ★ 2026-10-23(ユーザー要望): 本日のスケジュールは「本日の業務」(上)に取り込み、ここには つむぎ運営のお知らせ */}
         {/* つむぎ運営(管理局)からのお知らせ = 管理局で追加したものが全店に配信される + 組み込み告知 */}
         {(() => {
@@ -13363,8 +13369,10 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const _seen=new Set();
           const all = [...fromHq, ...live, ...builtin].filter(x=>{ if(!x.id||_seen.has(x.id)) return false; _seen.add(x.id); return true; }).sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,50);
           if (!all.length) return null;
-          const _devShown = _pageSlice(all, devPage, (tsuViewW() < 768 ? 5 : 10));   // 1行表示×4件
-          const _unread = all.filter(x => !isRead(x.id)).length;
+          if (_hcfg.devNotes?.on === false) return null; // ★ trial517: 表示設定
+          const _unreadL = all.filter(x => !isRead(x.id)), _readL = all.filter(x => isRead(x.id)); // ★ trial517: 未読だけ出し、既読は「過去のお知らせ」に畳む
+          const _devShown = [..._unreadL.slice(0, 10), ...(devOld ? _pageSlice(_readL, devPage, (tsuViewW() < 768 ? 5 : 10)) : [])];
+          const _unread = _unreadL.length;
           return (
             <Card style={{borderColor: _unread>0 ? '#c7d2fe' : '#e2e8f0', padding: devOpen ? 16 : 10}}>
               {/* 閉じた状態=薄いバー。 新着があれば件数バッジで知らせる */}
@@ -13400,7 +13408,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                   </button>
                 ); })}
               </div>
-              {renderPager(all.length, (tsuViewW() < 768 ? 5 : 10), devPage, setDevPage)}
+              {!_unreadL.length && !devOld && <div style={{fontSize:12,color:'#64748b',padding:'4px 2px'}}>未読のお知らせはありません。</div>}
+              {_readL.length > 0 && <button type="button" data-testid="home-dev-old" onClick={() => { setDevOld(v => !v); setDevPage(0); }} style={{marginTop:8,fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>{devOld ? '過去のお知らせを閉じる ▲' : `過去のお知らせ ${_readL.length}件 ▼`}</button>}
+              {devOld && renderPager(_readL.length, (tsuViewW() < 768 ? 5 : 10), devPage, setDevPage)}
               </>)}
             </Card>
           );
@@ -13412,6 +13422,16 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             // ★ 常時表示: 更新が無くてもカードは出し、無い旨を表示する
             const _fmt = (iso)=>{ try{ const d=new Date(iso); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }catch{ return ''; } };
             const _unread = ext.filter(u=>!isRead(u.id)).length;
+            if (_hcfg.family?.on === false) return null; // ★ trial517: 表示設定
+            // ★ trial517: 出すのは未読か7日以内の分。古い既読は「過去の分」に畳む。何も無ければ1行だけ
+            const _recent = ext.filter(u => !isRead(u.id) || (Date.now() - new Date(u.at || 0).getTime()) < 7 * 86400000);
+            const _older = ext.filter(u => !_recent.includes(u));
+            if (!_recent.length && !extOld) return (
+              <Card style={{padding:'10px 16px'}} data-testid="home-family-slim">
+                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}><span style={{fontSize:13,fontWeight:'bold',color:'#b45309'}}>家族・ケアマネからの更新</span><span style={{fontSize:12,color:'#64748b'}}>新しい更新はありません</span>
+                  {_older.length > 0 && <button type="button" data-testid="home-family-old" onClick={() => setExtOld(true)} style={{marginLeft:'auto',fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'3px 10px',cursor:'pointer'}}>過去の分 {_older.length}件 ▼</button>}
+                </div>
+              </Card>);
             return (
               <Card>
                 <div style={{fontSize:14,fontWeight:'bold',color:'#b45309',marginBottom:10,display:'flex',alignItems:'center',gap:6}}>家族・ケアマネからの更新<span style={{fontSize:10,fontWeight:'bold',color:'white',background:_unread?'#f59e0b':'#cbd5e1',borderRadius:999,padding:'1px 7px'}}>{_unread}</span>
@@ -13427,7 +13447,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 ) : (<>
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>
                   {/* ★ 1行表示(2026-08-21): 利用者名・更新内容・日時のみ。 タップで詳細(更新者含む) */}
-                  {_extShown.map(u=>{ const _r=isRead(u.id); const _c=u.by==='caremanager'?'#0891b2':'#7c3aed'; return (
+                  {(extOld ? _extShown : _recent.slice(0, _homePer)).map(u=>{ const _r=isRead(u.id); const _c=u.by==='caremanager'?'#0891b2':'#7c3aed'; return (
                     <button key={u.id} onClick={()=>{ const _d = (u) => ({id:u.id,badge:u.by==='caremanager'?'ケアマネ':'ご家族',badgeColor:_c,date:_fmt(u.at),title:`利用者：${u._pname} 様`,body:`更新内容：${(u.items||[]).join('・')||'更新'}${docUpdateChangesText(u) ? `\n\n【変更の内容】\n${docUpdateChangesText(u)}` : ''}${u.byName?`\n更新者：${u.byName}`:''}`,patientId:u._pid}); openDetail(_d(u), ext.map(_d)); }}
                       style={{textAlign:'left',background:_r?'#f8fafc':'#fffbeb',border:`1px solid ${_r?'#e2e8f0':'#fde68a'}`,borderRadius:8,padding:'6px 10px',cursor:'pointer',opacity:_r?0.72:1,display:'flex',alignItems:'center',gap:8,minWidth:0,width:'100%'}}>
                       <span style={{fontSize:9,fontWeight:'bold',color:'white',background:_r?'#94a3b8':_c,borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{u.by==='caremanager'?'ケアマネ':'ご家族'}</span>
@@ -13438,13 +13458,13 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                     </button>
                   ); })}
                 </div>
-                {renderPager(ext.length, (tsuViewW() < 768 ? 5 : 10), extPage, setExtPage)}
+                {extOld ? renderPager(ext.length, (tsuViewW() < 768 ? 5 : 10), extPage, setExtPage) : (_older.length > 0 && <button type="button" data-testid="home-family-old" onClick={() => setExtOld(true)} style={{marginTop:8,fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>過去の分 {_older.length}件 ▼</button>)}
                 <div style={{fontSize:10,color:'#a16207',marginTop:6}}>タップで詳細（見ると既読でグレーに）。</div>
                 </>)}
               </Card>
             );
           })()}
-          <Card>
+          {_hcfg.news?.on !== false && (<Card>{/* ★ trial517: 表示設定・最新3件＋すべて見る */}
             <div style={{fontSize:14,fontWeight:'bold',color:'#0369a1',marginBottom:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
               <span style={{display:'flex',alignItems:'center',gap:6}}>お知らせ</span>
               <button onClick={()=>navigateTo('family_admin')} style={{fontSize:11,fontWeight:'bold',color:'#0369a1',background:'#e0f2fe',border:'none',borderRadius:8,padding:'3px 10px',cursor:'pointer'}}>投稿管理 →</button>
@@ -13453,7 +13473,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               <div style={{display:'flex',flexDirection:'column',gap:6}}>
                 {/* ★ #4: 事業所からのお知らせは既読管理しない(投稿したら表示のみ)。 タップで詳細は見られるが既読は付けない。 */}
                 {/* ★ 1行表示(2026-08-21): バッジ+日付+題名(+写真枚数)。 タップで詳細モーダル(本文・写真) */}
-                {_pageSlice(news, newsPage, (tsuViewW() < 768 ? 5 : 10)).map(a=>{ const _c=a._kind==='個別'?'#b45309':'#1d4ed8'; const _ph=(Array.isArray(a.photos)?a.photos.length:0); return (
+                {(newsAll ? _pageSlice(news, newsPage, (tsuViewW() < 768 ? 5 : 10)) : news.slice(0, 3)).map(a=>{ const _c=a._kind==='個別'?'#b45309':'#1d4ed8'; const _ph=(Array.isArray(a.photos)?a.photos.length:0); return (
                   <button key={a.id} onClick={()=>{ const _d = (a) => ({ ...{id:a.id,badge:a._group==='mon' ? `個別・${a.members.length}名` : `${a._kind}${a.patientId?`・${patName(a.patientId)}`:''}`,badgeColor:_c,date:(a.postedAt?String(a.postedAt).slice(0,10):(a.date||'')),title:a.title||'(写真)',body:a.body,patientId:a.patientId,photos:a.photos}, _read: false }); openDetail(_d(a), news.map(_d)); }}
                     style={{textAlign:'left',width:'100%',cursor:'pointer',background:'#ffffff',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}} data-testid="home-news-row">{/* ★ 2026-10-22: ハイライトなし(店舗から送ったお知らせのため) */}
                     <span style={{fontSize:9,fontWeight:'bold',color:_c,background:(a._kind==='個別'?'#fef3c7':'#dbeafe'),borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{a._group==='mon' ? `個別・${a.members.length}名` : <>{a._kind}{a.patientId?`・${patName(a.patientId)}`:''}</>}</span>
@@ -13463,11 +13483,13 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                     <span style={{fontSize:9,color:'#94a3b8',flexShrink:0}}>詳細 ›</span>
                   </button>
                 ); })}
-                {renderPager(news.length, (tsuViewW() < 768 ? 5 : 10), newsPage, setNewsPage)}
+                {newsAll ? renderPager(news.length, (tsuViewW() < 768 ? 5 : 10), newsPage, setNewsPage) : (news.length > 3 && <button type="button" data-testid="home-news-all" onClick={() => setNewsAll(true)} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#0369a1',background:'#e0f2fe',border:'1px solid #bae6fd',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>すべて見る（{news.length}件）</button>)}
               </div>
             )}
-          </Card>
+          </Card>)}
         </div>
+        {/* ★ 2026-11-04 trial517(ユーザー): 近道は左のメニューと同じなのでスマホだけ。表示設定でパソコン・iPadにも出せる */}
+        {(_narrowHome || _hcfg.shortcuts?.on === true) && (<div data-testid="home-shortcuts" style={{display:'flex',flexDirection:'column',gap:16}}>
         {/* 記録類 */}
         <Card>
           <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:12}}>記録・入力</div>
@@ -13505,6 +13527,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             <DashTile navigateTo={navigateTo} icon={<Settings size={18}/>} label="各種設定" color="#475569" view="settings"/>
           </div>
         </Card>
+        </div>)}
       </div>
       {/* ★ お知らせ詳細モーダル */}
       {noticeDetail && ReactDOM.createPortal((
