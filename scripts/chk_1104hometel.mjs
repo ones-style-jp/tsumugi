@@ -37,6 +37,13 @@ const seed = async (page, view) => {
   r.A_done = (await page.getByTestId(`home-tp-row-${S.today}-AM-${S.ids.A}`).getAttribute('data-done')) === '1' && (await card.getAttribute('data-pending')) === '1';
   const saved = await page.evaluate((k) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); return (d.transportPlans[k] || {})._telDone || null; }, `${S.today}_AM`);
   r.saved = !!(saved && saved[S.ids.A] && saved[S.ids.A].on);
+  // trial516: 表示設定で「送迎の時間が変わった方」を出さない → 枠が消える／戻すと出る／「本日だけ」で明日の分が消える(今日だけ seed なので枠は残る)
+  await page.getByTestId('home-tasks-cfg').click(); await page.waitForTimeout(400);
+  const cfgRow = page.getByTestId('home-tasks-cfg-tpNotice'); r.cfg_row = (await cfgRow.count()) === 1;
+  await cfgRow.locator('input').first().uncheck(); await page.waitForTimeout(700); r.cfg_off = (await page.getByTestId('home-tp-notice').count()) === 0;
+  await cfgRow.locator('input').first().check(); await page.waitForTimeout(700); r.cfg_on = (await page.getByTestId('home-tp-notice').count()) === 1;
+  await cfgRow.locator('input').nth(1).check(); await page.waitForTimeout(700); r.cfg_todayOnly = (await page.getByTestId('home-tp-notice').count()) === 1 && (await page.evaluate(() => JSON.parse(localStorage.getItem('daycareAppData_v3')).systemSettings.homeTasks.tpNotice.todayOnly)) === true;
+  await cfgRow.locator('input').nth(1).uncheck(); await page.waitForTimeout(400); await page.locator('button', { hasText: /^閉じる$/ }).last().click().catch(() => {}); await page.waitForTimeout(300);
   // 全員連絡済になったら枠ごと消える
   await page.getByTestId(`home-tp-row-${S.today}-PM-${S.ids.C}`).locator('input').click({ noWaitAfter: true }); await page.waitForTimeout(900); r.hidden_when_done = (await page.getByTestId('home-tp-notice').count()) === 0;
   // 送迎表側の確認のため C は未連絡に戻す

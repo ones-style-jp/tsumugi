@@ -13050,16 +13050,19 @@ const DashTile = ({icon, label, sub, color, view, navigateTo}) => (
 // ★ 2026-11-04 trial514(ユーザー要望): ホームの「送迎の時間が変わった方(連絡が要る)」。今日と明日を、午前・午後に分けて出す。
 //   チェックを付けると送迎表の連絡済(_telDone)に入り、送迎表の赤枠と「要連絡 n件」も消える(同じデータ)。連絡済の方も薄く残す(外せる)
 function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
+  // ★ 2026-11-04 trial515(ユーザー): 未連絡が居なければ枠ごと出さない。折りたたみ(この端末で覚える)。フックは先頭に(条件分岐の前)
+  const [fold, setFold] = useState(() => { try { return localStorage.getItem('tsuFold_homeTp') === '1'; } catch { return false; } });
+  const togFold = () => setFold(v => { const nv = !v; try { localStorage.setItem('tsuFold_homeTp', nv ? '1' : '0'); } catch {} return nv; });
+  // ★ 2026-11-04 trial516(ユーザー要望): ホームの表示設定(店舗の設定 systemSettings.homeTasks.tpNotice)で 出す/出さない・本日だけ(明日は出さない)
+  const cfg = ((appData.systemSettings || {}).homeTasks || {}).tpNotice || {};
+  if (cfg.on === false) return null;
   if (!tpStoreUsesTransport(appData)) return null;
-  const days = [0, 1].map(k => { const d = new Date(); d.setDate(d.getDate() + k); return { iso: tpIsoOf(d), label: k === 0 ? '今日' : '明日', d }; });
+  const days = (cfg.todayOnly ? [0] : [0, 1]).map(k => { const d = new Date(); d.setDate(d.getDate() + k); return { iso: tpIsoOf(d), label: k === 0 ? '今日' : '明日', d }; });
   const lists = days.map(x => ({ ...x, rows: tpNoticeListOn(appData, x.iso) })).filter(x => x.rows.length);
   if (!lists.length) return null;
   const DOWJ = ['日', '月', '火', '水', '木', '金', '土']; const narrow = tsuViewW() < 640;
   const mark = (iso, sl, pid, on) => { const next = tpTelDoneSet(appData, iso, sl, pid, on); if (next && onSave) onSave(next, { silent: true }); };
   const pending = lists.reduce((a, x) => a + x.rows.filter(r => !r.done).length, 0);
-  // ★ 2026-11-04 trial515(ユーザー): 未連絡が居なければ枠ごと出さない。折りたたみ(この端末で覚える)
-  const [fold, setFold] = useState(() => { try { return localStorage.getItem('tsuFold_homeTp') === '1'; } catch { return false; } });
-  const togFold = () => setFold(v => { const nv = !v; try { localStorage.setItem('tsuFold_homeTp', nv ? '1' : '0'); } catch {} return nv; });
   if (!pending) return null;
   return (
     <div data-testid="home-tp-notice" data-pending={pending} data-collapsed={fold ? '1' : '0'} style={{ width: '100%', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 12, padding: fold ? '6px 12px' : '10px 12px' }}>
@@ -13304,7 +13307,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           );
           const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
-                      {[['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                      {[['tpNotice','送迎の時間が変わった方（連絡が要る）※「本日だけ」=明日の分は出さない'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
                           <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
                           {k !== 'diary' && k !== 'events' && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
