@@ -13060,15 +13060,22 @@ function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
   const DOWJ = ['日', '月', '火', '水', '木', '金', '土']; const narrow = tsuViewW() < 640;
   const mark = (iso, sl, pid, on) => { const next = tpTelDoneSet(appData, iso, sl, pid, on); if (next && onSave) onSave(next, { silent: true }); };
   const pending = lists.reduce((a, x) => a + x.rows.filter(r => !r.done).length, 0);
+  // ★ 2026-11-04 trial515(ユーザー): 未連絡が居なければ枠ごと出さない。折りたたみ(この端末で覚える)
+  const [fold, setFold] = useState(() => { try { return localStorage.getItem('tsuFold_homeTp') === '1'; } catch { return false; } });
+  const togFold = () => setFold(v => { const nv = !v; try { localStorage.setItem('tsuFold_homeTp', nv ? '1' : '0'); } catch {} return nv; });
+  if (!pending) return null;
   return (
-    <div data-testid="home-tp-notice" data-pending={pending} style={{ width: '100%', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 12, padding: '10px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-        <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>送迎の時間が変わった方（連絡が要る）</span>
-        {pending ? <span data-testid="home-tp-notice-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px' }}>未連絡 {pending}名</span> : <span style={{ fontSize: 12, fontWeight: 'bold', color: '#047857' }}>全員連絡済</span>}
-        <span style={{ fontSize: 11, color: '#9a3412' }}>電話したらチェック（送迎表の連絡済にも入ります）</span>
+    <div data-testid="home-tp-notice" data-pending={pending} data-collapsed={fold ? '1' : '0'} style={{ width: '100%', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 12, padding: fold ? '6px 12px' : '10px 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: fold ? 0 : 6 }}>
+        <button type="button" data-testid="home-tp-notice-fold" aria-expanded={!fold} onClick={togFold} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>
+          <span style={{ fontSize: 12, color: '#9a3412' }}>{fold ? '▶' : '▼'}</span>
+          <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>送迎の時間が変わった方（連絡が要る）</span>
+          <span data-testid="home-tp-notice-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px' }}>未連絡 {pending}名</span>
+        </button>
+        {!fold && <span style={{ fontSize: 11, color: '#9a3412' }}>電話したらチェック（送迎表の連絡済にも入ります）</span>}
         <button type="button" data-testid="home-tp-notice-open" onClick={() => navigateTo && navigateTo('transport')} style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 'bold', color: '#1d4ed8', background: '#fff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 10px' }}>送迎表を開く</button>
       </div>
-      {lists.map(x => (
+      {!fold && lists.map(x => (
         <div key={x.iso} data-testid={`home-tp-notice-${x.iso}`} style={{ marginTop: 4 }}>
           <div style={{ fontSize: 12, fontWeight: 'bold', color: '#7c2d12', marginBottom: 4 }}>{x.label} {x.d.getMonth() + 1}/{x.d.getDate()}（{DOWJ[x.d.getDay()]}）</div>
           <div style={{ display: 'grid', gridTemplateColumns: narrow ? '1fr' : '1fr 1fr', gap: 8 }}>
@@ -38204,7 +38211,11 @@ function TsuTimeKeypad({ title, hint, initial, onCommit, onClose, suggest }) {
 //   送迎表の「要連絡(赤枠)」と同じ判定を、送迎表の画面の外(ホーム)から使えるようにした純粋関数。
 //   送迎表側(_chgOf/_noticeNeeded/_telDoneOf)と同じ規則: 配布の控え(_base)と比べて「追加」か「時間が変わった」方で、
 //   変えた後に本人が来所して連絡帳が出ている(次の連絡帳に載る)なら要らない。連絡済は _telDone[pid]={ck,on,t}(ck=その変更の時刻)
-const tpFmtT = (t) => { const x = String(t || '').trim(); const m = x.match(/^(\d{1,2}):(\d{2})/); if (m) return `${+m[1]}:${m[2]}`; const h = x.match(/^(\d{1,2})$/); return h ? `${+h[1]}:--` : x; };
+// ★ 2026-11-04 trial515(ユーザー報告「13:00 の方が 13:0 に変わったと出る」): 送迎表の _fmtT と同じ正規化(分は2桁に・「8時30分」形も)
+const tpFmtT = (t) => { const v = String(t ?? '').replace(/[\s　]+/g, '').trim(); if (!v || v === '時分' || v === '時') return '';
+  let m = v.match(/^(\d{1,2})時(?:(\d{1,2})分?|(分))?$/); if (m) return `${m[1]}:${m[2] != null ? String(m[2]).padStart(2, '0') : (m[3] ? '--' : '00')}`;
+  m = v.match(/^(\d{1,2}):(\d{1,2}|--)$/); if (m) return `${m[1]}:${m[2] === '--' ? '--' : String(m[2]).padStart(2, '0')}`;
+  return String(t ?? '').trim(); };
 const tpSnapOf = (pl) => { const cars = {}; Object.keys(pl?.cars || {}).forEach(cid => { cars[cid] = (pl.cars[cid] || []).filter(Boolean).map(m => ({ pid: m.pid, t: tpFmtT(m.t) })); }); return { cars, walkers: (pl?.walkers || []).filter(Boolean).map(m => m.pid), walkT: Object.fromEntries((pl?.walkers || []).filter(Boolean).map(m => [m.pid, /\d/.test(String(m.t || '')) ? tpFmtT(m.t) : ''])), others: (pl?.others || []).filter(Boolean).map(m => m.pid) }; };
 const tpLocIn = (snap, pid) => { for (const cid of Object.keys(snap.cars || {})) { const i = snap.cars[cid].findIndex(m => m.pid === pid); if (i >= 0) return { zone: cid, t: snap.cars[cid][i].t || '' }; } if (snap.walkers.includes(pid)) return { zone: 'walk', t: snap.walkT[pid] || '' }; if (snap.others.includes(pid)) return { zone: 'other', t: '' }; return null; };
 const tpRecsOnG = (appData, pid, iso) => (appData.ticketRecords || []).filter(r => r && r.patientId === pid && recIsoOf(r) === iso);
