@@ -12883,6 +12883,12 @@ const diaryRequiredRoles = (appData) => {
 };
 // ★ 2026-10-15(ユーザー報告「副役職の人を押すと本来の役職と管理者の両方にチェックが付く」): 副役職の欄は別に記録する
 const DIARY_SUB_CUTOFF = '2026-10-15';
+// ★ 2026-11-04 trial519(江古田店: 相談員を削除・介護職員を相談員に変えたら、過去の日誌の担当職員と送迎表の運転者まで全部消えた):
+//   担当職員(diarySettings.staff)に「いつから(_from)・いつまで(_to)」と役職の履歴(_roles=[{until, role, role2}]: その日まで有効だった前の役職)を持たせ、
+//   日誌・送迎表は「その日の名簿」で見る。削除は _to を付けるだけ(過去の日誌には残る)。役職の変更は日付つき(前の日までは前の役職)
+const tsuStaffActiveOn = (st, iso) => { if (!st) return false; const d = iso || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`; return (!st._from || st._from <= d) && (!st._to || st._to >= d); };
+const tsuStaffRoleOn = (st, iso) => { const h = Array.isArray(st && st._roles) ? st._roles.filter(x => x && x.until && (!iso || x.until >= iso)).sort((a, b) => String(a.until).localeCompare(String(b.until))) : []; return h.length ? { role: h[0].role || '', role2: h[0].role2 || '' } : { role: (st && st.role) || '', role2: (st && st.role2) || '' }; };
+const tsuStaffAsOf = (arr, iso) => (arr || []).filter(st => st && tsuStaffActiveOn(st, iso)).map(st => { const r = tsuStaffRoleOn(st, iso); return (r.role === (st.role || '') && r.role2 === (st.role2 || '')) ? st : { ...st, role: r.role, role2: r.role2 }; });
 const diarySubKey = (id, role) => `${id}@sub:${role}`;
 const diarySubExplicit = (log, iso) => !!(log && (log.staffSubV || Object.keys(log.staff || {}).some(k => k.includes('@sub:')))) || !(iso && iso < DIARY_SUB_CUTOFF);
 const diarySubOn = (log, id, role, iso) => { const sel = (log && log.staff) || {}; if (sel[diarySubKey(id, role)]) return true; return !diarySubExplicit(log, iso) && !!sel[id]; };
@@ -12890,7 +12896,7 @@ const diaryStaffMissing = (log, iso, appData) => {
   try {
     if (!log || !appData) return [];
     if (iso && iso < DIARY_STAFF_CUTOFF) return [];
-    const staff = (appData.diarySettings?.staff || []).filter(st => st && st.name);
+    const staff = tsuStaffAsOf(appData.diarySettings?.staff || [], iso).filter(st => st && st.name); // ★ trial519: その日の名簿
     if (!staff.length) return [];
     const sel = log.staff || {};
     // ★ 兼務(2026-09-29): log.kenmu[役職]=その日に兼務する職員id。その職員が担当職員に選ばれていれば充足
@@ -23425,7 +23431,7 @@ export default function App() {
     const _isHq = (o) => o && (o.id==='hq_viewer' || o.id==='ds_sync_hq_viewer' || o._syncedFromMemberId==='hq_viewer' || (o.name==='管理局' && (o.roleLabel==='管理者'||o.role==='管理者')));
     (appData.storeMembers||[]).forEach(m => { if(!m||!m.name||!m.name.trim()||_isHq(m)) return; const k=mk(m.name,m.roleLabel); if(seen.has(k))return; seen.add(k); out.push({ id:m.id, name:m.name, lastName:m.lastName, firstName:m.firstName, roleLabel:m.roleLabel||'', isAdmin: m.isAdmin||m.roleLabel==='管理者' }); });
     // ★ 1日ヘルプ(日誌で追加)はスタッフ切替に出さない(2026-09-03)
-    (appData.diarySettings?.staff||[]).forEach(s => { if(!s||!s.name||!s.name.trim()||_isHq(s)||s._tempHelp) return; const k=mk(s.name,s.role); if(seen.has(k))return; seen.add(k); out.push({ id:s.id, name:s.name, roleLabel:s.role||'', isAdmin: s.role==='管理者' }); });
+    (appData.diarySettings?.staff||[]).forEach(s => { if(!s||!s.name||!s.name.trim()||_isHq(s)||s._tempHelp||!tsuStaffActiveOn(s)) return; const k=mk(s.name,s.role); /* ★ trial519: 在籍中だけ */ if(seen.has(k))return; seen.add(k); out.push({ id:s.id, name:s.name, roleLabel:s.role||'', isAdmin: s.role==='管理者' }); });
     return out;
   }, [appData.storeMembers, appData.diarySettings?.staff]);
   // ★ 2026-10-19 段階4(従業員ごとのログイン):
@@ -24423,9 +24429,10 @@ export default function App() {
           storeMembers: (prev.storeMembers || []).filter(m => m.id !== memberId),
           diarySettings: {
             ...(prev.diarySettings || {staff:[],cars:[],scheduleAM:[],schedulePM:[]}),
-            staff: (prev.diarySettings?.staff || []).filter(s =>
-              !(s._syncedFromMemberId === memberId || s.id === memberId || s.id === `ds_sync_${memberId}` ||
-                (_tn && normalizeName(s.name||'').trim() === _tn && (s.role||'') === (_tgt.roleLabel||'')))),
+            // ★ 2026-11-04 trial519: 消さずに「いつまで=今日」を付ける(過去の日誌・送迎表に残す)
+            staff: (prev.diarySettings?.staff || []).map(s =>
+              (s._syncedFromMemberId === memberId || s.id === memberId || s.id === `ds_sync_${memberId}` ||
+                (_tn && normalizeName(s.name||'').trim() === _tn && (s.role||'') === (_tgt.roleLabel||''))) ? { ...s, _to: s._to || tpIsoOf(new Date()) } : s),
           },
         }));
       }}
@@ -39150,9 +39157,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _driverNames = React.useMemo(() => { const seen = new Set(); const out = []; (ds.staff||[]).forEach(st => { const n = String(st?.name||'').trim(); if (!n || st._tempHelp) return; const k = normalizeName(n).replace(/[\s　]/g,''); if (seen.has(k)) return; seen.add(k); out.push(n); }); return out; }, [ds.staff]);
   // ★ 2026-10-20(ユーザー要望): 日誌で追加した「この日だけ」の担当者も、その日・その時間帯(午前/午後/両方)の運転者の一覧に出す
   const _driverNamesFor = (iso, sl) => {
-    const key = (n) => normalizeName(n).replace(/[\s　]/g,''); const seen = new Set(_driverNames.map(key)); const extra = [];
+    // ★ 2026-11-04 trial519: その日に在籍している職員だけ(退職した方は _to の翌日から出ない・将来の入職は _from から)
+    const key = (n) => normalizeName(n).replace(/[\s　]/g,''); const seen = new Set(); const base = [];
+    tsuStaffAsOf(ds.staff, iso).forEach(st => { const n = String(st?.name||'').trim(); if (!n || st._tempHelp) return; const k = key(n); if (seen.has(k)) return; seen.add(k); base.push(n); });
+    const extra = [];
     (ds.staff||[]).forEach(st => { if (!st || !st._tempHelp || st._helpDate !== iso) return; if (st.ampm && st.ampm !== 'both' && st.ampm !== sl) return; const n = String(st.name||'').trim(); if (!n || seen.has(key(n))) return; seen.add(key(n)); extra.push(n); });
-    return extra.length ? [..._driverNames, ...extra] : _driverNames;
+    return extra.length ? [...base, ...extra] : base;
   };
   // ★ 印刷の選択(週間／日ごと・チェックした日だけ)(2026-09-28 ユーザー要望: 日ごとに5回押すのが手間)
   const [printModal, setPrintModal] = useState(null); // {mode:'week'|'days', days:Set<iso>}
@@ -47405,7 +47415,7 @@ function tsuBuildDemoStore(appData, opts = {}) {
   const _fiTown = ((/[区市町村]([^0-9０-９\-－−一二三四五六七八九十丁]+)/.exec(fiAddr.replace(prefCity[1] + prefCity[2], prefCity[2])) || [])[1] || '').trim();
   const mkAddr = () => { if (!TOWNS) return { prefecture: prefCity[1], city: prefCity[2], addressLine: _fiTown ? `${_fiTown}${KAN[ri(1, 4)]}丁目` : '（見本）' }; const [t, c] = pick(TOWNS); return { prefecture: '東京都', city: '新宿区', addressLine: c ? `${t}${KAN[ri(1, c)]}丁目` : t }; };
   // ---- 職員 ----
-  const dStaff = (appData.diarySettings && Array.isArray(appData.diarySettings.staff)) ? appData.diarySettings.staff.filter(s => s && s.name && !s._tempHelp) : [];
+  const dStaff = (appData.diarySettings && Array.isArray(appData.diarySettings.staff)) ? appData.diarySettings.staff.filter(s => s && s.name && !s._tempHelp && tsuStaffActiveOn(s)) : []; // ★ trial519: 記録者などの候補は在籍中だけ
   const recorders = dStaff.length ? dStaff.map(s => String(s.name)) : ['見本 職員'];
   const kinouSt = dStaff.filter(s => s.role === '機能訓練指導員' || s.role2 === '機能訓練指導員').map(s => String(s.name));
   const kinouOn = !!(ss0.facilityInfo && ss0.facilityInfo.kobetsuKinouAddon);
@@ -48101,7 +48111,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
     diarySettings = { ...diarySettings, staff: _staff };
     // ★ 担当職員(diarySettings.staff)を master としてスタッフ切替(storeMembers)を同期。
     //   担当職員から削除した人はスタッフ切替からも消え、残った人は維持(相互反映・重複は集約)。
-    const _staffKeys = new Set((diarySettings.staff||[]).filter(s=>s&&s.name&&s.name.trim()).map(s => `${normalizeName(s.name||'').trim()}|${s.role||''}`));
+    const _staffKeys = new Set((diarySettings.staff||[]).filter(s=>s&&s.name&&s.name.trim()&&tsuStaffActiveOn(s)).map(s => `${normalizeName(s.name||'').trim()}|${s.role||''}`)); // ★ trial519: 在籍中だけ
     let _syncedStoreMembers = (appData.storeMembers||[]).filter(m => m && m.name && _staffKeys.has(`${normalizeName(m.name||'').trim()}|${m.roleLabel||''}`))
       .map(m => { const ds = (diarySettings.staff||[]).find(x => x && normalizeName(x.name||'').trim()===normalizeName(m.name||'').trim() && (x.role||'')===(m.roleLabel||'')); return ds ? { ...m, role2: ds.role2||'', quals: (ds.quals||[]).filter(Boolean) } : m; }); // ★ 副役職・資格をスタッフ切替にも反映(2026-09-27)
     // ★ 管理者はスタッフ切替(storeMembers)にも「管理者」として確実に反映
@@ -50281,6 +50291,15 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
 
   const mutate = (newDs) => { ['staff','cars','scheduleAM','schedulePM','customRoles','customQuals'].forEach(k => { if (newDs[k] !== (dsRef.current||{})[k]) _markEd(k); }); dsRef.current = newDs; setRenderKey(k=>k+1); _md(); };
   const onBlurStaff = (i, field, val) => { _markEd('staff'); const a=[...dsRef.current.staff]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,staff:a}; _md(); };
+  // ★ 2026-11-04 trial519(江古田店の事故): 削除は「いつまで」を付けるだけ・役職の変更は日付つき(前の日までは前の役職)
+  const _todayIsoS = tpIsoOf(new Date());
+  const _retireStaff = (i) => { const st = dsRef.current.staff[i] || {}; const d = window.prompt(`「${st.name || '（名前なし）'}」はいつまで在籍ですか？（最後の勤務日・例 ${_todayIsoS}）\nその日までの日誌・送迎表にはそのまま残り、翌日から担当の一覧に出なくなります。`, _todayIsoS); if (d == null) return; const iso = dateIsoAny(d); if (!iso) { alert('日付の形が違います（例: ' + _todayIsoS + '）'); return; } onBlurStaff(i, '_to', iso); setRenderKey(k=>k+1); };
+  const _changeStaffRole = (i, field, newVal) => { const st = dsRef.current.staff[i] || {}; if ((st[field] || '') === (newVal || '')) return;
+    const d = window.prompt(`いつから${field === 'role' ? '役職' : '副の役職'}を「${newVal || 'なし'}」にしますか？（例 ${_todayIsoS}）\n前の日までの日誌・送迎表は今までの役職のままです。`, _todayIsoS); if (d == null) { setRenderKey(k=>k+1); return; }
+    const iso = dateIsoAny(d); if (!iso) { alert('日付の形が違います（例: ' + _todayIsoS + '）'); setRenderKey(k=>k+1); return; }
+    const pv = new Date(iso + 'T00:00:00'); pv.setDate(pv.getDate() - 1); const until = tpIsoOf(pv);
+    _markEd('staff'); const a=[...dsRef.current.staff]; a[i] = { ...st, [field]: newVal, _roles: [...(st._roles || []), { until, role: st.role || '', role2: st.role2 || '' }] }; dsRef.current={...dsRef.current,staff:a}; _md(); setRenderKey(k=>k+1); };
+  const _staffRoleList = () => [...STAFF_BASE_ROLES, ...((dsRef.current.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))];
   const onBlurCar = (i, field, val) => { const _cur = (dsRef.current.cars||[])[i] || {}; if (field === 'name' ? (val === tsuCarName(_cur) && !String(_cur.type||'').trim()) : String(_cur[field] ?? '') === String(val ?? '')) return; _markEd('cars'); const a=[...dsRef.current.cars]; a[i]={...a[i],[field]:val, ...(field === 'name' ? { type: '' } : {})}; dsRef.current={...dsRef.current,cars:a}; _md(); }; // ★ 2026-10-15: 名前を直したら古い車種は消す
   const onBlurSched = (ap, i, field, val) => { const k=`schedule${ap}`; _markEd(k); const a=[...(dsRef.current[k]||[])]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,[k]:a}; _md(); };
 
@@ -50293,10 +50312,11 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
           {/* ★ 役職ごとのグループ表示(2026-09-29 ユーザー指示): 枠の「○○を追加」で追加すると役職は自動、副の役職だけ選ぶ */}
           {(() => {
             const seen = new Set();
-            const _rows = ds.staff.filter((s) => { if (s._tempHelp) return false; const key = `${(s.role||'')}__${normalizeName(s.name||'').trim()}`; if (seen.has(key)) return false; seen.add(key); return true; }).map((s) => ({s, i: ds.staff.indexOf(s)}));
+            const _rows = ds.staff.filter((s) => { if (s._tempHelp) return false; if (s._to && s._to < _todayIsoS) return false; /* ★ trial519: 在籍の終わった方は下の「過去の職員」へ */ const key = `${(s.role||'')}__${normalizeName(s.name||'').trim()}`; if (seen.has(key)) return false; seen.add(key); return true; }).map((s) => ({s, i: ds.staff.indexOf(s)}));
+            const _past = ds.staff.map((s, i) => ({ s, i })).filter(({ s }) => s && !s._tempHelp && s._to && s._to < _todayIsoS);
             const _roles = [...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))];
             const _other = _rows.filter(x => !_roles.includes(x.s.role||''));
-            const _addStaff = (role) => { const existingStaff = dsRef.current.staff || []; mutate({...dsRef.current,staff:[...existingStaff,{id:`ds${Date.now()}`,role,name:''}]}); };
+            const _addStaff = (role) => { const existingStaff = dsRef.current.staff || []; mutate({...dsRef.current,staff:[...existingStaff,{id:`ds${Date.now()}`,role,name:'',_from:_todayIsoS}]}); }; // ★ trial519: いつから=今日(前の日の日誌には出ない)
             return (<>
               {_roles.map(role => (
                 <div key={role} className="rounded-xl border border-slate-200 bg-slate-50/60 p-2" data-testid={`staff-group-${role}`}>
@@ -50312,8 +50332,13 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
                 <div className="tsu-staffrow flex items-center gap-2 flex-wrap">
                   <div className="tsu-st-role flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
                   <span className="tsu-st-lbl">役職</span>
-                  <span className="w-[122px] px-2 py-2 text-sm font-bold text-slate-800 truncate" title="役職は枠で決まります（変えるときは削除して別の枠で追加）">{s.role||'（役職なし）'}</span>
-                  <select value={s.role2||''} onChange={e=>{ onBlurStaff(i,'role2',e.target.value); setRenderKey(k=>k+1); }} title="役職（副・兼務）" className="w-[116px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600">
+                  <span className="w-[122px] px-2 py-2 text-sm font-bold text-slate-800 truncate" title="役職を変えるときは右の「変更…」から（いつからかを入れます）">{s.role||'（役職なし）'}</span>
+                  {/* ★ 2026-11-04 trial519: 役職の変更は日付つき(削除→追加だと過去の日誌から消えるため) */}
+                  <select value="" data-testid={`staff-role-change-${s.id}`} onChange={e=>{ if (e.target.value) _changeStaffRole(i, 'role', e.target.value); }} title="役職を変える（いつからかを入れます）" className="w-[86px] px-1 py-2 bg-white border border-slate-300 rounded-lg text-[11px] font-bold outline-none text-slate-600">
+                    <option value="">変更…</option>
+                    {_staffRoleList().filter(r=>r!==s.role).map(r=><option key={r} value={r}>→ {r}</option>)}
+                  </select>
+                  <select value={s.role2||''} onChange={e=>{ _changeStaffRole(i,'role2',e.target.value); }} title="役職（副・兼務）・変えるときは いつからかを入れます" className="w-[116px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600">
                     <option value="">副の役職: なし</option>
                     {[...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))].filter(r=>r!==s.role).map(r=><option key={r} value={r}>副: {r}</option>)}
                   </select>
@@ -50351,13 +50376,32 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
                       {cur && !opts.includes(cur) && <option value={cur}>{cur}</option>}
                     </select>
                   ); })}
-                  <button onClick={(e)=>{ if (!tsuAdminClick(e, 'スタッフの削除')) return; mutate({...dsRef.current,staff:dsRef.current.staff.filter((_,j)=>j!==i)}); }} className="tsu-st-del text-red-400 hover:text-red-600 shrink-0 ml-auto" aria-label="削除"><X size={16}/></button>
+                  {/* ★ 2026-11-04 trial519: いつから・いつまで。×は削除ではなく「いつまで」を付ける(過去の日誌・送迎表に残す) */}
+                  <span className="tsu-st-dates flex items-center gap-1 text-[10px] text-slate-500 whitespace-nowrap" title="在籍の期間。空なら制限なし">
+                    <input type="date" value={s._from||''} onChange={e=>{ onBlurStaff(i,'_from',e.target.value); setRenderKey(k=>k+1); }} data-testid={`staff-from-${s.id}`} className="px-1 py-1 bg-white border border-slate-200 rounded text-[11px] w-[122px]" title="いつから（この日から担当の一覧に出ます）"/>〜
+                    <input type="date" value={s._to||''} onChange={e=>{ onBlurStaff(i,'_to',e.target.value); setRenderKey(k=>k+1); }} data-testid={`staff-to-${s.id}`} className="px-1 py-1 bg-white border border-slate-200 rounded text-[11px] w-[122px]" title="いつまで（この日までは出て、翌日から出ません）"/>
+                  </span>
+                  <button type="button" data-testid={`staff-retire-${s.id}`} onClick={(e)=>{ if (!tsuAdminClick(e, 'スタッフの削除')) return; _retireStaff(i); }} className="tsu-st-del text-red-400 hover:text-red-600 shrink-0 ml-auto" aria-label="いつまでを決めて外す" title="いつまで在籍かを入れて一覧から外します（過去の日誌・送迎表には残ります）"><X size={16}/></button>
                 </div>
                 </div>
                     ))}
                   </div>
                 </div>
               ))}
+              {_past.length > 0 && (
+                <details className="rounded-xl border border-slate-200 bg-slate-50/60 p-2" data-testid="staff-past">
+                  <summary className="text-sm font-bold text-slate-600 cursor-pointer select-none">過去の職員（在籍の終わった方）<span className="ml-2 text-[11px] font-normal text-slate-400">{_past.length}名・その方が居た日の日誌・送迎表には残っています</span></summary>
+                  <div className="space-y-1.5 mt-2">
+                    {_past.map(({ s, i }) => (
+                      <div key={s.id} className="bg-white border border-slate-200 rounded-xl px-3 py-2 flex items-center gap-3 flex-wrap text-sm" data-testid={`staff-past-${s.id}`}>
+                        <span className="font-bold text-slate-700">{s.name || '（名前なし）'}</span><span className="text-[11px] text-slate-500">{s.role || ''}{s.role2 ? `（副: ${s.role2}）` : ''}</span>
+                        <span className="text-[11px] text-slate-500">{s._from || '…'} 〜 {s._to}</span>
+                        <button type="button" data-testid={`staff-return-${s.id}`} onClick={()=>{ onBlurStaff(i, '_to', ''); setRenderKey(k=>k+1); }} className="ml-auto text-[11px] font-bold text-blue-700 border border-blue-300 rounded px-2 py-1 bg-white">復帰（いつまでを外す）</button>
+                        <button type="button" onClick={(e)=>{ if (!tsuAdminClick(e, 'スタッフの完全な削除')) return; if (!window.confirm(`「${s.name}」を完全に削除します。過去の日誌・送迎表からもこの方の名前が消えます。よろしいですか？`)) return; mutate({...dsRef.current,staff:dsRef.current.staff.filter((_,j)=>j!==i)}); }} className="text-[11px] font-bold text-red-600 border border-red-300 rounded px-2 py-1 bg-white">完全に削除</button>
+                      </div>))}
+                  </div>
+                </details>
+              )}
               {_other.length > 0 && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-2">
                   <div className="text-sm font-bold text-slate-700 mb-1.5">その他の役職 <span className="text-[11px] font-normal text-slate-400">（役職を選び直してください）</span></div>
@@ -50371,7 +50415,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
                     {[...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))].map(r=><option key={r} value={r}>{r}</option>)}
                     {s.role && !STAFF_BASE_ROLES.includes(s.role) && !(ds.customRoles||[]).includes(s.role) && <option value={s.role}>{s.role}</option>}
                   </select>
-                  <select value={s.role2||''} onChange={e=>{ onBlurStaff(i,'role2',e.target.value); setRenderKey(k=>k+1); }} title="役職（副・兼務）" className="w-[116px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600">
+                  <select value={s.role2||''} onChange={e=>{ _changeStaffRole(i,'role2',e.target.value); }} title="役職（副・兼務）・変えるときは いつからかを入れます" className="w-[116px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600">
                     <option value="">副の役職: なし</option>
                     {[...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))].filter(r=>r!==s.role).map(r=><option key={r} value={r}>副: {r}</option>)}
                   </select>
@@ -50824,7 +50868,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     const sel = { ...(log.staff||{}) };
     if (s._sub) {
       // 従来の見え方の日誌(10/15より前・副役職の記録なし)を初めて触るときは、今見えている印をそのまま記録にしてから切り替える
-      if (!diarySubExplicit(log, _diaryIsoDate)) (ds.staff||[]).forEach(st => { if (st && st.role2 && sel[st.id]) sel[diarySubKey(st.id, st.role2)] = true; });
+      if (!diarySubExplicit(log, _diaryIsoDate)) tsuStaffAsOf(ds.staff, _diaryIsoDate).forEach(st => { if (st && st.role2 && sel[st.id]) sel[diarySubKey(st.id, st.role2)] = true; });
       const k = diarySubKey(s.id, s._subRole);
       if (sel[k]) delete sel[k]; else { sel[k] = true; sel[s.id] = true; }
       updateLog({ staff: sel, staffSubV: 1 });
@@ -50951,7 +50995,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   // ★ サービス提供時間: 各種設定の事業所情報を反映、未設定なら空白
   const serviceTime = ampm==='AM' ? (fi.serviceTimeAM||'') : ampm==='PM' ? (fi.serviceTimePM||'') : (fi.serviceTimeFullDay||fi.serviceTimeAM||'');
   const schedule    = ampm==='AM' ? (ds.scheduleAM||[]) : ampm==='PM' ? (ds.schedulePM||[]) : [...(ds.scheduleAM||[]), ...(ds.schedulePM||[])];
-  const managerName = (ds.staff.find(s=>s.role==='管理者')?.name || fi.manager || '管理者');
+  const managerName = (tsuStaffAsOf(ds.staff, _diaryIsoDate).find(s=>s.role==='管理者')?.name || fi.manager || '管理者'); // ★ trial519: その日の管理者
 
   // Staff grouped - manager first
   // 担当職員フィルタ: ampm フィールドが当日の AM/PM に合致 or 'both' or 未定義 のものを表示
@@ -50969,9 +51013,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     return a.findIndex(o => `${(o.role||'').trim()}|${(o.name||'').trim()}|${(o.lastName||'').trim()}|${(o.firstName||'').trim()}` === key) === i;
   });
   // ★ 副役職(role2)の人もその欄に載せる(2026-09-28 ユーザー要望)。副で載る人は「不在時」の印を付ける(管理者が2名並んだときの区別)
+  const _dsAsOf = tsuStaffAsOf(ds.staff, _diaryIsoDate); // ★ 2026-11-04 trial519: その日の名簿(退職した方・役職が変わった方も、その日の役職で残る)
   const _byRole = (role) => _dedupByName([
-    ...ds.staff.filter(s=>s.role===role && _staffOk(s)),
-    ...ds.staff.filter(s=>s.role2===role && s.role!==role && _staffOk(s)).map(s=>({ ...s, _sub:true, _subRole:role })),
+    ..._dsAsOf.filter(s=>s.role===role && _staffOk(s)),
+    ..._dsAsOf.filter(s=>s.role2===role && s.role!==role && _staffOk(s)).map(s=>({ ...s, _sub:true, _subRole:role })),
   ]);
   const managers  = _byRole('管理者');
   const seikatsu  = _byRole('生活相談員');
@@ -51082,7 +51127,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       //   担当職員が誰もチェックされていない場合は従来どおり全員表示。単なるフィルタなので動作は重くならない。
       const _st = log.staff || {};
       const _anySt = Object.keys(_st).some(k => _st[k]);
-      const arr = ds.staff.filter(s=>s.name && _staffOk(s) && (!_anySt || _st[s.id] || (log.driver||{})[prefix+s.id]));
+      const arr = _dsAsOf.filter(s=>s.name && _staffOk(s) && (!_anySt || _st[s.id] || (log.driver||{})[prefix+s.id])); // ★ trial519: 送迎者の候補もその日の名簿
       const seen = new Set();
       return arr.filter(s => {
         const key = normalizeName(s.name).trim();
@@ -51536,7 +51581,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               // ★ 2026-08-31: 担当職員でチェックした人だけを記録者候補に表示(チェック済みは維持・誰も無ければ全員)
               const _st = _log.staff || {};
               const _anySt = Object.keys(_st).some(k => _st[k]);
-              const arr = ds.staff.filter(s=>s.name && _staffOk(s) && (!_anySt || _st[s.id] || (_log.recorder||{})[s.id]));
+              const arr = _dsAsOf.filter(s=>s.name && _staffOk(s) && (!_anySt || _st[s.id] || (_log.recorder||{})[s.id])); // ★ trial519: 記録者の候補もその日の名簿
               const seen = new Set();
               const dedup = arr.filter(s => { const k = normalizeName(s.name).trim(); if (seen.has(k)) return false; seen.add(k); return true; });
               return dedup;
