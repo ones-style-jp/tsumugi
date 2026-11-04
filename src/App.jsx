@@ -46955,8 +46955,7 @@ const TSU_SETTINGS_INDEX = [
   ['record','特記の一言・音声入力','特記 一言 定型 音声入力 マイク 声'],
   ['diary','日誌','日誌 車両 車 定員 送迎車両 自動コピー 1週間前 職員 担当者 申し送り'],
   ['fitness','体力測定','体力測定 周期 項目 備考 定型文 実施しない'],
-  ['keikaku','要支援の計画書の名前','要支援 総合事業 個別サービス計画書 通所型サービス計画 名前 江東区'],
-  ['keikaku','計画書の定型文（3-3・3-2・3-1・通所介護計画書）','計画書 定型文 個別機能訓練 通所介護 文例'],
+  ['keikaku','要支援の計画書の名前','要支援 総合事業 個別サービス計画書 通所型サービス計画 名前'],
   ['addon','アドオン（オプション機能）','アドオン オプション 計画書 加算 LIFE 興味関心 生活機能'],
   ['system','この端末の表示','表示 全画面 文字 大きさ 自動 この端末'],
   ['system','この端末の名前・最終更新','端末名 端末の名前 最終更新 同期 iPad パソコン'],
@@ -48401,17 +48400,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               <TsuShienTitleSetting ss={ss} saveSS={saveSS}/>
             </SectionCard>
           )}
-          {activeTab === 'keikaku' && (
-            <SectionCard title="計画書の定型文（3-3・3-2・3-1・通所介護計画書）">
-              {/* ★ 2026-10-26(ユーザー決定): 定型文は本部(つむぎ管理局)が全店共通で管理する。店舗では見るだけ */}
-              <div data-testid="kk-presets-info" className="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 font-bold">計画書の定型文は本部（つむぎ管理局）が全店共通で管理しています。追加・変更のご希望は本部へお伝えください。</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {KK_PRESET_LABELS.map(([k, lb]) => { const cur = kkPresetsOf(ss)[k]; return (
-                  <div key={k}><div className="text-xs font-bold text-slate-600 mb-1">{lb} <span className="font-normal text-slate-400">（{cur.length}件）</span></div>
-                    <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 leading-relaxed">{cur.length ? cur.map((t, i) => <div key={i}>・{t}</div>) : <span className="text-slate-400">（なし）</span>}</div></div>); })}
-              </div>
-            </SectionCard>
-          )}
+          {/* ★ 2026-11-05 trial521(ユーザー「各種設定にいらない」): 計画書の定型文の欄は外した。定型文は本部が管理局で全店共通に管理する(店舗は見るだけだった) */}
           {activeTab === 'kibun' && (
             <SectionCard title="体調の理由（カスタマイズ）">
               <div className="flex items-start justify-between gap-2 mb-3">
@@ -48554,14 +48543,14 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                   <div><label className="block text-sm font-bold text-slate-600 mb-1.5">介護保険事業所番号（10桁）</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.officeNumber || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber: e.target.value.normalize('NFKC').replace(/[^0-9]/g,'').slice(0,10)})} placeholder="例: 1300000000" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                   {/* ★ 2026-10-23(ユーザー指示「LIFE連携の番号は事業所情報に移すんじゃなかった？」): 保険者番号・サービス種類コードもここで入力(保存先は同じ facilityInfo) */}
                   <div><label className="block text-sm font-bold text-slate-600 mb-1.5">サービス種類コード <span className="text-[10px] font-normal text-slate-400">（通所介護=15／地域密着型通所介護=78）</span></label><TsuSvcCodeField list={TSU_SVC_CODES} testId="svc-code" value={facilityInfo.serviceCode || ''} onChange={v => setFacilityInfo({...facilityInfo, serviceCode: v})}/></div>
-                  <div className="md:col-span-2" data-testid="sogo-mode"><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業（要支援・事業対象者）の事業所番号 <span className="text-[10px] font-normal text-slate-400">（事業所によって、介護と1つの番号のところと、別の番号のところがあります）</span></label>
+                  <div className="md:col-span-2" data-testid="sogo-mode"><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業（要支援・事業対象者）の事業所番号 <TsuHint className="ml-1">（事業所によって、介護と1つの番号のところと、別の番号のところがあります）</TsuHint></label>
                     <div className="flex gap-2 flex-wrap">
                       {[['same', '介護保険と同じ番号（1つの番号で両方）'], ['sep', '介護とは別の番号がある']].map(([k, l]) => <button key={k} type="button" data-testid={`sogo-mode-${k}`} onClick={() => setFacilityInfo(k === 'sep' ? { ...facilityInfo, sogoSeparate: true } : { ...facilityInfo, sogoSeparate: false, officeNumber2: '', serviceCode2: '' })} className={`px-3 py-2 rounded-xl text-sm font-bold border ${(_sogoSep ? 'sep' : 'same') === k ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{l}</button>)}
                     </div>
                   </div>
                   {_sogoSep && <div><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業の事業所番号 <span className="text-[10px] font-normal text-slate-400">（要支援・事業対象者の方に使う番号）</span></label><ImeSafeInput type="text" value={facilityInfo.officeNumber2 || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber2: e.target.value.normalize('NFKC').toUpperCase().replace(/[^0-9A-Z]/g,'').slice(0,10)})} placeholder="例: 13A0000000" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>}
                   {_sogoSep && <div><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業用のサービス種類コード</label><TsuSvcCodeField list={TSU_SOGO_CODES} testId="svc-code2" upper value={facilityInfo.serviceCode2 || ''} onChange={v => setFacilityInfo({...facilityInfo, serviceCode2: v})}/></div>}
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">保険者番号（6桁） <span className="text-[10px] font-normal text-slate-400">（利用者共通の既定。利用者ごとに違うときは利用者の画面で）</span></label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.insurerNo || ""} onChange={e => setFacilityInfo({...facilityInfo, insurerNo: e.target.value.normalize('NFKC').replace(/[^0-9]/g,'').slice(0,6)})} placeholder="例: 130000（市区町村により異なる）" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">保険者番号（6桁） <TsuHint className="ml-1">（利用者共通の既定。利用者ごとに違うときは利用者の画面で）</TsuHint></label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.insurerNo || ""} onChange={e => setFacilityInfo({...facilityInfo, insurerNo: e.target.value.normalize('NFKC').replace(/[^0-9]/g,'').slice(0,6)})} placeholder="例: 130000（市区町村により異なる）" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 </div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">事業所名</label><input type="text" value={facilityInfo.name} onChange={e => setFacilityInfo({...facilityInfo, name: e.target.value})} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 {/* ★ 管理者名: スタッフ切替/日誌の「管理者」と自動連動(表示のみ・ここでは編集不可)。
@@ -48635,10 +48624,10 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                       className="w-5 h-5 mt-0.5 cursor-pointer accent-blue-600 flex-shrink-0"/>
                     <div>
                       <div className="text-sm font-bold text-slate-700">個別機能訓練加算を取得している</div>
-                      <div className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      <div className="tsu-hint-row mt-1"><TsuHint>
                         チェックすると、 サービス提供記録の保存時に <b>担当者が機能訓練指導員でない場合に警告</b> を表示します。<br/>
                         ヘルプ・別の指導員に切り替えるときは、 サイドバーの「スタッフ切替」から選んでください。
-                      </div>
+                      </TsuHint></div>
                     </div>
                   </label>
                 </div>
@@ -49435,7 +49424,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               {/* 対象介護度カード */}
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                 <h3 className="text-base font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">体力測定 対象介護度</h3>
-                <p className="text-xs text-slate-500 mb-3">体力測定を実施する介護度を選択してください（チェックあり＝対象）</p>
+                <div className="tsu-hint-row mb-3"><TsuHint>体力測定を実施する介護度を選択してください（チェックあり＝対象）</TsuHint></div>
                 <div className="flex flex-wrap gap-2">
                   {allCareLevels.map(level => (
                     <label key={level} className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 rounded-xl border transition-colors"
@@ -49454,7 +49443,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                   {/* ★ 体力測定を実施しない */}
                   <label className="flex items-start gap-2 cursor-pointer p-3 rounded-xl bg-amber-50 border border-amber-200">
                     <input type="checkbox" checked={!!fitnessCycle.disabled} onChange={e => saveCycle({...fitnessCycle, disabled: e.target.checked})} className="w-4 h-4 rounded mt-0.5" />
-                    <span className="text-sm text-slate-700"><b>体力測定を実施しない</b><br/><span className="text-xs text-slate-500">身長・体重などの測定を行いません。測定予定（当月・来月）にも表示されなくなります。</span></span>
+                    <span className="text-sm text-slate-700"><b>体力測定を実施しない</b> <TsuHint className="ml-1">身長・体重などの測定を行いません。測定予定（当月・来月）にも表示されなくなります。</TsuHint></span>
                   </label>
                   {!fitnessCycle.disabled && <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={fitnessCycle.sameForAll} onChange={e => saveCycle({...fitnessCycle, sameForAll: e.target.checked})} className="w-4 h-4 rounded" />
@@ -49575,7 +49564,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" data-testid="fit-pair-modal">
                     <div className="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-sm">
                       <h4 className="font-bold text-slate-800 mb-1 text-base">左右の組にする</h4>
-                      <p className="text-xs text-slate-500 mb-3">「{me?.name}」と組にする項目を選んでください。これまでの記録はそのまま残ります。</p>
+                      <div className="tsu-hint-row mb-3"><TsuHint>「{me?.name}」と組にする項目を選んでください。これまでの記録はそのまま残ります。</TsuHint></div>
                       <div className="text-xs font-bold text-slate-500 mb-1">「{me?.name}」は</div>
                       <div className="flex gap-2 mb-3">{[['R','右'],['L','左']].map(([k,l]) => <button key={k} type="button" onClick={() => setFitPairModal(m => ({ ...m, side: k }))} className={`flex-1 py-2 rounded-xl border-2 font-bold text-sm ${fitPairModal.side === k ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-700 border-slate-300'}`}>{l}</button>)}</div>
                       <div className="text-xs font-bold text-slate-500 mb-1">組にする項目（{fitPairModal.side === 'R' ? '左' : '右'}）</div>
@@ -49649,7 +49638,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               </div>
               <label className="flex items-start gap-2 cursor-pointer">
                 <input type="checkbox" defaultChecked={isAutoFullscreenOn()} onChange={e=>{ try { localStorage.setItem(AUTO_FS_KEY, e.target.checked ? '1' : '0'); } catch {} }} className="mt-1 accent-blue-600"/>
-                <span className="text-sm text-slate-700"><b>ログイン後に担当者を選んだら自動で全画面にする（この端末だけ・パソコン向け）</b><br/><span className="text-xs text-slate-500">タブ・URL欄を隠して広く使えます（Escで戻ります）。iPad・iPhoneは「ホーム画面に追加」から開くと全画面になります。</span></span>
+                <span className="text-sm text-slate-700"><b>ログイン後に担当者を選んだら自動で全画面にする（この端末だけ・パソコン向け）</b> <TsuHint className="ml-1">タブ・URL欄を隠して広く使えます（Escで戻ります）。iPad・iPhoneは「ホーム画面に追加」から開くと全画面になります。</TsuHint></span>
               </label>
             </SectionCard>
             <div ref={deviceSectionRef}>
@@ -49859,10 +49848,10 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                     {/* ★ この端末のデータを「最新」として確定 (移行期に、正しいデータを持つ端末で1回押す) */}
                     <div className="border-t border-slate-200 pt-3">
                       <div className="text-sm font-bold text-slate-700 mb-1.5">この端末のデータを「最新」として全体に反映</div>
-                      <div className="text-[11px] text-slate-500 leading-relaxed mb-2">
+                      <div className="tsu-hint-row mb-2"><TsuHint>
                         すべての記録・設定に<b>今の時刻の印</b>を付けて保存します。これにより、<b>他の端末が持っている古いデータでは上書きされなくなります</b>。<br/>
                         <b>正しい/最新のデータが表示されている端末で1回だけ</b>押してください（最後に押した端末が優先）。そのあと、ほかの端末は再読み込みしてください。
-                      </div>
+                      </TsuHint></div>
                       <button type="button" disabled={stampingAll} onClick={()=>{
                         if (stampingAll) return;
                         if (!window.confirm('この端末に表示されている全データを「最新」として確定し、クラウドと全端末に反映します。\n\n（正しいデータが出ている端末で押してください）実行しますか?')) return;
@@ -49908,7 +49897,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                     {tsuDemoAllowed(appData) && (() => { const _dc = (appData.patients || []).filter(p => p && p._demo).length; return (
                       <div className="border-t border-slate-200 pt-3" data-testid="demo-store">
                         <div className="text-sm font-bold text-slate-700 mb-1.5">デモ用の見本データ（テスト店舗だけ）</div>
-                        <div className="text-[11px] text-slate-500 leading-relaxed mb-2">架空の利用者70名（週1〜3回・平日の午前と午後に10名ずつ）と、9月1日〜昨日の提供記録・住所・フェイスシート・10月の送迎表を入れます。今入っている見本: {_dc}名</div>
+                        <div className="tsu-hint-row mb-2"><TsuHint>架空の利用者70名（週1〜3回・平日の午前と午後に10名ずつ）と、9月1日〜昨日の提供記録・住所・フェイスシート・10月の送迎表を入れます。今入っている見本: {_dc}名</TsuHint></div>
                         <div className="flex gap-2 flex-wrap">
                           <button type="button" data-testid="demo-fill" disabled={demoBusy || _dc > 0} onClick={runDemoFill} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm active:scale-95 disabled:opacity-50">{demoBusy ? <><BusySpin/>処理中…</> : '見本データを入れる'}</button>
                           <button type="button" data-testid="demo-clear" disabled={demoBusy || _dc === 0} onClick={runDemoClear} className="px-4 py-2 bg-white border border-red-300 text-red-700 hover:bg-red-50 rounded-xl font-bold text-sm active:scale-95 disabled:opacity-50">見本データを消す</button>
@@ -50403,7 +50392,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
               )}
               {_other.length > 0 && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-2">
-                  <div className="text-sm font-bold text-slate-700 mb-1.5">その他の役職 <span className="text-[11px] font-normal text-slate-400">（役職を選び直してください）</span></div>
+                  <div className="text-sm font-bold text-slate-700 mb-1.5">その他の役職 <TsuHint className="ml-1">（役職を選び直してください）</TsuHint></div>
                   <div className="space-y-2">
                     {_other.map(({s, i}) => (
                 <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-2">
@@ -50483,7 +50472,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
             職員に関する設定なので「担当職員」の枠に置く(送迎車両の枠に出ていた配置ミスを是正) */}
         <label className="flex items-start gap-2 mt-4 pt-3 border-t border-slate-200 cursor-pointer">
           <input type="checkbox" checked={!ds.hideStaffTemp} onChange={e=>{ const nd={...dsRef.current, hideStaffTemp: !e.target.checked}; dsRef.current=nd; setRenderKey(k=>k+1); if(onSave) onSave({...appData, diarySettings: nd}, { manual:true, message: e.target.checked?'✓ 日誌で職員の体温を表示・入力します':'✓ 日誌の職員体温を非表示にしました' }); }} className="mt-0.5 accent-blue-600"/>
-          <span className="text-sm text-slate-700"><b>日誌に職員の体温を表示・入力する</b><br/><span className="text-xs text-slate-500">ONにすると、担当職員にチェックしたとき体温を入れられ、氏名の下に「36.5℃」と出ます。残さない店舗はOFFに（入力済みは消えません）。</span></span>
+          <span className="text-sm text-slate-700"><b>日誌に職員の体温を表示・入力する</b> <TsuHint className="ml-1">ONにすると、担当職員にチェックしたとき体温を入れられ、氏名の下に「36.5℃」と出ます。残さない店舗はOFFに（入力済みは消えません）。</TsuHint></span>
         </label>
       </SC>
       <SC title="送迎車両">
@@ -50504,7 +50493,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
         {/* ★ 送迎の1週間前自動コピー */}
         <label className="flex items-start gap-2 mt-4 pt-3 border-t border-slate-200 cursor-pointer">
           <input type="checkbox" checked={!!ds.autoCopySougei} onChange={e=>{ const nd={...dsRef.current, autoCopySougei: e.target.checked}; dsRef.current=nd; setRenderKey(k=>k+1); if(onSave) onSave({...appData, diarySettings: nd}, { manual:true, message: e.target.checked?'✓ 1週間前の送迎の自動コピーをONにしました':'自動コピーをOFFにしました' }); }} className="mt-0.5 accent-blue-600"/>
-          <span className="text-sm text-slate-700"><b>1週間前の送迎を自動コピー</b><br/><span className="text-xs text-slate-500">日誌を開いたとき、その日の送迎（迎え・送り・運転者・時間）が未入力なら、<b>7日前の同じ時間帯</b>の内容を自動で読み込みます（毎週同じ送迎の店舗向け）。送迎表が保存されている日はコピーせず、「送迎表取込」で入れます。</span></span>
+          <span className="text-sm text-slate-700"><b>1週間前の送迎を自動コピー</b> <TsuHint className="ml-1">日誌を開いたとき、その日の送迎（迎え・送り・運転者・時間）が未入力なら、<b>7日前の同じ時間帯</b>の内容を自動で読み込みます（毎週同じ送迎の店舗向け）。送迎表が保存されている日はコピーせず、「送迎表取込」で入れます。</TsuHint></span>
         </label>
       </SC>
       {['AM','PM'].map(ap=>(
@@ -54143,14 +54132,14 @@ const tkExercisesFromRecord = (patient, ss) => { try {
   return out.slice(0, 8);
 } catch { return []; } };
 // 各種設定 → 計画書: 要支援の計画書の名前(印刷の題名)。よく使う名前は押して選べる
-const TK_SHIEN_TITLE_PRESETS = [TK_SHIEN_TITLE_DEFAULT, '江東区総合事業個別サービス計画書（介護予防型通所）', '通所型サービス計画書'];
+const TK_SHIEN_TITLE_PRESETS = [TK_SHIEN_TITLE_DEFAULT, '通所型サービス計画書']; // ★ 2026-11-05 trial521(ユーザー): 江東区の名前は江東区でしか使えないので候補から外した(入れたい店舗は欄に入力)
 function TsuShienTitleSetting({ ss, saveSS }) {
   const cur = tkShienTitle(ss); const [v, setV] = React.useState(cur);
   React.useEffect(() => { setV(cur); }, [cur]);
   const save = (t) => { const x = String(t || '').trim().slice(0, 40); saveSS({ shienPlanTitle: x === TK_SHIEN_TITLE_DEFAULT ? '' : x }, '✓ 要支援の計画書の名前を保存しました'); };
   return (
     <div className="space-y-2" data-testid="tk-shien-title-setting">
-      <p className="text-xs text-slate-500">要支援・事業対象者の方の計画書（通所介護計画書の画面で作ります）の印刷の題名です。国の決まった名前は無く、市区町村で違います。</p>
+      <div className="tsu-hint-row"><TsuHint>要支援・事業対象者の方の計画書（通所介護計画書の画面で作ります）の印刷の題名です。国の決まった名前は無く、市区町村で違います。下の候補を押すか、欄に入れて保存します。</TsuHint></div>
       <div className="flex gap-2 flex-wrap"><input value={v} maxLength={40} onChange={e => setV(e.target.value)} data-testid="tk-shien-title-input" className="flex-1 min-w-[14em] px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white"/>
         <button type="button" data-testid="tk-shien-title-save" onClick={() => save(v)} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold">保存</button></div>
       <div className="flex gap-2 flex-wrap">{TK_SHIEN_TITLE_PRESETS.map(t => <button key={t} type="button" onClick={() => { setV(t); save(t); }} className={`px-3 py-1.5 rounded-full border text-xs font-bold ${cur === t ? 'bg-blue-50 border-blue-300 text-blue-800' : 'bg-white border-slate-300 text-slate-600'}`}>{t}</button>)}</div>
