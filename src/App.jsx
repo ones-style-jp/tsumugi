@@ -13047,6 +13047,43 @@ const DashTile = ({icon, label, sub, color, view, navigateTo}) => (
     {sub && <div style={{fontSize:9,color:'#64748b'}}>{sub}</div>}
   </button>
 );
+// ★ 2026-11-04 trial514(ユーザー要望): ホームの「送迎の時間が変わった方(連絡が要る)」。今日と明日を、午前・午後に分けて出す。
+//   チェックを付けると送迎表の連絡済(_telDone)に入り、送迎表の赤枠と「要連絡 n件」も消える(同じデータ)。連絡済の方も薄く残す(外せる)
+function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
+  if (!tpStoreUsesTransport(appData)) return null;
+  const days = [0, 1].map(k => { const d = new Date(); d.setDate(d.getDate() + k); return { iso: tpIsoOf(d), label: k === 0 ? '今日' : '明日', d }; });
+  const lists = days.map(x => ({ ...x, rows: tpNoticeListOn(appData, x.iso) })).filter(x => x.rows.length);
+  if (!lists.length) return null;
+  const DOWJ = ['日', '月', '火', '水', '木', '金', '土']; const narrow = tsuViewW() < 640;
+  const mark = (iso, sl, pid, on) => { const next = tpTelDoneSet(appData, iso, sl, pid, on); if (next && onSave) onSave(next, { silent: true }); };
+  const pending = lists.reduce((a, x) => a + x.rows.filter(r => !r.done).length, 0);
+  return (
+    <div data-testid="home-tp-notice" data-pending={pending} style={{ width: '100%', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 12, padding: '10px 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+        <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>送迎の時間が変わった方（連絡が要る）</span>
+        {pending ? <span data-testid="home-tp-notice-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px' }}>未連絡 {pending}名</span> : <span style={{ fontSize: 12, fontWeight: 'bold', color: '#047857' }}>全員連絡済</span>}
+        <span style={{ fontSize: 11, color: '#9a3412' }}>電話したらチェック（送迎表の連絡済にも入ります）</span>
+        <button type="button" data-testid="home-tp-notice-open" onClick={() => navigateTo && navigateTo('transport')} style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 'bold', color: '#1d4ed8', background: '#fff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 10px' }}>送迎表を開く</button>
+      </div>
+      {lists.map(x => (
+        <div key={x.iso} data-testid={`home-tp-notice-${x.iso}`} style={{ marginTop: 4 }}>
+          <div style={{ fontSize: 12, fontWeight: 'bold', color: '#7c2d12', marginBottom: 4 }}>{x.label} {x.d.getMonth() + 1}/{x.d.getDate()}（{DOWJ[x.d.getDay()]}）</div>
+          <div style={{ display: 'grid', gridTemplateColumns: narrow ? '1fr' : '1fr 1fr', gap: 8 }}>
+            {['AM', 'PM'].map(sl => { const rows = x.rows.filter(r => r.sl === sl); return (
+              <div key={sl} data-testid={`home-tp-notice-${x.iso}-${sl}`} style={{ background: '#fff', border: '1px solid #fed7aa', borderRadius: 10, padding: '6px 10px' }}>
+                <div style={{ fontSize: 12, fontWeight: 'bold', color: sl === 'AM' ? '#b45309' : '#4338ca', marginBottom: 2 }}>{sl === 'AM' ? '午前' : '午後'}{rows.length ? `（未連絡 ${rows.filter(r => !r.done).length}名）` : ''}</div>
+                {!rows.length ? <div style={{ fontSize: 12, color: '#94a3b8' }}>なし</div> : rows.map(r => (
+                  <label key={r.pid} data-testid={`home-tp-row-${x.iso}-${sl}-${r.pid}`} data-done={r.done ? '1' : '0'} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderTop: '1px solid #f1f5f9', cursor: 'pointer', opacity: r.done ? 0.6 : 1, minHeight: 44 }}>
+                    <input type="checkbox" checked={!!r.done} onChange={e => mark(x.iso, sl, r.pid, e.target.checked)} style={{ width: 22, height: 22, accentColor: '#059669', flexShrink: 0 }} />
+                    <span style={{ fontSize: 16, fontWeight: 'bold', color: '#1e293b', textDecoration: r.done ? 'line-through' : 'none' }}>{r.name}</span>
+                    <span style={{ fontSize: 12, color: '#475569' }}>{r.ac}</span>
+                    {r.done ? <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 'bold', color: '#047857', whiteSpace: 'nowrap' }}>連絡済</span> : null}
+                  </label>))}
+              </div>); })}
+          </div>
+        </div>))}
+    </div>);
+}
 function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes, isNoticeRead, markNoticeRead, onSave }) {
   const [htCfgOpen, setHtCfgOpen] = React.useState(false); // ★ 2026-10-26: ホームに出す業務の表示設定
   const [htMore, setHtMore] = React.useState({}); // ★ 2026-10-26: 業務の「他n件を見る」
@@ -13289,6 +13326,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 </div>
               </div>
               <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd',position:'relative'}}>
+                <TsuHomeTpNotice appData={appData} onSave={onSave} navigateTo={navigateTo} />{/* ★ 2026-11-04 trial514: 送迎の時間が変わった方(連絡が要る)・今日と明日・午前/午後 */}
                 <TsuHomeMemos appData={appData} onSave={onSave} isRead={isRead} markRead={markRead} />{/* ★ 2026-10-30: 今日の申し送り(本日の業務の上) */}
                 {section('today', '本日の業務', 'home-tasks-today', true)}
                 {section('week', '今週の業務', 'home-tasks-week', false)}
@@ -37985,6 +38023,53 @@ function TsuTimeKeypad({ title, hint, initial, onCommit, onClose, suggest }) {
       </div>
     </div>, document.body);
 }
+// ★ 2026-11-04 trial514(ユーザー要望「ホームに送迎表の時間変更をまだ連絡していない方を午前・午後に分けて出し、チェックで送迎表にも反映」):
+//   送迎表の「要連絡(赤枠)」と同じ判定を、送迎表の画面の外(ホーム)から使えるようにした純粋関数。
+//   送迎表側(_chgOf/_noticeNeeded/_telDoneOf)と同じ規則: 配布の控え(_base)と比べて「追加」か「時間が変わった」方で、
+//   変えた後に本人が来所して連絡帳が出ている(次の連絡帳に載る)なら要らない。連絡済は _telDone[pid]={ck,on,t}(ck=その変更の時刻)
+const tpFmtT = (t) => { const x = String(t || '').trim(); const m = x.match(/^(\d{1,2}):(\d{2})/); if (m) return `${+m[1]}:${m[2]}`; const h = x.match(/^(\d{1,2})$/); return h ? `${+h[1]}:--` : x; };
+const tpSnapOf = (pl) => { const cars = {}; Object.keys(pl?.cars || {}).forEach(cid => { cars[cid] = (pl.cars[cid] || []).filter(Boolean).map(m => ({ pid: m.pid, t: tpFmtT(m.t) })); }); return { cars, walkers: (pl?.walkers || []).filter(Boolean).map(m => m.pid), walkT: Object.fromEntries((pl?.walkers || []).filter(Boolean).map(m => [m.pid, /\d/.test(String(m.t || '')) ? tpFmtT(m.t) : ''])), others: (pl?.others || []).filter(Boolean).map(m => m.pid) }; };
+const tpLocIn = (snap, pid) => { for (const cid of Object.keys(snap.cars || {})) { const i = snap.cars[cid].findIndex(m => m.pid === pid); if (i >= 0) return { zone: cid, t: snap.cars[cid][i].t || '' }; } if (snap.walkers.includes(pid)) return { zone: 'walk', t: snap.walkT[pid] || '' }; if (snap.others.includes(pid)) return { zone: 'other', t: '' }; return null; };
+const tpRecsOnG = (appData, pid, iso) => (appData.ticketRecords || []).filter(r => r && r.patientId === pid && recIsoOf(r) === iso);
+const tpAttendsOnG = (appData, iso, sl, pid) => {
+  const p = (appData.patients || []).find(x => x.id === pid); if (!p || !isPatientActiveOnDate(p, iso)) return false;
+  const hol = (appData.holidays || []).find(h => (h && (h.date || h)) === iso); if (hol && (!hol.ampm || hol.ampm === '1日' || hol.ampm === sl)) return false;
+  const d = new Date(iso + 'T00:00:00'); const dow = d.getDay(); const ov = appData.monthlyShifts?.[iso.slice(0, 7)]?.[p.id]?.[`${d.getDate()}_${sl}`];
+  if (ov !== undefined && ov !== '') return (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
+  const base = getScheduleOnDate(p, iso)?.[dow] || ''; const hit = base === sl || (base === '1日' && sl === 'AM');
+  const recs = tpRecsOnG(appData, pid, iso);
+  if (hit && !recs.some(r => r.status === '欠席' || r.status === '休業' || r.status === '休止')) return true;
+  const slotOf = (r) => r.furikaeAmpm ? (r.furikaeAmpm === '1日' ? 'AM' : r.furikaeAmpm) : (/午後/.test(String(r.tokki || '')) ? 'PM' : 'AM');
+  return recs.some(r => (r.status === '振替' || r.status === '臨時') && slotOf(r) === sl);
+};
+const tpNoticeNeededG = (appData, targetIso, pid, chgAt) => {
+  const t = Number(chgAt); if (!t) return true;
+  const chgIso = tpIsoOf(new Date(t)); const todayIso = tpIsoOf(new Date()); if (chgIso >= targetIso) return true;
+  const d = new Date(chgIso + 'T00:00:00');
+  for (let i = 0; i < 40; i++) { const iso = tpIsoOf(d); if (iso >= targetIso) break;
+    for (const sl of ['AM', 'PM']) { if (!tpAttendsOnG(appData, iso, sl, pid)) continue; const rec = tpRecsOnG(appData, pid, iso)[0]; const pr = Number(rec && rec[`cbPrintedAt_${sl}`]) || 0; if (pr) { if (pr > t) return false; } else if (iso >= todayIso) return false; }
+    d.setDate(d.getDate() + 1); }
+  return true;
+};
+// その日の「要連絡」の一覧 [{ sl, pid, name, ac, done, ck }](連絡済も done:true で返す)
+const tpNoticeListOn = (appData, iso) => {
+  const out = []; if (!tpStoreUsesTransport(appData)) return out;
+  ['AM', 'PM'].forEach(sl => { const pl = (appData.transportPlans || {})[`${iso}_${sl}`]; const base = pl && typeof pl === 'object' && pl._base; if (!pl || !base) return;
+    const cur = tpSnapOf(pl), fin = tpSnapOf(base);
+    const ids = [...Object.values(cur.cars).flat().map(m => m.pid), ...cur.walkers, ...cur.others];
+    ids.forEach(pid => { const now = tpLocIn(cur, pid); if (!now) return; const was = tpLocIn(fin, pid);
+      let ac = ''; if (!was) ac = '配布後に追加'; else if (now.t !== was.t) ac = `時間が変更（${was.t || '未定'}→${now.t || '未定'}）`; if (!ac) return;
+      const ca = (pl._chgAt || {})[pid] || 0; if (!tpNoticeNeededG(appData, iso, pid, ca)) return;
+      const ck = String(ca || '0'); const td = (pl._telDone || {})[pid]; const done = !!(td && typeof td === 'object' && td.on && String(td.ck) === ck);
+      const p = (appData.patients || []).find(x => x.id === pid); out.push({ sl, pid, name: (p && p.name) || '', ac, done, ck }); }); });
+  return out;
+};
+// 連絡済を付ける/外す(送迎表の setTelDone と同じ形で保存。戻り値=新しい appData・コマが無ければ null)
+const tpTelDoneSet = (appData, iso, sl, pid, on) => {
+  const k = `${iso}_${sl}`; const plans = appData.transportPlans || {}; const pl = plans[k]; if (!pl || typeof pl !== 'object') return null;
+  const td = { ...(pl._telDone || {}), [pid]: { ck: String(((pl._chgAt || {})[pid]) || '0'), on: !!on, t: syncNow() } };
+  return { ...appData, transportPlans: { ...plans, [k]: { ...pl, _telDone: td, _savedAt: syncNow() } } };
+};
 const tpSeatRows = (cap) => { const n = Math.max(0, (Number(cap) || 0) - 1); const rows = []; let r = n; while (r > 0) { const k = (r % 3 === 0 || r > 4) ? Math.min(3, r) : Math.min(2, r); rows.push(k); r -= k; } return rows.reverse(); };
 // 車の席の割り当て(送りの一覧 list=[{pid, seat}] の並び順=送りの順番)。席が無い・重なる・定員外の方は「席未定」
 // 座席表の名前は姓と名で改行(最初の空白で分ける。空白が無ければ1行)
