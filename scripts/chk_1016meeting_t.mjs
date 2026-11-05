@@ -14,7 +14,7 @@ const pid = await page.evaluate((iso) => { const d = JSON.parse(localStorage.get
 await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2000); await page.locator('button', { hasText: 'あとで' }).click({ timeout: 300 }).catch(() => {});
 const M = page.locator('[data-testid="personal-file-modal"]'); console.log('pf modal', await M.count());
 if (!(await M.count())) { await page.locator('button', { hasText: '個人ファイル' }).first().click(); await page.waitForTimeout(800); }
-await page.locator('[data-testid="personal-file-modal"] button', { hasText: /ケアプラン・担当者会議/ }).first().click({ timeout: 3000 }).catch(() => {}); await page.waitForTimeout(500); console.log('tab btns', await page.locator('[data-testid="personal-file-modal"] button', { hasText: /^小窓$|ダウンロード/ }).count());
+await page.locator('[data-testid="personal-file-modal"] button:visible', { hasText: /ケアプラン・担当者会議/ }).first().click({ timeout: 3000 }).catch(() => {}); await page.waitForTimeout(500); console.log('tab btns', await page.locator('[data-testid="personal-file-modal"] button', { hasText: /^小窓$|ダウンロード/ }).count());
 // ダウンロード → すぐ PDF
 const n0 = pdfs.length; await page.getByTestId('meeting-dl-m1').click(); await page.waitForTimeout(2500);
 const h = pdfs.length > n0 ? pdfs.at(-1).html : ''; console.log('pdf direct', pdfs.length > n0, 'title at top', h.indexOf('サービス担当者会議録') > 0 && h.indexOf('サービス担当者会議録') < h.indexOf('介護区分'), 'content fs', (h.match(/overflow:hidden;">/) ? (h.match(/font-size:([\d.]+)px;line-height:1\.75/) || [])[1] : '?'), 'preview modal', await page.locator('text=サービス担当者会議録 プレビュー').count());
@@ -33,7 +33,7 @@ console.log('after drag out', JSON.stringify(await fl.evaluate(el => { const r =
 // 全画面 → 元の大きさ
 await fl.locator('button', { hasText: '全画面' }).click(); await page.waitForTimeout(300); console.log('full', JSON.stringify(await fl.evaluate(el => { const r = el.getBoundingClientRect(); const ta = [...el.querySelectorAll('textarea')].pop(); const save = [...el.querySelectorAll('button')].find(b => b.innerText.trim() === '保存'); const tr = ta.getBoundingClientRect(), sr = save.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), taH: Math.round(tr.height), overlap: sr.top < tr.bottom && sr.bottom > tr.top, saveInside: sr.bottom <= r.bottom }; })));
 await fl.screenshot({ path: `${OUT}/float_full.png` });
-await fl.locator('button', { hasText: '元の大きさ' }).click(); await page.waitForTimeout(300);
+await fl.locator('button', { hasText: /^小窓$/ }).click(); await page.waitForTimeout(300);
 // 開催理由を選ぶ → 介護度の変更欄 → 保存 → reason 文字列
 await fl.locator('select').first().selectOption('介護認定の更新'); await page.waitForTimeout(200);
 const sels = fl.locator('select'); console.log('selects after', await sels.count(), 'careBefore default', await sels.nth(1).inputValue());
@@ -44,7 +44,7 @@ await fl.locator('button', { hasText: /^保存$/ }).click(); await page.waitForT
 console.log('saved', JSON.stringify(await page.evaluate((pid) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const m = d.patients.find(p => p.id === pid).personalFile.meetings[0]; return { reason: m.reason, type: m.reasonType, att: m.attendees.replace(/見本 \S+/g, '○○'), t: m.timeStart + '-' + m.timeEnd }; }, pid)));
 // 小窓を出したまま 個人ファイル→編集 → 小窓が閉じて入力画面だけ・入力画面は全画面・右上の×なし
 await page.locator('button', { hasText: '個人ファイル' }).first().click(); await page.waitForTimeout(1000);
-await page.locator('[data-testid="personal-file-modal"] button', { hasText: /ケアプラン・担当者会議/ }).first().click({ timeout: 3000 }).catch(() => {}); await page.waitForTimeout(400);
+await page.locator('[data-testid="personal-file-modal"] button:visible', { hasText: /ケアプラン・担当者会議/ }).first().click({ timeout: 3000 }).catch(() => {}); await page.waitForTimeout(400);
 await page.locator('[data-testid="personal-file-modal"] button', { hasText: /^編集$/ }).first().click(); await page.waitForTimeout(600);
 await page.screenshot({ path: `${OUT}/form_dbg.png` }); console.log('dialogs so far', JSON.stringify(dialogs)); console.log('form open → float', await fl.count(), 'form', JSON.stringify(await page.evaluate(() => { const t = [...document.querySelectorAll('div')].find(d => d.innerText && d.innerText.startsWith('サービス担当者会議記録表')); const box = t && t.closest('.bg-white.shadow-2xl'); const r = box && box.getBoundingClientRect(); const ta = box && [...box.querySelectorAll('textarea')].pop(); return r ? { w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight, xBtn: !!box.querySelector('svg.lucide-x'), taH: ta ? Math.round(ta.getBoundingClientRect().height) : 0 } : null; })));
 await page.locator('button', { hasText: /^終了$/ }).last().click(); await page.waitForTimeout(400);

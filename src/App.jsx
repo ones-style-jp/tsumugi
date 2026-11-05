@@ -22844,18 +22844,18 @@ export default function App() {
     } catch { return 0; }
   }, [appData.diaryLogs, appData.holidays, appData.systemSettings?.facilityInfo?.closedDays]);
   React.useEffect(() => {
-    const h = (e) => setMeetingFloat({ patientId: e.detail.patientId, meetingId: e.detail.meetingId, isNew: !!e.detail.isNew });
+    const h = (e) => setMeetingFloat({ patientId: e.detail.patientId, meetingId: e.detail.meetingId, isNew: !!e.detail.isNew, init: e.detail.init || null, dirty: !!e.detail.dirty });
     window.addEventListener('tsumugi-meeting-float', h);
     return () => window.removeEventListener('tsumugi-meeting-float', h);
   }, []);
   // ★ 2026-10-17: 再読み込み(更新ボタン・ブラウザの再読み込みとも)の前に開いていた小窓を開き直す(12時間以内)。データが読み込まれてから
   React.useEffect(() => {
     try { const raw = sessionStorage.getItem('tsumugi_resume_meeting_float'); if (!raw) return; const o = JSON.parse(raw);
-      if (o && o.patientId && o.meetingId && Date.now() - (o.t || 0) < 12 * 60 * 60 * 1000) { const t = setTimeout(() => setMeetingFloat({ patientId: o.patientId, meetingId: o.meetingId, isNew: false }), 1200); return () => clearTimeout(t); }
+      if (o && o.patientId && o.meetingId && Date.now() - (o.t || 0) < 12 * 60 * 60 * 1000) { const t = setTimeout(() => setMeetingFloat({ patientId: o.patientId, meetingId: o.meetingId, isNew: !!o.isNew }), 1200); return () => clearTimeout(t); }
       sessionStorage.removeItem('tsumugi_resume_meeting_float'); } catch {}
   }, []);
   // 小窓が開いている間はその控えを置き、閉じたら消す(どの再読み込みでも戻れる)
-  React.useEffect(() => { try { if (meetingFloat) sessionStorage.setItem('tsumugi_resume_meeting_float', JSON.stringify({ patientId: meetingFloat.patientId, meetingId: meetingFloat.meetingId, t: Date.now() })); else sessionStorage.removeItem('tsumugi_resume_meeting_float'); } catch {} }, [meetingFloat]);
+  React.useEffect(() => { try { if (meetingFloat) sessionStorage.setItem('tsumugi_resume_meeting_float', JSON.stringify({ patientId: meetingFloat.patientId, meetingId: meetingFloat.meetingId, isNew: !!meetingFloat.isNew, t: Date.now() })); else sessionStorage.removeItem('tsumugi_resume_meeting_float'); } catch {} }, [meetingFloat]);
   // ★ 2026-10-16(ユーザー「小窓を出しながら編集を押すと両方出る。片方だけに」): 入力画面を開くときは小窓を閉じる(小窓側で未保存なら保存してから)
   useEffect(()=>{
     // ★ 2026-10-03(ユーザー要望「連絡帳はまっすぐ印刷画面へ」): detail.autoPrint=true なら、プレビューを出した直後に印刷(PC=隠しiframeで印刷ダイアログ、iPad=印刷用の表示)へ進む
@@ -24319,13 +24319,15 @@ export default function App() {
     trashPurgedRef.current = true;
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
     let changed = false;
+    let _rt = null; const _refText = () => (_rt === null ? (_rt = tsuStorageRefText(appData)) : _rt);
     const patients = (appData.patients || []).map(p => {
       const trash = p.personalFile?.trash;
       if (!Array.isArray(trash) || trash.length === 0) return p;
       const keep = [];
       trash.forEach(t => {
         if (t._deletedAt && new Date(t._deletedAt).getTime() < cutoff) {
-          if (t.storagePath && isSupabaseEnabled) supabaseDeleteFile(t.storagePath).catch(()=>{});
+          // ★ 2026-11-05: 同じ写真がゴミ箱の外でまだ使われていれば(同期で戻った書類など) Storage からは消さない
+          if (t.storagePath && isSupabaseEnabled && !tsuStoragePathInUse(_refText(), t.storagePath)) supabaseDeleteFile(t.storagePath).catch(()=>{});
           changed = true;
         } else { keep.push(t); }
       });
@@ -24339,7 +24341,7 @@ export default function App() {
         const paths = [];
         if (t.storagePath) paths.push(t.storagePath);
         if (Array.isArray(t.photos)) t.photos.forEach(ph => ph?.storagePath && paths.push(ph.storagePath));
-        if (isSupabaseEnabled) paths.forEach(pth => supabaseDeleteFile(pth).catch(()=>{}));
+        if (isSupabaseEnabled) paths.forEach(pth => { if (!tsuStoragePathInUse(_refText(), pth)) supabaseDeleteFile(pth).catch(()=>{}); });
         changed = true;
       } else { annKeep.push(t); }
     });
@@ -43365,9 +43367,16 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         try { await supabaseDeletePatientFamily(_storeId, pid); }
         catch (e) { console.warn('[supabase] delete patient family failed', e); }
       }
-      // ★ この利用者の Storage 実体ファイルを全削除 (完全削除のため。 退所は status 変更のみで残る)
-      try { await supabaseDeleteFolder(`pf/${pid}`); await supabaseDeleteFolder(`fs/${pid}`); }
-      catch (e) { console.warn('[storage] delete patient folder failed', e); }
+      // ★ この利用者の Storage 実体ファイルを削除 (完全削除のため。 退所は status 変更のみで残る)
+      // ★ 2026-11-05(負担割合証の写真が見られない件): 置き場所 pf/<番号>/ には店舗の区別がなく、番号は店舗ごとに 1,2,3… と振る。
+      //   フォルダごと消すと、他の店舗の同じ番号の方の写真まで消えていた → この方の記録が指している写真だけを消す(この店舗の他の記録が使っているものは残す)
+      try {
+        const _pObj = (appData.patients||[]).find(p => p.id === pid);
+        const _mine = tsuStoragePathsOf(_pObj).filter(x => x.startsWith(`pf/${pid}/`) || x.startsWith(`fs/${pid}/`));
+        const _rest = tsuStorageRefText({ ...appData, patients: (appData.patients||[]).filter(p => p.id !== pid) });
+        for (const x of _mine) if (!tsuStoragePathInUse(_rest, x)) await supabaseDeleteFile(x).catch(()=>{});
+      }
+      catch (e) { console.warn('[storage] delete patient files failed', e); }
     }
     // ★ この利用者IDに紐づく全データ (提供記録・気分・体力測定・お知らせ・写真等) を除去 + 墓石付与。
     //   → 削除後にCSV等で同じIDが再利用されても、前の利用者のデータが誤って紐づかない。
@@ -60295,6 +60304,10 @@ const tsumugiRotateExisting = async (file, prefix) => {
   try { const res = await tsumugiRotateStoredImage(file, d, prefix); if (!res) alert('回転できませんでした。通信状態をご確認のうえ、もう一度お試しください。'); return res; }
   catch (e) { alert('回転できませんでした: ' + (e && e.message || e)); return null; }
 };
+// ★ 2026-11-05: 写真の置き場所(storagePath)が、ゴミ箱の外でまだ使われているか。ゴミ箱(個人ファイル・お知らせ)を除いた店舗データの文字で調べる
+const tsuStorageRefText = (data) => { try { return JSON.stringify({ ...(data || {}), trashedAnnouncements: [], patients: ((data && data.patients) || []).map(p => (p && p.personalFile && p.personalFile.trash) ? { ...p, personalFile: { ...p.personalFile, trash: [] } } : p) }); } catch { return ''; } };
+const tsuStoragePathInUse = (refText, path) => !!path && !!refText && refText.includes('"storagePath":' + JSON.stringify(path));
+const tsuStoragePathsOf = (obj) => { try { const out = new Set(); const re = /"storagePath":"((?:[^"\\]|\\.)*)"/g; const t = JSON.stringify(obj || {}); let m; while ((m = re.exec(t))) out.add(JSON.parse('"' + m[1] + '"')); return [...out]; } catch { return []; } };
 // 削除時に、その項目に紐づく Storage 実体ファイルも削除する (storagePath / photos[].storagePath)
 const purgeStorageFiles = (item) => {
   if (!item) return;
@@ -60353,13 +60366,19 @@ function useSignedUrl(file) {
 //   サムネイル枠に「PDF」と表示する(クリックでのプレビューは従来どおり)。
 function StoredImage({ file, alt, className, style, onClick }) {
   const src = useSignedUrl(file);
+  const [bad, setBad] = useState(''); // ★ 2026-11-05: 読めなかった写真は壊れた絵(「image.jpg」と?)ではなく、読み込めないことを文字で出す
   const isPdf = (((file?.type)||'')+'').includes('pdf') || /\.pdf(\?|$)/i.test(file?.name || file?.url || file?.storagePath || '');
   if (isPdf) return (
     <div className={className} style={{background:'#f1f5f9',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,color:'#64748b',border:'1px solid #e2e8f0',cursor:onClick?'pointer':undefined,...(style||{})}} onClick={onClick} title={file?.name||'PDF'}>
       <span style={{fontSize:11,fontWeight:'bold',letterSpacing:'0.5px'}}>PDF</span>
     </div>
   );
-  return src ? <img src={src} alt={alt||''} className={className} style={style} onClick={onClick}/> : <div className={className} style={{background:'#f1f5f9',...(style||{})}} onClick={onClick}/>;
+  if (src && bad === src) return (
+    <div className={className} data-testid="stored-image-missing" style={{background:'#fff7ed',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,color:'#c2410c',border:'1px solid #fed7aa',textAlign:'center',padding:4,boxSizing:'border-box',...(style||{})}} onClick={onClick} title={file?.name||''}>
+      <span style={{fontSize:11,fontWeight:'bold',lineHeight:1.3}}>写真を<br/>読み込めません</span>
+    </div>
+  );
+  return src ? <img src={src} alt={alt||''} className={className} style={style} onClick={onClick} onError={() => setBad(src)}/> : <div className={className} style={{background:'#f1f5f9',...(style||{})}} onClick={onClick}/>;
 }
 // 開く/ダウンロード リンク (署名URL対応)
 function StoredFileLink({ file, className, children }) {
@@ -60902,7 +60921,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     const t = (personalFile.trash || []).find(x => x.id === trashId);
     if (!t) return;
     if (!window.confirm('このファイルを完全に削除します。元に戻せません。よろしいですか?')) return;
-    if (t.storagePath) { supabaseDeleteFile(t.storagePath).catch(()=>{}); }
+    if (t.storagePath && !tsuStoragePathInUse(tsuStorageRefText(appData), t.storagePath)) { supabaseDeleteFile(t.storagePath).catch(()=>{}); } // ★ 2026-11-05: まだ使われている写真は消さない
     updatePatient({ trash: (personalFile.trash || []).filter(x => x.id !== trashId) });
   };
   // ★ ファイルのタイトル/日付を編集
@@ -61835,7 +61854,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 <div className="text-sm font-bold text-blue-900">サービス担当者会議記録 (担会)</div>
                 <div className="flex gap-1.5">
                   {/* ★ 小窓で記録(2026-08-28): 会議記録を新規作成してフロートメモで開く。 他の画面(分析個人等)を見ながら入力できる */}
-                  <button onClick={()=>{ const _id = `meet_${Date.now()}`; const _td = new Date().toISOString().slice(0,10); updatePatient({ meetings: [...meetings, { id:_id, date:_td, dateLabel: toWarekiDateLabel(_td), dayOfWeek: dayOfWeekJp(_td), locationType:'事業所', location:'事業所', timeStart:'', timeEnd:'', attendees:'', reason:'', content:'' }] }, { silent:true }); window.dispatchEvent(new CustomEvent('tsumugi-meeting-float',{detail:{patientId: patient.id, meetingId:_id, isNew:true}})); onClose && onClose(); }}
+                  <button data-testid="meet-new-float" onClick={()=>{ const _id = `meet_${Date.now()}`; const _td = tsuTodayIso(); /* ★ 2026-11-05: 空の記録を先に保存しない(小窓の「保存」で初めて入る) */ window.dispatchEvent(new CustomEvent('tsumugi-meeting-float',{detail:{patientId: patient.id, meetingId:_id, isNew:true, init: { date:_td, locationType:'事業所', timeStart:'', timeEnd:'', attendees:'', reason:'', content:'' }, dirty:false}})); onClose && onClose(); }}
                     title="小窓で会議の記録を作ります（ほかの画面を見ながら入力できます）"
                     className="px-3 py-1.5 bg-white border border-blue-300 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold">小窓で記録</button>
                   <button onClick={()=>{ setEditingMeeting(null); setShowMeetingForm(true); }}
@@ -62052,12 +62071,12 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
             setEditingMeeting(null);
           }}
           onClose={()=>{ setShowMeetingForm(false); setEditingMeeting(null); }}
-          onFloat={(m)=>{
+          onFloat={(m, changed)=>{
+            // ★ 2026-11-05(ユーザー「終了を押すと自動で保存されている」): 小窓に切り替えるときに記録を保存していたため、小窓の「終了」でも残っていた。
+            //   保存はせず、入力の内容を小窓へ渡す(新しい記録は小窓の「保存」で初めて記録に入る)
             const _id = editingMeeting ? editingMeeting.id : `meet_${Date.now()}`;
-            const list = editingMeeting ? meetings.map(x => x.id === _id ? { ...m, id: _id } : x) : [...meetings, { ...m, id: _id }];
-            updatePatient({ meetings: list }, { silent: true });
             setShowMeetingForm(false); setEditingMeeting(null);
-            window.dispatchEvent(new CustomEvent('tsumugi-meeting-float',{detail:{patientId: patient.id, meetingId: _id}}));
+            window.dispatchEvent(new CustomEvent('tsumugi-meeting-float',{detail:{patientId: patient.id, meetingId: _id, isNew: !editingMeeting, init: m, dirty: !!changed}}));
             onClose && onClose();
           }}
         />
@@ -62255,6 +62274,81 @@ const tsuMeetingPrintHtml = (patient, m, appData) => {
   </div>`;
 };
 const tsuMeetingDownload = (patient, m, appData) => { const dateStr = String(m.date || '').replace(/-/g, ''); window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `サービス担当者会議録_${patient.name}_${dateStr}`, pageSize: 'A4 portrait', html: tsuMeetingPrintHtml(patient, m, appData) } })); };
+// ★ 2026-11-05(ユーザー「小窓と新規の画面が違う。全画面にしたときは同じに」「開催日・時間・場所は右が空くので1行に」「検討した項目が枠からずれる」):
+//   入力欄は新規・編集の画面と小窓で同じものを使う。fs=文字の大きさ(小窓は小さく)。fill=検討した項目を画面の残りいっぱいに
+function TsuMeetFields({ form, onChange, patient, fs = 14, fill = false }) {
+  const card = { border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, background: 'white', flex: '0 0 auto' };
+  const lb = { fontSize: Math.max(10, fs - 3), fontWeight: 'bold', color: '#475569', marginBottom: 5, display: 'block', whiteSpace: 'nowrap' };
+  const inp = { border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 8px', fontSize: fs, fontWeight: 'bold', outline: 'none', background: 'white', boxSizing: 'border-box', minWidth: 0, minHeight: fs * 2 + 6 };
+  const careLevel = (patient && patient.careLevel) || '';
+  const lt = form.locationType || '事業所';
+  return (<>
+    <div data-testid="meet-who" style={{ ...card, background: '#f8fafc', display: 'flex', flexWrap: 'wrap', gap: '4px 24px', padding: '8px 10px' }}>
+      <div><span style={lb}>介護区分</span><b style={{ fontSize: fs, color: '#1e293b' }}>{careLevel || '未設定'}</b></div>
+      <div><span style={lb}>ご利用者氏名</span><b style={{ fontSize: fs, color: '#1e293b' }}>{patient ? patient.name : ''} 様</b></div>
+    </div>
+    {/* 開催日・開催時間・場所は1つの枠に横並び(入りきらない幅では折り返す) */}
+    {/* 日付の欄: PC の Chrome は日付の文字が広いので広め、スマホ(iPhone の Safari は狭くて足りる)は時間と1行に並ぶ幅 */}
+    <style>{`.tsu-meet-date,.tsu-meet-time{width:var(--w1)} @media (max-width:430px){.tsu-meet-date,.tsu-meet-time{width:var(--w2)}}`}</style>
+    <div data-testid="meet-when" style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: '10px 14px', alignItems: 'flex-start' }}>
+      <div>
+        <span style={lb}>開催日 <span style={{ color: '#ea580c' }}>*</span></span>
+        <input type="date" value={form.date || ''} onChange={e => onChange({ date: e.target.value })} className="tsu-meet-date" style={{ ...inp, '--w1': `${Math.round(fs * 11)}px`, '--w2': `${Math.round(fs * 9.4)}px` }} />
+        {form.date && <div style={{ fontSize: Math.max(10, fs - 3), fontWeight: 'bold', color: '#047857', marginTop: 3, whiteSpace: 'nowrap' }}>{toWarekiDateLabel(form.date)}（{dayOfWeekJp(form.date)}）</div>}
+      </div>
+      <div>
+        <span style={lb}>開催時間</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <input type="time" value={form.timeStart || ''} onChange={e => onChange({ timeStart: e.target.value })} className="tsu-meet-time" style={{ ...inp, '--w1': `${Math.round(fs * 7.4)}px`, '--w2': `${Math.round(fs * 6)}px` }} aria-label="開始" />
+          <span style={{ fontWeight: 'bold', color: '#64748b', fontSize: fs }}>〜</span>
+          <input type="time" value={form.timeEnd || ''} onChange={e => onChange({ timeEnd: e.target.value })} className="tsu-meet-time" style={{ ...inp, '--w1': `${Math.round(fs * 7.4)}px`, '--w2': `${Math.round(fs * 6)}px` }} aria-label="終了" />
+        </div>
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <span style={lb}>場所</span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {['自宅', '事業所', 'その他'].map(loc => (
+            <button key={loc} type="button" onClick={() => onChange({ locationType: loc })}
+              style={{ ...inp, cursor: 'pointer', padding: '6px 14px', border: `2px solid ${lt === loc ? '#2563eb' : '#cbd5e1'}`, background: lt === loc ? '#2563eb' : 'white', color: lt === loc ? 'white' : '#334155' }}>{loc}</button>
+          ))}
+        </div>
+        {lt === 'その他' && <input value={form.locationOther || ''} onChange={e => onChange({ locationOther: e.target.value })} placeholder="場所を入力（例: ◯◯病院）" maxLength={60}
+          style={{ ...inp, width: '100%', marginTop: 6, fontWeight: 'normal' }} />}
+      </div>
+    </div>
+    <div style={card}>
+      <span style={lb}>出席者名（あてはまる方を押す・その他は入力）</span>
+      <TsuMeetAttendeesPicker value={form.attendees} onChange={v => onChange({ attendees: v })} patient={patient} fs={Math.max(11, fs - 1)} dense={fs < 13} />
+    </div>
+    <div style={card}>
+      <span style={lb}>開催理由（選んで、補足があれば入力）</span>
+      <TsuMeetReasonPicker patient={patient} value={{ reasonType: form.reasonType, reasonNote: form.reasonNote, careBefore: form.careBefore, careAfter: form.careAfter }} onChange={v => onChange({ ...v })} fs={fs} />
+    </div>
+    {/* 検討した項目: 枠は縮まない(中の欄が枠からはみ出さない)。fill のときは残りいっぱいに伸びる */}
+    <div data-testid="meet-content-card" style={{ ...card, display: 'flex', flexDirection: 'column', flex: fill ? '1 0 auto' : '0 0 auto' }}>
+      <span style={lb}>検討した項目・内容・結論</span>
+      <textarea data-testid="meet-content" value={form.content || ''} onChange={e => onChange({ content: e.target.value })} rows={fill ? 16 : 12}
+        placeholder={`〇様子・状態\n\nご本人より...\nご家族より...\n事業所より...`}
+        style={{ ...inp, fontWeight: 'normal', width: '100%', flex: '1 1 auto', minHeight: fs * (fill ? 22 : 15), resize: 'vertical', lineHeight: 1.6 }} />
+    </div>
+  </>);
+}
+// ★ 2026-11-05(ユーザー「終了を押したら、保存せずに終了するのか出て、OKで閉じる」): 変更があるときの 終了 の確かめ(OS の確認ではなく画面の中に出す)
+function TsuMeetCloseAsk({ onSaveClose, onDiscard, onBack }) {
+  const bt = { width: '100%', minHeight: 46, borderRadius: 10, fontSize: 15, fontWeight: 'bold', cursor: 'pointer' };
+  const node = (
+    <div data-testid="meet-close-ask" style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onBack}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: 14, width: '100%', maxWidth: 360, padding: 18, boxShadow: '0 20px 50px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ fontSize: 17, fontWeight: 'bold', color: '#1e293b' }}>保存せずに終了しますか？</div>
+        <div style={{ fontSize: 14, color: '#475569', lineHeight: 1.6 }}>まだ保存していない入力があります。「保存せずに終了」を押すと、いま入力した内容は残りません。</div>
+        <button type="button" data-testid="meet-close-discard" onClick={onDiscard} style={{ ...bt, background: '#fff7ed', color: '#c2410c', border: '2px solid #fb923c' }}>保存せずに終了</button>
+        <button type="button" data-testid="meet-close-save" onClick={onSaveClose} style={{ ...bt, background: '#2563eb', color: 'white', border: 'none' }}>保存して終了</button>
+        <button type="button" data-testid="meet-close-back" onClick={onBack} style={{ ...bt, background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' }}>戻って入力を続ける</button>
+      </div>
+    </div>
+  );
+  return (typeof document !== 'undefined' && document.body) ? ReactDOM.createPortal(node, document.body) : node;
+}
 // ★ 担当者会議のフロートメモ(2026-08-28 店舗要望): iPadのクイックメモ風の小窓。 画面(分析個人・提供記録等)を
 //   切り替えても消えず、ドラッグ移動・最小化できる。 編集は1秒後に自動保存(personalFile.meetings)。
 //   下書きは小窓のローカル状態に持ち、4秒同期の再レンダーでは読み直さない(入力が消えない)。
@@ -62275,11 +62369,15 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
   React.useEffect(() => {
     const m = ((dataRef.current.appData.patients||[]).find(p=>p.id===float.patientId)?.personalFile?.meetings||[]).find(x=>x.id===float.meetingId);
     // ★ 2026-10-16: 開始・終了が空なら、カレンダーのその方の担当者会議の予定から入れる。開催理由は選択肢に分解
-    const _cal = m && !m.timeStart && !m.timeEnd ? tsuMeetCalendarTimes(dataRef.current.appData, float.patientId, m.date || '') : null;
-    const base = m ? { date: m.date||'', timeStart: m.timeStart || (_cal ? _cal.timeStart : ''), timeEnd: m.timeEnd || (_cal ? _cal.timeEnd : ''), attendees: m.attendees||'', reason: m.reason||'', content: m.content||'', ...tsuMeetReasonParse(m) } : null;
+    const _src = m || float.init;
+    const _cal = _src && !_src.timeStart && !_src.timeEnd ? tsuMeetCalendarTimes(dataRef.current.appData, float.patientId, _src.date || '') : null;
+    const _toDraft = (x) => ({ date: x.date||'', timeStart: x.timeStart || (_cal ? _cal.timeStart : ''), timeEnd: x.timeEnd || (_cal ? _cal.timeEnd : ''), locationType: x.locationType || '事業所', locationOther: x.locationOther || '', attendees: x.attendees||'', reason: x.reason||'', content: x.content||'', ...tsuMeetReasonParse(x) });
+    // ★ 2026-11-05: 入力画面の「小窓」から来たときは、その入力(まだ保存していない)をそのまま引き継ぐ
+    if (float.init) { const d0 = _toDraft(float.init); setDraft(d0); setDirty(!!float.dirty || !!_cal); if (float.dirty) tsuMeetDraftSave(float.patientId, float.meetingId, d0); return; }
+    const base = m ? _toDraft(m) : null;
     // ★ 2026-10-17: 再読み込み前の下書きが端末に控えてあれば、それを戻す(保存するまで未保存のまま)
-    const kept = m ? tsuMeetDraftLoad(float.patientId, float.meetingId) : null;
-    if (kept && JSON.stringify(kept) !== JSON.stringify(base)) { setDraft({ ...base, ...kept }); setDirty(true); setTimeout(() => tsuPopNotice('入力途中の内容を戻しました（保存を押すと記録に残ります）', 2600), 400); }
+    const kept = (m || float.isNew) ? tsuMeetDraftLoad(float.patientId, float.meetingId) : null;
+    if (kept && JSON.stringify(kept) !== JSON.stringify(base)) { setDraft({ ...(base || {}), ...kept }); setDirty(true); setTimeout(() => tsuPopNotice('入力途中の内容を戻しました（保存を押すと記録に残ります）', 2600), 400); }
     else { setDraft(base); if (_cal) setDirty(true); }
   }, [float.patientId, float.meetingId]); // eslint-disable-line
   const flush = () => {
@@ -62287,8 +62385,12 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
     const dr = draftRef.current; if (!dr) return;
     const pt = (ad.patients||[]).find(p=>p.id===fl.patientId); if (!pt) return;
     const pf = pt.personalFile || {};
-    if (!(pf.meetings||[]).some(m=>m.id===fl.meetingId)) return;
-    const list = (pf.meetings||[]).map(m => m.id===fl.meetingId ? { ...m, ...dr, reason: tsuMeetReasonCompose(dr), dateLabel: toWarekiDateLabel(dr.date)||m.dateLabel||'', dayOfWeek: dayOfWeekJp(dr.date)||m.dayOfWeek||'' } : m);
+    // ★ 2026-11-05: 新しい記録は小窓の「保存」で初めて記録に入れる(無ければ足す)。場所も入力画面と同じく残す
+    const _loc = dr.locationType === 'その他' ? (dr.locationOther || 'その他') : (dr.locationType || '');
+    const _row = (m) => ({ ...m, ...dr, reason: tsuMeetReasonCompose(dr), dateLabel: toWarekiDateLabel(dr.date)||m.dateLabel||'', dayOfWeek: dayOfWeekJp(dr.date)||m.dayOfWeek||'', ...(_loc ? { location: _loc } : {}) });
+    const _has = (pf.meetings||[]).some(m=>m.id===fl.meetingId);
+    if (!_has && !fl.isNew && !fl.init) return;
+    const list = _has ? (pf.meetings||[]).map(m => m.id===fl.meetingId ? _row(m) : m) : [...(pf.meetings||[]), _row({ id: fl.meetingId })];
     sv({ ...ad, patients: ad.patients.map(p=>p.id===pt.id?{...pt, personalFile:{...pf, meetings:list}}:p) }, { silent: true });
     setSavedAt(new Date()); tsuMeetDraftClear(fl.patientId, fl.meetingId);
   };
@@ -62308,7 +62410,7 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
   };
   // ★ 2026-10-17: 「今すぐ更新」の合図で、未保存なら保存し、再読込後に開き直すための控えを sessionStorage に置く
   React.useEffect(() => {
-    const h = () => { try { const dr = draftRef.current; if (dr && dirty) flush(); sessionStorage.setItem('tsumugi_resume_meeting_float', JSON.stringify({ patientId: float.patientId, meetingId: float.meetingId, t: Date.now() })); } catch {} };
+    const h = () => { try { const dr = draftRef.current; if (dr && dirty) flush(); sessionStorage.setItem('tsumugi_resume_meeting_float', JSON.stringify({ patientId: float.patientId, meetingId: float.meetingId, isNew: !!float.isNew && !savedOnceRef.current, t: Date.now() })); } catch {} };
     window.addEventListener('tsumugi-before-update', h);
     return () => window.removeEventListener('tsumugi-before-update', h);
   }); // eslint-disable-line react-hooks/exhaustive-deps
@@ -62318,16 +62420,17 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
     window.addEventListener('tsumugi-meeting-form-open', h);
     return () => window.removeEventListener('tsumugi-meeting-form-open', h);
   }); // eslint-disable-line react-hooks/exhaustive-deps
-  const handleCancel = () => {
-    // ★ 2026-10-16(ユーザー要望「キャンセルより終了。誤タップに備えて保存せず終了の確認」)
-    if (float.isNew && !savedOnceRef.current) {
-      if (dirty && !window.confirm('保存せずに終了しますか？\n（この小窓で新しく作った会議記録は削除されます。保存するときは「いいえ」を押して「保存」を）')) return;
-      discardNew();
-    } else if (dirty) {
-      if (!window.confirm('保存せずに終了しますか？\n（保存するときは「いいえ」を押して「保存」を）')) return;
-    }
+  // ★ 2026-11-05(ユーザー要望): 変更があれば「保存せずに終了／保存して終了／戻る」を画面の中に出す
+  const [askClose, setAskClose] = React.useState(false);
+  const discardClose = () => {
+    if (float.isNew && !savedOnceRef.current) discardNew(); // まだ保存していない新しい記録は残さない
     tsuMeetDraftClear(float.patientId, float.meetingId); // 終了(破棄)したら下書きの控えも消す
     onClose();
+  };
+  const handleCancel = () => {
+    // ★ 2026-10-16(ユーザー要望「キャンセルより終了。誤タップに備えて保存せず終了の確認」)
+    if (dirty) { setMin(false); setAskClose(true); return; }
+    discardClose();
   };
   // ★ 2026-10-16(ユーザー報告「場合によって画面の外に行って見えなくなる」): 小窓は必ず画面の中に収める(動かした後・大きさを変えた後・画面の回転や大きさの変化)
   const clampPos = React.useCallback(() => { try { const el = boxRef.current; if (!el) return; const r = el.getBoundingClientRect();
@@ -62357,10 +62460,8 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
     e.preventDefault(); e.stopPropagation();
   };
-  if (!patient || !meeting || !draft) return null;
+  if (!patient || !draft || (!meeting && !float.isNew && !float.init)) return null;
   const _posStyle = pos ? { left: pos.x, top: pos.y } : { right: 16, bottom: 16 };
-  const _iSt = { border:'1px solid #cbd5e1', borderRadius:8, padding:'5px 6px', fontSize:Math.round(12*scale), outline:'none', background:'white', width:'100%', minWidth:0, boxSizing:'border-box' };
-  const _lb = { fontSize:Math.max(9, Math.round(10*scale)), fontWeight:'bold', color:'#64748b', marginBottom:2, display:'block' };
   const _node = min ? (
     <div style={{ position:'fixed', zIndex:55, ..._posStyle }}>
       <button type="button" onClick={()=>setMin(false)}
@@ -62373,7 +62474,7 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
       <div onPointerDown={onDragStart} style={{ background:'#1e3a8a', color:'white', padding:'8px 12px', display:'flex', alignItems:'center', gap:6, cursor:'move', touchAction:'none', userSelect:'none', flexShrink:0 }}>
         {/* ★ 2026-10-16(ユーザー要望「A−/A+/−は分かりにくい。日本語で。題名は開催日の上へ」): ボタンだけの帯(つかんで動かせる)。題名は下の本文の先頭 */}
         <span style={{ fontSize:11, color:'rgba(255,255,255,0.8)', flex:1, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>担会メモ</span>
-        {[['縮小', () => setScale(s2 => Math.max(0.7, Number((s2-0.15).toFixed(2)))), '文字と小窓を小さく'], ['拡大', () => setScale(s2 => Math.min(1.5, Number((s2+0.15).toFixed(2)))), '文字と小窓を大きく'], [full ? '元の大きさ' : '全画面', () => setFull(f => !f), full ? '小窓に戻す' : '画面いっぱいに広げる'], ['折りたたむ', () => setMin(true), 'たたむだけで消えません']].map(([lbl, fn, tt]) => (
+        {[['縮小', () => setScale(s2 => Math.max(0.7, Number((s2-0.15).toFixed(2)))), '文字と小窓を小さく'], ['拡大', () => setScale(s2 => Math.min(1.5, Number((s2+0.15).toFixed(2)))), '文字と小窓を大きく'], [full ? '小窓' : '全画面', () => setFull(f => !f), full ? '小窓に戻す' : '画面いっぱいに広げる'], ['折りたたむ', () => setMin(true), 'たたむだけで消えません']].map(([lbl, fn, tt]) => (
           <button key={lbl} type="button" onClick={fn} title={tt} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'white', borderRadius:8, height:32, padding:'0 9px', fontSize:12, fontWeight:'bold', cursor:'pointer', whiteSpace:'nowrap' }}>{lbl}</button>
         ))}
       </div>
@@ -62386,38 +62487,14 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
       </div>
       <div style={{ padding:10, overflowY:'auto', display:'flex', flexDirection:'column', gap:8, flex: full ? 1 : undefined, minHeight: 0 }} className="tsu-meet-body">
         <style>{`.tsu-meet-body > div{flex:0 0 auto;} .tsu-meet-body > div[data-grow="1"]{flex:1 1 0;}`}</style>
-        <div style={{ fontSize:Math.round(13*scale), fontWeight:'bold', color:'#1e3a8a', borderBottom:'1px solid #e2e8f0', paddingBottom:4, flex:'0 0 auto' }}>担当者会議メモ — {patient.name} 様</div>
-        {/* ★ iPad対策(2026-08-28): 日付/時刻inputは固有の最小幅が広く1行だと重なるため、開催日と開始/終了を2行に分離 */}
-        <div>
-          <label style={_lb}>開催日</label>
-          <input type="date" value={draft.date} onChange={e=>upd({date:e.target.value})} style={{ ..._iSt, maxWidth:170 }}/>
-        </div>
-        <div>
-          <label style={_lb}>開始</label>
-          <input type="time" value={draft.timeStart} onChange={e=>upd({timeStart:e.target.value})} style={{ ..._iSt, maxWidth:140 }}/>
-        </div>
-        <div>
-          <label style={_lb}>終了</label>
-          <input type="time" value={draft.timeEnd} onChange={e=>upd({timeEnd:e.target.value})} style={{ ..._iSt, maxWidth:140 }}/>
-        </div>
-        <div>
-          <label style={_lb}>出席者（あてはまる方を押す・その他は入力）</label>
-          <TsuMeetAttendeesPicker value={draft.attendees} onChange={v=>upd({attendees:v})} patient={patient} fs={Math.round(11*scale)} dense />
-        </div>
-        <div>
-          <label style={_lb}>開催理由（選んで、補足があれば入力）</label>
-          <TsuMeetReasonPicker patient={patient} value={{ reasonType: draft.reasonType, reasonNote: draft.reasonNote, careBefore: draft.careBefore, careAfter: draft.careAfter }} onChange={v=>upd({ ...v, reason: tsuMeetReasonCompose(v) })} fs={Math.round(12*scale)} />
-        </div>
-        {/* ★ 2026-10-16 追補(ユーザー報告「保存の位置がおかしい」): 欄を囲む箱が縦に縮んで中身がはみ出し、保存・終了が重なっていた → 縮まないように(flex: none)。全画面のときだけ伸ばす */}
-        <div data-grow={full ? '1' : '0'} style={{ display: 'flex', flexDirection: 'column', minHeight: full ? 160 : 0, overflow: 'hidden' }}>
-          <label style={_lb}>検討した項目・内容・結論</label>
-          <textarea value={draft.content} onChange={e=>upd({content:e.target.value})} rows={full ? 3 : 14} style={{ ..._iSt, resize: full ? 'none' : 'vertical', minHeight: full ? 0 : 200, height: full ? 'auto' : undefined, flex: full ? '1 1 0' : '0 0 auto' }}/>
-        </div>
+        {/* ★ 2026-11-05(ユーザー「小窓と新規の画面が違う」): 入力欄は入力画面と同じもの。全画面のときは同じ大きさ */}
+        <TsuMeetFields form={draft} onChange={upd} patient={patient} fs={full ? 14 : Math.round(12*scale)} fill={full} />
         <div style={{ fontSize:10, color:'#64748b', display:'flex', justifyContent:'space-between', alignItems:'center', minHeight:14 }}>
           <span>{dirty ? '未保存の変更があります' : ''}</span>
           {savedAt && <span style={{ color:'#059669', fontWeight:'bold' }}>✓ 保存済 {savedAt.toLocaleTimeString('ja-JP')}</span>}
         </div>
       </div>
+      {askClose && <TsuMeetCloseAsk onBack={() => setAskClose(false)} onDiscard={() => { setAskClose(false); discardClose(); }} onSaveClose={(ev) => { doSave(ev); setAskClose(false); onClose(); }} />}
       {/* ★ 右下のリサイズつまみ(2026-08-28): 指/マウスでドラッグして小窓だけを拡大縮小(画面全体はズームしない) */}
       {!full && <div onPointerDown={onResizeStart} title="ドラッグで拡大縮小"
         style={{ position:'absolute', right:0, bottom:0, width:34, height:34, cursor:'nwse-resize', touchAction:'none', display:'flex', alignItems:'flex-end', justifyContent:'flex-end', padding:4 }}>
@@ -62460,19 +62537,18 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
   // ★ ×で閉じる時、入力に変更があれば保存するか確認する(2026-08-28 店舗要望: 誤タップで入力が消えないように)
   const _initialFormRef = React.useRef(null);
   if (_initialFormRef.current === null) _initialFormRef.current = JSON.stringify(form); // ★ 2026-10-16: カレンダーから入った時間や選択肢の分解も「最初の状態」に含める(開いてすぐ終了で確認が出ないように)
+  // ★ 2026-11-05(ユーザー要望): 変更があれば「保存せずに終了／保存して終了／戻る」を画面の中に出す(変更がなければそのまま閉じる)
+  const [_askClose, setAskClose] = useState(false);
+  const _discardClose = () => { tsuMeetDraftClear(patient.id, meeting?.id || 'new'); onClose(); };
   const _confirmClose = () => {
-    if (JSON.stringify(form) !== _initialFormRef.current) {
-      if (!window.confirm('保存せずに終了しますか？\n（保存するときは「いいえ」を押して、下の「保存」を）')) return;
-    }
-    tsuMeetDraftClear(patient.id, meeting?.id || 'new');
-    onClose();
+    if (JSON.stringify(form) !== _initialFormRef.current) { setAskClose(true); return; }
+    _discardClose();
   };
-  const careLevel = patient.careLevel || '';
   const dateLabel = toWarekiDateLabel(form.date);
   const dayOfWeek = dayOfWeekJp(form.date);
   const locationLabel = form.locationType === 'その他' ? (form.locationOther || 'その他') : form.locationType;
   const handleSubmit = (ev) => {
-    if (!form.date) { alert('開催日を選択してください'); return; }
+    if (!form.date) { setAskClose(false); alert('開催日を選択してください'); return; }
     onSave({
       ...form,
       reason: tsuMeetReasonCompose(form),
@@ -62491,87 +62567,21 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
           <div className="text-base font-bold text-slate-800">サービス担当者会議記録表 (担会)</div>
           <div className="flex items-center gap-1.5">
             {/* ★ 小窓に切替(2026-08-28): 入力中の内容を保存して、画面切替でも残るフロートメモで続きを入力 */}
-            {onFloat && <button onClick={()=>{ const d = form.date || tsuTodayIso(); onFloat({ ...form, date: d, dateLabel: toWarekiDateLabel(d), dayOfWeek: dayOfWeekJp(d), location: locationLabel }); }}
-              title="ここまでの内容を保存して小窓(フロートメモ)に切り替えます。他の画面を見ながら続きを入力できます"
-              className="px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg text-xs font-bold">小窓にする</button>}
+            {/* ★ 2026-11-05: 「小窓にする」→「小窓」。小窓に切り替えても保存はしない(入力はそのまま小窓へ引き継ぎ、小窓の「保存」で残す) */}
+            {onFloat && <button data-testid="meet-to-float" onClick={()=>{ const d = form.date || tsuTodayIso(); tsuMeetDraftClear(patient.id, _draftMid); onFloat({ ...form, date: d }, JSON.stringify(form) !== _initialFormRef.current); }}
+              title="入力の続きを小窓で。他の画面を見ながら入力できます（小窓の「保存」で残ります）"
+              className="whitespace-nowrap px-3 py-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg text-sm font-bold">小窓</button>}
             {/* ★ 2026-10-16(ユーザー「右上の×は下の終了と同じなので消す」)。★ 2026-10-17(ユーザー「保存と終了は上に」): 他の画面と同じく上の帯に */}
             <button onClick={_confirmClose} className="whitespace-nowrap px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold">終了</button>
             <button onClick={handleSubmit} className="whitespace-nowrap px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold">保存</button>
           </div>
         </div>
-        <div className="flex-1 overflow-auto p-5 space-y-3 text-sm flex flex-col">
-          {/* 介護区分 + 利用者名 (自動表示) */}
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 grid grid-cols-2 gap-3">
-            <div>
-              <div className="text-[11px] font-bold text-slate-500">介護区分</div>
-              <div className="text-sm font-bold text-slate-800 mt-0.5">{careLevel || '未設定'} <span className="text-[10px] text-slate-400">(基本情報から自動)</span></div>
-            </div>
-            <div>
-              <div className="text-[11px] font-bold text-slate-500">ご利用者氏名</div>
-              <div className="text-sm font-bold text-slate-800 mt-0.5">{patient.name} 様 <span className="text-[10px] text-slate-400">(基本情報から自動)</span></div>
-            </div>
-          </div>
-          {/* 開催日 (カレンダー) */}
-          <div className="border border-slate-200 rounded-lg p-3">
-            <div className="text-[11px] font-bold text-slate-600 mb-2">開催日 <span className="text-red-500">*</span></div>
-            <div className="flex flex-wrap items-center gap-2">
-              <input type="date" value={form.date} onChange={e=>_setDate(e.target.value)}
-                className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
-              {form.date && (
-                <span className="text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg">
-                  {dateLabel} ({dayOfWeek}) <span className="text-[10px] text-emerald-500">← 自動</span>
-                </span>
-              )}
-            </div>
-          </div>
-          {/* 開催時間 */}
-          <div className="border border-slate-200 rounded-lg p-3">
-            <div className="text-[11px] font-bold text-slate-600 mb-2">開催時間</div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <input type="time" value={form.timeStart} onChange={e=>setForm(f=>({...f, timeStart: e.target.value}))}
-                className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
-              <span className="text-sm font-bold text-slate-500">〜</span>
-              <input type="time" value={form.timeEnd} onChange={e=>setForm(f=>({...f, timeEnd: e.target.value}))}
-                className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
-            </div>
-          </div>
-          {/* 場所 */}
-          <div className="border border-slate-200 rounded-lg p-3">
-            <div className="text-[11px] font-bold text-slate-600 mb-2">場所</div>
-            <div className="flex flex-wrap gap-2 mb-2">
-              {['自宅', '事業所', 'その他'].map(loc => (
-                <button key={loc} type="button" onClick={()=>setForm(f=>({...f, locationType: loc}))}
-                  className={`px-4 py-2 rounded-lg text-sm font-bold border-2 transition-all ${form.locationType === loc ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}>
-                  {loc}
-                </button>
-              ))}
-            </div>
-            {form.locationType === 'その他' && (
-              <input value={form.locationOther} onChange={e=>setForm(f=>({...f, locationOther: e.target.value}))}
-                placeholder="場所を入力 (例: ◯◯病院 / 地域包括支援センター)"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
-            )}
-          </div>
-          {/* 出席者名 */}
-          <div className="border border-slate-200 rounded-lg p-3">
-            <div className="text-[11px] font-bold text-slate-600 mb-2">出席者名（あてはまる方を押す・その他は入力）</div>
-            <TsuMeetAttendeesPicker value={form.attendees} onChange={v=>setForm(f=>({...f, attendees: v}))} patient={patient} fs={13} />
-          </div>
-          {/* 開催理由 */}
-          <div className="border border-slate-200 rounded-lg p-3">
-            <div className="text-[11px] font-bold text-slate-600 mb-2">開催理由（選んで、補足があれば入力）</div>
-            <TsuMeetReasonPicker patient={patient} value={{ reasonType: form.reasonType, reasonNote: form.reasonNote, careBefore: form.careBefore, careAfter: form.careAfter }} onChange={v=>setForm(f=>({...f, ...v}))} fs={14} />
-          </div>
-          {/* 内容 (様子・状態) ★ 2026-10-16: 画面の残りいっぱいに伸びる(最低16行) */}
-          <div className="border border-slate-200 rounded-lg p-3 flex flex-col flex-1" style={{minHeight:0}}>
-            <div className="text-[11px] font-bold text-slate-600 mb-2">検討した項目・内容・結論</div>
-            <textarea value={form.content} onChange={e=>setForm(f=>({...f, content: e.target.value}))}
-              rows={16}
-              placeholder={`〇様子・状態\n\nご本人より...\nご家族より...\n事業所より...`}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none resize-none flex-1" style={{minHeight:'16em'}}/>
-          </div>
+        <div className="flex-1 overflow-auto p-3 sm:p-5 text-sm flex flex-col gap-3" data-testid="meet-form-body">
+          <TsuMeetFields form={form} patient={patient} fs={14} fill
+            onChange={(patch) => { if (patch.date !== undefined) _setDate(patch.date); else setForm(f => ({ ...f, ...patch })); }} />
         </div>
       </div>
+      {_askClose && <TsuMeetCloseAsk onBack={() => setAskClose(false)} onDiscard={() => { setAskClose(false); _discardClose(); }} onSaveClose={(ev) => handleSubmit(ev)} />}
     </div>
   );
 }
