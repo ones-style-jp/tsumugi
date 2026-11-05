@@ -1990,7 +1990,8 @@ const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
 const BusySpin = ({ style }) => <span aria-hidden="true" className="tsumugi-busy-spin" style={style} />;
 // ★ 2026-10-03(ユーザー指示「印刷で見切れる恐れのある入力欄は全て文字数制限し、入力中は 現在/最大 を表示。印刷時は非表示」):
 //   文字数の表示(no-print)。上限に達したら赤。入力欄には maxLength を付け、その横にこれを置く。
-const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 40;
+// ★ 2026-11-05 trial526(ユーザー「22字で」): クラス在籍表の待ちは印刷で1行約11字×2行しか入らない(40字だと切れた)→22字・改行は行の残りも数える(ROSTER_WAIT_NL_C)
+const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 22, ROSTER_WAIT_NL_C = 11;
 // ★ 2026-11-05 trial525: 改行の数え方に使う「印刷の1行に入る字数」(tsuNlLen)。特記=100字で2行・モニタリング=いちばん狭い印刷(940px の表)の内容欄 11px・フェイスシート=内容欄 11px
 const TOKKI_NL_C = 50, MON_NL_C = 53, FS_NL_C = 48, ABS_MEMO_NL_C = 33;
 const CB_LABEL_MAX = 10, CB_VALUE_MAX = 12; // ★ 2026-10-13: 連絡帳の項目名・表示文字の上限(枠に収まる長さ)
