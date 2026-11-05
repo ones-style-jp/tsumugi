@@ -7,7 +7,7 @@ import {
   ArrowRight, Menu, BookOpen, Lock, Unlock, QrCode, MoveUp, MoveDown, GripVertical, AlertTriangle,
   ChevronLeft, ChevronRight, Save, UserPlus, Clock, CalendarOff, CalendarRange, PenTool, History,
   ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2, MessageSquare, Briefcase, Car,
-  ArrowUpDown, Maximize2, Minimize2, Minus, Undo2, CheckCheck, // ★ 2026-10-22: 上の帯のアイコン(試し) // ★ 2026-11-05 trial524: 担当者会議記録の帯(全画面・小窓・折りたたむ)
+  ArrowUpDown, Maximize2, Minimize2, Minus, ZoomIn, ZoomOut, Undo2, CheckCheck, // ★ 2026-10-22: 上の帯のアイコン(試し) // ★ 2026-11-05 trial524: 担当者会議記録の帯(全画面・小窓・折りたたむ)
   SquareUser, Dumbbell, ScrollText, CalendarDays, Info, Navigation, // ★ 2026-11-05 trial522: 車の見出しのナビ // ★ 2026-11-04 trial513: 説明のマーク(TsuHint) // ★ 2026-10-29: 提供記録の名前から開く行き先(基本情報・運動メニュー・支援経過表・月間スケジュール)
 } from 'lucide-react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -1990,21 +1990,9 @@ const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
 const BusySpin = ({ style }) => <span aria-hidden="true" className="tsumugi-busy-spin" style={style} />;
 // ★ 2026-10-03(ユーザー指示「印刷で見切れる恐れのある入力欄は全て文字数制限し、入力中は 現在/最大 を表示。印刷時は非表示」):
 //   文字数の表示(no-print)。上限に達したら赤。入力欄には maxLength を付け、その横にこれを置く。
-// ★ 2026-11-05 1105e(ユーザー「22字で」): クラス在籍表の待ちは印刷で1行約11字×2行しか入らない(40字だと切れた)→22字・改行は行の残りも数える(ROSTER_WAIT_NL_C)。数え方は試験版 trial525 の共通の部品をそのまま持ってきた
-const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 22, ROSTER_WAIT_NL_C = 11;
-// ★ 2026-11-05 trial525(ユーザー「改行したら、その行の残りの字数もプラスされる数え方に。特記など全部の欄で」):
-//   c=印刷の1行に入る字数。改行で次の行へ移ると、その行の残りも使ったと数える(c が無い欄は今までどおり1字ずつ)
-const tsuNlLen = (text, c) => { const t = String(text ?? ''); if (!c) return [...t].length; const ls = t.split('\n'); let used = 0; ls.forEach((ln, i) => { const w = [...ln].length; used += i < ls.length - 1 ? Math.max(1, Math.ceil(w / c)) * c : w; }); return used; };
-// 上限を超える分を後ろから切る(日本語の変換中は呼ばない)
-const tsuNlCut = (text, c, max) => { const t = String(text ?? ''); if (tsuNlLen(t, c) <= max) return t; const a = [...t]; while (a.length && tsuNlLen(a.join(''), c) > max) a.pop(); return a.join(''); };
-// 上限を超えたときの扱い: 前の文(prev)が上限を超えていた(数え方を変える前に保存した長い文など)なら、前の文より増やさない(減らすのは自由)。
-//   前の文を切って消すことはしない(直しただけで後ろが消える事故を防ぐ)
-const tsuNlKeep = (v, c, max, prev) => { if (tsuNlLen(v, c) <= max) return v; if (prev != null) { const pl = tsuNlLen(prev, c); if (tsuNlLen(v, c) <= pl) return v; if (pl > max) return String(prev); } return tsuNlCut(v, c, max); };
-// 入力欄の onChange 用: 変換中はそのまま・確定していれば上限まで
-const tsuNlFit = (e, c, max, prev) => { const v = e && e.target ? e.target.value : String(e ?? ''); return (e && e.nativeEvent && e.nativeEvent.isComposing) ? v : tsuNlKeep(v, c, max, prev); };
-// 日本語の変換の始まりに前の文を控え、確定したときに上限を確かめる(変えるときだけ新しい文を返す)
-const tsuNlCompStart = (e) => { try { e.currentTarget.dataset.nlPrev = e.currentTarget.value; } catch {} };
-const tsuNlCompEnd = (e, c, max) => { const el = e.currentTarget; const v = el.value; let prev; try { prev = el.dataset.nlPrev; delete el.dataset.nlPrev; } catch {} const t = tsuNlKeep(v, c, max, prev); return t === v ? null : t; };
+const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 40;
+// ★ 2026-11-05 trial525: 改行の数え方に使う「印刷の1行に入る字数」(tsuNlLen)。特記=100字で2行・モニタリング=いちばん狭い印刷(940px の表)の内容欄 11px・フェイスシート=内容欄 11px
+const TOKKI_NL_C = 50, MON_NL_C = 53, FS_NL_C = 48, ABS_MEMO_NL_C = 33;
 const CB_LABEL_MAX = 10, CB_VALUE_MAX = 12; // ★ 2026-10-13: 連絡帳の項目名・表示文字の上限(枠に収まる長さ)
 // ★ 2026-10-03: サーバーPDF(/api/pdf)の共通ヘルパー。
 //   tsumugiBuildPrintSrcDoc(html): 画面の全スタイルを添えた印刷用の完全なHTML(プレビューの iframe と同じ)。
@@ -2274,7 +2262,20 @@ const tsuFitMemoBox = (el, text, baseFs, lineHeight, minFs) => {
   const minH = Math.ceil(fs * lineHeight * 3) + (parseFloat(ecs.paddingTop) || 0) + (parseFloat(ecs.paddingBottom) || 0);
   return { fs, h: Math.min(avail, Math.max(minH, Math.ceil(full) + 2)), avail };
 };
-const CharCount = ({ value, max, style }) => { const n = String(value ?? '').length; return <span className="no-print" style={{ fontSize: tsuFz(10), fontVariantNumeric: 'tabular-nums', color: n >= max ? '#dc2626' : n >= max * 0.9 ? '#d97706' : '#94a3b8', whiteSpace: 'nowrap', ...(style || {}) }}>{n} / {max}</span>; };
+// ★ 2026-11-05 trial525(ユーザー「改行したら、その行の残りの字数もプラスされる数え方に。特記など全部の欄で」):
+//   c=印刷の1行に入る字数。改行で次の行へ移ると、その行の残りも使ったと数える(c が無い欄は今までどおり1字ずつ)
+const tsuNlLen = (text, c) => { const t = String(text ?? ''); if (!c) return [...t].length; const ls = t.split('\n'); let used = 0; ls.forEach((ln, i) => { const w = [...ln].length; used += i < ls.length - 1 ? Math.max(1, Math.ceil(w / c)) * c : w; }); return used; };
+// 上限を超える分を後ろから切る(日本語の変換中は呼ばない)
+const tsuNlCut = (text, c, max) => { const t = String(text ?? ''); if (tsuNlLen(t, c) <= max) return t; const a = [...t]; while (a.length && tsuNlLen(a.join(''), c) > max) a.pop(); return a.join(''); };
+// 上限を超えたときの扱い: 前の文(prev)が上限を超えていた(数え方を変える前に保存した長い文など)なら、前の文より増やさない(減らすのは自由)。
+//   前の文を切って消すことはしない(直しただけで後ろが消える事故を防ぐ)
+const tsuNlKeep = (v, c, max, prev) => { if (tsuNlLen(v, c) <= max) return v; if (prev != null) { const pl = tsuNlLen(prev, c); if (tsuNlLen(v, c) <= pl) return v; if (pl > max) return String(prev); } return tsuNlCut(v, c, max); };
+// 入力欄の onChange 用: 変換中はそのまま・確定していれば上限まで
+const tsuNlFit = (e, c, max, prev) => { const v = e && e.target ? e.target.value : String(e ?? ''); return (e && e.nativeEvent && e.nativeEvent.isComposing) ? v : tsuNlKeep(v, c, max, prev); };
+// 日本語の変換の始まりに前の文を控え、確定したときに上限を確かめる(変えるときだけ新しい文を返す)
+const tsuNlCompStart = (e) => { try { e.currentTarget.dataset.nlPrev = e.currentTarget.value; } catch {} };
+const tsuNlCompEnd = (e, c, max) => { const el = e.currentTarget; const v = el.value; let prev; try { prev = el.dataset.nlPrev; delete el.dataset.nlPrev; } catch {} const t = tsuNlKeep(v, c, max, prev); return t === v ? null : t; };
+const CharCount = ({ value, max, style, c }) => { const n = tsuNlLen(value, c); return <span className="no-print" style={{ fontSize: tsuFz(10), fontVariantNumeric: 'tabular-nums', color: n >= max ? '#dc2626' : n >= max * 0.9 ? '#d97706' : '#94a3b8', whiteSpace: 'nowrap', ...(style || {}) }} title={c ? `改行すると、その行の残り（1行${c}字）も使います` : undefined}>{n} / {max}</span>; };
 // 日本の電話番号フォーマッタ: ハイフン無しの数字 → 自動でハイフン付与 (実装は下部 formatJpPhone)
 // ★ 稼働率/出席率の「予定(分母)」判定。 振替=出席扱い。 振替済みの欠席(tokkiに「へ振替」)は相殺で分母から除外。
 const isPlannedRec = (r) => !!r && (r.status==='出席'||r.status==='振替'||r.status==='臨時'||r.status==='休止'||(r.status==='欠席'&&!(r.tokki||'').includes('へ振替')));
@@ -26254,7 +26255,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     let t = String(tokki || ''); const pv = String(prevNote || '').trim(), nv = String(newNote || '').trim();
     if (pv && t.includes(pv)) { t = t.replace(pv, nv); t = t.replace(/^[\s　]+|[\s　]+$/g, '').replace(/[　 ]{2,}/g, '　'); }
     else if (nv) { t = t.trim() ? (/[。．.、]$/.test(t.trim()) ? `${t.trim()}${nv}` : `${t.trim()}　${nv}`) : nv; }
-    return t.slice(0, TOKKI_MAX);
+    return tsuNlLen(t, TOKKI_NL_C) <= TOKKI_MAX ? t : t.slice(0, TOKKI_MAX); // ★ 2026-11-05: 体調の理由の欄は特記の残り(改行の数え方)で入力を止めている。超えたときは今までどおり
   };
 
   const getKibunKey = (timing) => timing === 'arrival' ? 'kibunArrival' : 'kibunDeparture';
@@ -28371,7 +28372,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     className="shrink-0 w-[4.5rem] h-11 px-1 text-[14px] font-bold border border-slate-300 rounded-lg bg-white text-slate-700 outline-none"/>}
                   {!isReadOnly && !isAbsent && !isPause && !appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-ctokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-11 h-11" size={20}/>}
                   <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="flex-1 min-w-0 h-11 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
-                </div>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX}/></div>}
+                </div>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX} c={TOKKI_NL_C}/></div>}
               </div>
             );
           })}
@@ -28810,11 +28811,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             </button>
                           )}
                           {/* ★ 2026-10-02(ユーザー指示): 特記は100文字まで(印刷の2行に収まる範囲)。それ以上は支援経過表へ */}
-                          <textarea disabled={isReadOnly} value={p.tokki || ""} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={(e) => updateRecord(p.id, 'tokki', e.target.value.slice(0, TOKKI_MAX))} rows={2}
+                          <textarea disabled={isReadOnly} value={p.tokki || ""} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ。改行すると、その行の残りも使います）" onChange={(e) => updateRecord(p.id, 'tokki', tsuNlFit(e, TOKKI_NL_C, TOKKI_MAX, p.tokki || ''))} onCompositionStart={tsuNlCompStart} onCompositionEnd={(e) => { const t = tsuNlCompEnd(e, TOKKI_NL_C, TOKKI_MAX); if (t != null) updateRecord(p.id, 'tokki', t); }} rows={2}
                             className={`flex-1 px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`}
                             style={{fontSize:tsuFz(14),lineHeight:1.4,padding:'2px 6px',height:'100%'}}
                             placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
-                          {!isReadOnly && <CharCount value={p.tokki} max={TOKKI_MAX} style={{alignSelf:'flex-end'}}/>}
+                          {!isReadOnly && <CharCount value={p.tokki} max={TOKKI_MAX} c={TOKKI_NL_C} style={{alignSelf:'flex-end'}}/>}
                         </div>
                       );
                     })()}
@@ -29314,7 +29315,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             ) : (
               <div className="flex-1 flex flex-col items-center justify-start gap-4 p-6 overflow-y-auto">
                 {/* ★ 2026-10-14(ユーザー指示): 理由の選択肢は廃止。ここに書いた内容は「決定」で特記欄に反映される(様子は特記に集約) */}
-                {(() => { const _pv = String(currentRec?.[reasonKey] || ''); const _base = _pv && String(currentRec?.tokki||'').includes(_pv) ? String(currentRec?.tokki||'').replace(_pv,'').trim() : String(currentRec?.tokki||'').trim(); const _room = Math.max(0, TOKKI_MAX - _base.length - (_base ? 1 : 0)); return (
+                {(() => { const _pv = String(currentRec?.[reasonKey] || ''); const _base = _pv && String(currentRec?.tokki||'').includes(_pv) ? String(currentRec?.tokki||'').replace(_pv,'').trim() : String(currentRec?.tokki||'').trim(); const _room = Math.max(0, TOKKI_MAX - tsuNlLen(_base, TOKKI_NL_C) - (_base ? 1 : 0)); return (
                 <div className="w-full max-w-3xl mt-2" data-testid="kibun-note">
                   <div className="text-slate-700 text-2xl font-bold mb-2">特記に書く内容（任意）</div>
                   <textarea rows={3} value={kibunNote} maxLength={_room}
@@ -42814,7 +42815,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
 
   const [nameSearchQuery, setNameSearchQuery] = useState('');
   const [activeKanaFilter, setActiveKanaFilter] = useState('all');
-  const [masterSort, setMasterSort] = useState('kana'); // 'kana'|'schedule'|'startDate'|'careLevel'|'cmOffice'|'bday'|'insurance'|'age'
+  const [masterSort, setMasterSort] = useState('kana'); // 'kana'|'id'|'schedule'|'startDate'|'careLevel'|'cmOffice'|'bday'|'insurance'|'age'
   const [masterSortOrder, setMasterSortOrder] = useState('asc'); // 'asc'|'desc'
   // ★ 名簿の並び替え/絞り込みポップアップ(2026-08-31 店舗要望: ボタン散在をやめモニタリングと同じポップアップに集約)
   const [masterSortPop, setMasterSortPop] = useState(false);
@@ -43662,6 +43663,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     }
     else if (masterSort === 'insurance') r = (a.careLevelTo||'9999').localeCompare(b.careLevelTo||'9999');
     else if (masterSort === 'age') r = (a.birthDate||'9999').localeCompare(b.birthDate||'9999');
+    else if (masterSort === 'id') r = (Number(a.id) || 0) - (Number(b.id) || 0) || String(a.id).localeCompare(String(b.id)); // ★ 2026-11-05 trial525(ユーザー要望): ID順
     else if (masterSort === 'schedule') {
       // ★ 基本利用日順(2026-08-31 店舗要望): 月曜起点で最初の利用曜日が早い順。同じ曜日は AM→1日→PM。
       //   基本利用日未設定の方は末尾。同順は名前(かな)順。
@@ -44138,7 +44140,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             {/* ★ 並び替え/絞り込みをポップアップに集約(2026-08-31 店舗要望) */}
             <div className="flex gap-1 flex-wrap items-center">
               {(() => {
-                const _sortLabels = {kana:'名前順',schedule:'基本利用日',startDate:'通所歴',careLevel:'介護度',cmOffice:'事業所',bday:'誕生月',insurance:'保険更新',age:'年齢'};
+                const _sortLabels = {kana:'名前順',id:'ID順',schedule:'基本利用日',startDate:'通所歴',careLevel:'介護度',cmOffice:'事業所',bday:'誕生月',insurance:'保険更新',age:'年齢'};
                 const _mon = [1,2,3,4,5,6,0]; const _dw = '日月火水木金土';
                 const _filterOn = masterDowFilter.length > 0;
                 return (<>
@@ -56954,9 +56956,9 @@ function MonitoringSheetModal({ patient, cmFax: cmFaxProp, facility, period, rec
                 </select>
               </div>
               <div className="px-3 pt-1.5 text-[11px] text-slate-400 leading-snug">{it.explain}</div>
-              <textarea value={vals[it.key].text} maxLength={MON_TEXT_MAX} onChange={e=>setText(it.key, e.target.value.slice(0, MON_TEXT_MAX))} rows={3} placeholder="内容（任意・選択に沿って記入）"
+              <textarea value={vals[it.key].text} maxLength={MON_TEXT_MAX} onChange={e=>setText(it.key, tsuNlFit(e, MON_NL_C, MON_TEXT_MAX, vals[it.key].text))} onCompositionStart={tsuNlCompStart} onCompositionEnd={e=>{ const t = tsuNlCompEnd(e, MON_NL_C, MON_TEXT_MAX); if (t != null) setText(it.key, t); }} rows={3} placeholder="内容（任意・選択に沿って記入）"
                 className="w-full px-3 py-2 text-sm outline-none focus:bg-blue-50/30 leading-relaxed resize-y" />
-              <div className="px-3 pb-1 text-right"><CharCount value={vals[it.key].text} max={MON_TEXT_MAX}/></div>
+              <div className="px-3 pb-1 text-right"><CharCount value={vals[it.key].text} max={MON_TEXT_MAX} c={MON_NL_C}/></div>
             </div>
           ))}
         </div>
@@ -58178,10 +58180,10 @@ ${optionsDesc}
                             {_exp && ((!confirmed && editing2) ? (
                               <div>
                               <textarea autoFocus defaultValue={c.text} rows={2} maxLength={MON_TEXT_MAX}
-                                onInput={e=>{ const el = e.currentTarget.nextSibling; if (el) el.textContent = `${e.currentTarget.value.length} / ${MON_TEXT_MAX}`; }}
-                                onBlur={e=>{ updateSheetInline(patient, it.key, 'text', e.target.value.slice(0, MON_TEXT_MAX)); setEditTextCell(null); }}
+                                onInput={e=>{ const el = e.currentTarget.nextSibling; if (el) el.textContent = `${tsuNlLen(e.currentTarget.value, MON_NL_C)} / ${MON_TEXT_MAX}`; }}
+                                onBlur={e=>{ updateSheetInline(patient, it.key, 'text', tsuNlKeep(e.target.value, MON_NL_C, MON_TEXT_MAX, c.text || '')); setEditTextCell(null); }}
                                 style={{width:'100%',boxSizing:'border-box',fontSize:12,border:'1px solid #93c5fd',borderRadius:6,padding:'4px 6px',outline:'none',fontFamily:'inherit',resize:'vertical'}}/>
-                              <span className="no-print" style={{fontSize:10,color:'#94a3b8',display:'block',textAlign:'right'}}>{String(c.text||'').length} / {MON_TEXT_MAX}</span>
+                              <span className="no-print" style={{fontSize:10,color:'#94a3b8',display:'block',textAlign:'right'}}>{tsuNlLen(c.text, MON_NL_C)} / {MON_TEXT_MAX}</span>
                               </div>
                             ) : (
                               <div onClick={()=>{ if(!confirmed) setEditTextCell(cellId); }} title={confirmed?'確定済み（編集不可）':'クリックで編集'} style={{color:c.text?'#334155':'#cbd5e1',cursor:confirmed?'default':'text',minHeight:16,paddingLeft:2,whiteSpace:'pre-wrap'}}>{c.text || (confirmed?'—':'（タップで内容を入力）')}</div>
@@ -59265,11 +59267,12 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                     value={fax.memo ?? defaultMemo}
                     onChange={e=>{ const v = e.target.value; const comp = !!(e.nativeEvent && e.nativeEvent.isComposing);
                       if (!comp && tsuMemoOverflows(e.target, v, String(fax.memo ?? defaultMemo ?? ''), TSU_MEMO_MIN_FS, 1.7, _absAvailRef.current)) { tsuPopNotice(TSU_MEMO_FULL_MSG); return; } // ★ 2026-10-16: 枠に入らない入力は受け付けない
-                      updateFax(key,{memo:v}); }}
+                      updateFax(key,{memo: comp ? v : tsuNlKeep(v, ABS_MEMO_NL_C, ABS_MEMO_MAX, String(fax.memo ?? defaultMemo ?? ''))}); }}
                     onKeyDown={e=>{ if (tsuMemoEnterBlocked(e, String(fax.memo ?? defaultMemo ?? ''), TSU_MEMO_MIN_FS, 1.7, _absAvailRef.current)) { e.preventDefault(); tsuPopNotice(TSU_MEMO_FULL_MSG); } }}
                     onCompositionStart={()=>{ _absCompRef.current = String(fax.memo ?? defaultMemo ?? ''); }}
                     onCompositionEnd={e=>{ const v = e.target.value, before = _absCompRef.current; _absCompRef.current = null;
-                      if (before != null && tsuMemoOverflows(e.target, v, before, TSU_MEMO_MIN_FS, 1.7, _absAvailRef.current)) { updateFax(key,{memo:before}); tsuPopNotice(TSU_MEMO_FULL_MSG); } }}
+                      if (before != null && tsuMemoOverflows(e.target, v, before, TSU_MEMO_MIN_FS, 1.7, _absAvailRef.current)) { updateFax(key,{memo:before}); tsuPopNotice(TSU_MEMO_FULL_MSG); }
+                      else { const t = tsuNlKeep(v, ABS_MEMO_NL_C, ABS_MEMO_MAX, before); if (t !== v) updateFax(key,{memo:t}); } }}
                     onBlur={e=>{ const t = String(e.target.value||'').replace(/\s+$/,''); if (t !== e.target.value) updateFax(key,{memo:t}); }}
                     maxLength={ABS_MEMO_MAX}
                     placeholder="連絡事項を自由に入力してください"
@@ -59278,7 +59281,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                     style={{width:'100%',flex:'0 0 auto',height:(absMemoH ? `${absMemoH}px` : 'auto'),minHeight:`${Math.ceil(_memoFs*1.7*3)+8}px`,border:'none',borderRadius:0,padding:'4px 0',fontSize:_memoFs,overflow:'hidden',outline:'none',resize:'none',fontFamily:'serif',lineHeight:1.7,boxSizing:'border-box',background:'transparent'}}
                   />
                 )}
-                {!isPrint && <div className="no-print" style={{height:0,position:'relative',flex:'0 0 auto'}}><CharCount value={fax.memo ?? defaultMemo} max={ABS_MEMO_MAX} style={{position:'absolute',right:0,top:0}}/></div>}
+                {!isPrint && <div className="no-print" style={{height:0,position:'relative',flex:'0 0 auto'}}><CharCount value={fax.memo ?? defaultMemo} max={ABS_MEMO_MAX} c={ABS_MEMO_NL_C} style={{position:'absolute',right:0,top:0}}/></div>}
                 {/* ★ 2026-10-16: 結びは本文の直後・本文と同じ大きさ(本文が縮んだら一緒に縮む)。枠(flex:1)の中に置き、残りは空白 */}
                 <div style={{fontSize:Math.min(16,_memoFs),marginTop:8,flex:'0 0 auto'}}>今後ともよろしくお願いいたします。</div>
               </div>
@@ -59452,6 +59455,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const _memoBaseFs = memoStyle.size==='xl'?24:memoStyle.size==='lg'?20:16;
   // ★ 2026-10-16(ユーザー要望): 連絡事項の文字数の上限(標準400・大250・特大180=枠に 16px のまま入る量の目安)。あからさまに小さくならないように
   const _memoMax = memoStyle.size==='xl'?180:memoStyle.size==='lg'?250:400;
+  const _memoNlC = memoStyle.size==='xl'?22:memoStyle.size==='lg'?26:33; // ★ 2026-11-05 trial525: 印刷の1行の字数(文字の大きさ別・改行の数え方)
   // ★ 2026-10-16(ユーザー報告「本文が小さく縮んで下に大きな空白」): 原因は末尾の空行(改行)まで枠に収めようとして縮めていたこと。
   //   見えない箱で測り(tsuFitMemoBox)、末尾の空行は数えない。入力欄は中身の高さに広げる(スマホで下の行が隠れない)。「今後とも〜」は本文の直後
   React.useLayoutEffect(() => {
@@ -59889,11 +59893,12 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             )}
             <textarea value={memo} onChange={e=>{ const v = e.target.value; const comp = !!(e.nativeEvent && e.nativeEvent.isComposing);
                         if (!comp && tsuMemoOverflows(e.target, v, memo, Math.min(_memoBaseFs, TSU_MEMO_MIN_FS), 1.9, _memoAvailRef.current)) { tsuPopNotice(TSU_MEMO_FULL_MSG); return; } // ★ 2026-10-16: 枠に入らない入力は受け付けない
-                        setMemo(v); }}
+                        setMemo(comp ? v : tsuNlKeep(v, _memoNlC, _memoMax, memo)); }}
                       onKeyDown={e=>{ if (tsuMemoEnterBlocked(e, memo, Math.min(_memoBaseFs, TSU_MEMO_MIN_FS), 1.9, _memoAvailRef.current)) { e.preventDefault(); tsuPopNotice(TSU_MEMO_FULL_MSG); } }}
                       onCompositionStart={()=>{ _memoCompRef.current = memo; }}
                       onCompositionEnd={e=>{ const v = e.target.value, before = _memoCompRef.current; _memoCompRef.current = null;
-                        if (before != null && tsuMemoOverflows(e.target, v, before, Math.min(_memoBaseFs, TSU_MEMO_MIN_FS), 1.9, _memoAvailRef.current)) { setMemo(before); tsuPopNotice(TSU_MEMO_FULL_MSG); } }}
+                        if (before != null && tsuMemoOverflows(e.target, v, before, Math.min(_memoBaseFs, TSU_MEMO_MIN_FS), 1.9, _memoAvailRef.current)) { setMemo(before); tsuPopNotice(TSU_MEMO_FULL_MSG); }
+                        else { const t = tsuNlKeep(v, _memoNlC, _memoMax, before); if (t !== v) setMemo(t); } }}
                       placeholder="ここに連絡事項を直接入力してください"
                       className="fax-inline-input"
                       ref={_memoRef}
@@ -59901,7 +59906,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                       onBlur={()=>{ const t = String(memo||'').replace(/\s+$/,''); if (t !== memo) setMemo(t); }}
                       style={{flex:'0 0 auto',height:(memoBoxH ? `${memoBoxH}px` : 'auto'),minHeight:`${Math.ceil((memoFitFs ?? _memoBaseFs)*1.9*3)+8}px`,fontSize:(memoFitFs ?? _memoBaseFs),overflow:'hidden',lineHeight:1.9,padding:'4px 0',border:'none',outline:'none',background:'transparent',resize:'none',fontFamily:'inherit',width:'100%',boxSizing:'border-box',textDecoration:(memoStyle.underline?'underline':'none')}}/>
             {/* ★ 2026-10-16(ユーザー「各種連絡も休み連絡と同じように文字数を欄の下に」): 現在/最大(印刷・PDFには出ない) */}
-            <div className="no-print" style={{height:0,position:'relative',flex:'0 0 auto'}}><CharCount value={memo} max={_memoMax} style={{position:'absolute',right:0,top:0}}/></div>{/* 高さ0: 枠の高さを食わない(印刷と同じ余白で測れる) */}
+            <div className="no-print" style={{height:0,position:'relative',flex:'0 0 auto'}}><CharCount value={memo} max={_memoMax} c={_memoNlC} style={{position:'absolute',right:0,top:0}}/></div>{/* 高さ0: 枠の高さを食わない(印刷と同じ余白で測れる) */}
             {/* ★ 2026-10-16: 結びは本文と同じ大きさ(本文が縮んだら一緒に縮む・本文が大/特大でも 16px)。本文の直後に置く */}
             <div style={{fontSize:Math.min(16, memoFitFs ?? 16),marginTop:8,flex:'0 0 auto'}}>今後ともよろしくお願いいたします。</div>
           </div>
@@ -62276,10 +62281,13 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
       {/* ★ 2026-11-05(ユーザー「全画面は新規作成と同じ余白のない画面に」): 全画面は画面いっぱい(角丸・まわりの隙間なし) */}
       <div onPointerDown={onDragStart} style={{ background:'#1e3a8a', color:'white', padding:'8px 12px', display:'flex', alignItems:'center', gap:6, cursor:'move', touchAction:'none', userSelect:'none', flexShrink:0 }}>
         {/* ★ 2026-10-16(ユーザー要望「A−/A+/−は分かりにくい。日本語で。題名は開催日の上へ」): ボタンだけの帯(つかんで動かせる)。題名は下の本文の先頭 */}
-        {/* ★ 2026-11-05(ユーザー「担会は地域で言わないこともある。担当者会議記録に」「全画面・小窓・折りたたむはパソコンの窓のようなマークに」): 縮小・拡大は文字のまま(10/16 の要望)、窓の操作はマーク */}
+        {/* ★ 2026-11-05(ユーザー「担会は地域で言わないこともある。担当者会議記録に」「全画面・小窓・折りたたむはパソコンの窓のようなマークに」): 窓の操作はマーク(拡大・縮小も trial525 でマーク) */}
         <span data-testid="meeting-float-title" style={{ fontSize: full ? 15 : 12, fontWeight:'bold', color:'white', flex:1, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>担当者会議記録</span>
-        {[['縮小', () => setScale(s2 => Math.max(0.7, Number((s2-0.15).toFixed(2)))), '文字を小さく'], ['拡大', () => setScale(s2 => Math.min(1.5, Number((s2+0.15).toFixed(2)))), '文字を大きく']].map(([lbl, fn, tt]) => (
-          <button key={lbl} type="button" onClick={fn} title={tt} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'white', borderRadius:8, height:34, padding:'0 10px', fontSize:12, fontWeight:'bold', cursor:'pointer', whiteSpace:'nowrap' }}>{lbl}</button>
+        {/* ★ 2026-11-05 trial525(ユーザー「拡大縮小もプラスとマイナスのマークで分かる」): 虫めがねの＋/−(折りたたむの「−」と見分けるため) */}
+        {[[ZoomOut, '縮小', () => setScale(s2 => Math.max(0.7, Number((s2-0.15).toFixed(2)))), '文字を小さく（縮小）', 'meeting-float-zoomout'], [ZoomIn, '拡大', () => setScale(s2 => Math.min(1.5, Number((s2+0.15).toFixed(2)))), '文字を大きく（拡大）', 'meeting-float-zoomin']].map(([Ic, lbl, fn, tt, tid]) => (
+          <button key={tid} type="button" onClick={fn} title={tt} aria-label={tt} data-testid={tid} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'white', borderRadius:8, width:38, height:34, display:'inline-flex', alignItems:'center', justifyContent:'center', cursor:'pointer', flexShrink:0 }}>
+            <Ic size={18} strokeWidth={2.5} aria-hidden="true" /><span className="sr-only">{lbl}</span>
+          </button>
         ))}
         <span style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.35)', margin: '0 2px' }} aria-hidden="true" />
         {[[Minus, '折りたたむ', () => setMin(true), '折りたたむ（たたむだけで消えません）', 'meeting-float-min'], [full ? Minimize2 : Maximize2, full ? '小窓' : '全画面', () => setFull(f => !f), full ? '小窓にする' : '全画面にする', 'meeting-float-size']].map(([Ic, lbl, fn, tt, tid]) => (
@@ -62972,13 +62980,32 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               className="mt-2 mb-3 w-full sm:w-auto px-4 py-2 text-sm font-bold text-amber-800 bg-amber-50 border border-dashed border-amber-400 rounded-xl hover:bg-amber-100">＋ かかりつけ医を追加</button>
             <Field label="既往歴・現病歴">
               {/* ★ F1: 既往歴はフェイスシートで記入・編集(基本情報からは移設)。 patient.kiou へミラーされ計画書等でも参照される。 */}
-              <textarea rows={3} maxLength={300} value={fs.kiou} onChange={e=>update('kiou', e.target.value.slice(0, 300))}
+              <textarea rows={3} maxLength={300} value={fs.kiou} onChange={e=>update('kiou', tsuNlFit(e, FS_NL_C, 300, fs.kiou || ''))} onCompositionStart={tsuNlCompStart} onCompositionEnd={e=>{ const t = tsuNlCompEnd(e, FS_NL_C, 300); if (t != null) update('kiou', t); }}
                 placeholder="既往歴・現病歴を入力（アレルギー・感染症の有無もここに）"
                 className={textareaCls}/>
-              <div className="text-right"><CharCount value={fs.kiou} max={300}/></div>
+              <div className="text-right"><CharCount value={fs.kiou} max={300} c={FS_NL_C}/></div>
             </Field>
-            <Field label="留意点（申し送り）"><textarea rows={2} maxLength={200} value={fs.ryui} onChange={e=>update('ryui', e.target.value.slice(0, 200))} placeholder="送迎・介助・対応上の申し送り事項など（提供記録の画面にも表示されます）" className={textareaCls}/><div className="text-right"><CharCount value={fs.ryui} max={200}/></div></Field>
-            {/* ★ 2026-10-03 ユーザー指示: 服薬状況(お薬手帳のコピーで代替)・アレルギー感染症(既往歴に記載)・ADL/認知症自立度(加算書類で記載)は廃止 */}
+            <Field label="留意点（申し送り）"><textarea rows={2} maxLength={200} value={fs.ryui} onChange={e=>update('ryui', tsuNlFit(e, FS_NL_C, 200, fs.ryui || ''))} onCompositionStart={tsuNlCompStart} onCompositionEnd={e=>{ const t = tsuNlCompEnd(e, FS_NL_C, 200); if (t != null) update('ryui', t); }} placeholder="送迎・介助・対応上の申し送り事項など（提供記録の画面にも表示されます）" className={textareaCls}/><div className="text-right"><CharCount value={fs.ryui} max={200} c={FS_NL_C}/></div></Field>
+            {/* ★ 2026-10-03 ユーザー指示: 服薬状況(お薬手帳のコピーで代替)・アレルギー感染症(既往歴に記載)は廃止 */}
+            {/* ★ 2026-11-01(ユーザー指摘「フェイスシートに自立度の欄がない」): 日常生活自立度はここ(personalFile.faceSheet)が保存先で、LIFEのCSV・計画書(3-3/3-4)の自動取込が読む。
+                  10/3 に欄を外したあと Excel/CSV の取込以外に入れる手段がなく、LIFE が「自立度(フェイスシート)が未設定」になっていたため戻す。計画書で選んで保存した値はここへも反映(backfillFaceSheetLevels・新しい方が勝つ) */}
+            <div data-fs-sec="level" className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="障害高齢者の日常生活自立度">
+                <select data-testid="fs-adl-level" value={normalizeAdlLevel(fs.adlLevel)} onChange={e=>update('adlLevel', e.target.value)} className={inputCls}>
+                  <option value="">（未設定）</option>
+                  {TK_ADL_OPTS.map(o=><option key={o} value={o}>{o}</option>)}
+                  {fs.adlLevel && !TK_ADL_OPTS.includes(normalizeAdlLevel(fs.adlLevel)) && <option value={normalizeAdlLevel(fs.adlLevel)}>{fs.adlLevel}</option>}
+                </select>
+              </Field>
+              <Field label="認知症高齢者の日常生活自立度">
+                <select data-testid="fs-dem-level" value={normalizeDemLevel(fs.dementiaLevel)} onChange={e=>update('dementiaLevel', e.target.value)} className={inputCls}>
+                  <option value="">（未設定）</option>
+                  {TK_DEM_OPTS.map(o=><option key={o} value={o}>{o}</option>)}
+                  {fs.dementiaLevel && !TK_DEM_OPTS.includes(normalizeDemLevel(fs.dementiaLevel)) && <option value={normalizeDemLevel(fs.dementiaLevel)}>{fs.dementiaLevel}</option>}
+                </select>
+              </Field>
+              <div className="tsu-hint-row sm:col-span-2"><TsuHint>LIFEの提出と計画書（通所介護・個別機能訓練）はここの値を使います。計画書で選んで保存すると、ここも同じ値に更新されます（新しい方が反映）。</TsuHint></div>
+            </div>
           </div>
           {/* ⑥ ケアマネジメント関連 */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
@@ -62992,9 +63019,9 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               </div>
             </div>
             <Field label="通所の経緯">
-              <textarea rows={4} maxLength={400} value={fs.lifeHistory} onChange={e=>update('lifeHistory', e.target.value.slice(0, 400))}
+              <textarea rows={4} maxLength={400} value={fs.lifeHistory} onChange={e=>update('lifeHistory', tsuNlFit(e, FS_NL_C, 400, fs.lifeHistory || ''))} onCompositionStart={tsuNlCompStart} onCompositionEnd={e=>{ const t = tsuNlCompEnd(e, FS_NL_C, 400); if (t != null) update('lifeHistory', t); }}
                 placeholder="通所に至った経緯・きっかけ、これまでの生活や家族との関係など" className={textareaCls}/>
-              <div className="text-right"><CharCount value={fs.lifeHistory} max={400}/></div>
+              <div className="text-right"><CharCount value={fs.lifeHistory} max={400} c={FS_NL_C}/></div>
             </Field>
             {/* ★ 2026-10-03 ユーザー指示: 現在の状況・本人家族の意向は計画書で作成するため廃止。他サービス・社会資源は備考へ */}
           </div>
@@ -63002,12 +63029,12 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
             <div className="text-sm font-bold text-amber-800 mb-2">⑥ 備考・追記</div>
             <Field label="備考（他サービス・社会資源の利用状況など）">
-              <textarea rows={2} maxLength={200} value={fs.bikou} onChange={e=>update('bikou', e.target.value.slice(0, 200))} placeholder="訪問看護 / 福祉用具レンタル / ボランティア など" className={textareaCls}/>
-              <div className="text-right"><CharCount value={fs.bikou} max={200}/></div>
+              <textarea rows={2} maxLength={200} value={fs.bikou} onChange={e=>update('bikou', tsuNlFit(e, FS_NL_C, 200, fs.bikou || ''))} onCompositionStart={tsuNlCompStart} onCompositionEnd={e=>{ const t = tsuNlCompEnd(e, FS_NL_C, 200); if (t != null) update('bikou', t); }} placeholder="訪問看護 / 福祉用具レンタル / ボランティア など" className={textareaCls}/>
+              <div className="text-right"><CharCount value={fs.bikou} max={200} c={FS_NL_C}/></div>
             </Field>
             <Field label="追記（自由入力）">
-              <textarea rows={4} maxLength={500} value={fs.addendum} onChange={e=>update('addendum', e.target.value.slice(0, 500))} placeholder="その他、申し送りや気づきなど自由に" className={textareaCls}/>
-              <div className="text-right"><CharCount value={fs.addendum} max={500}/></div>
+              <textarea rows={4} maxLength={500} value={fs.addendum} onChange={e=>update('addendum', tsuNlFit(e, FS_NL_C, 500, fs.addendum || ''))} onCompositionStart={tsuNlCompStart} onCompositionEnd={e=>{ const t = tsuNlCompEnd(e, FS_NL_C, 500); if (t != null) update('addendum', t); }} placeholder="その他、申し送りや気づきなど自由に" className={textareaCls}/>
+              <div className="text-right"><CharCount value={fs.addendum} max={500} c={FS_NL_C}/></div>
             </Field>
           </div>
           {/* ★ 2026-10-03 ユーザー指示: ⑦その他(見取り図・送迎経路・送迎時の留意点・趣味・性格)は廃止(保存済みの値は残る・添付は引き続き可) */}
