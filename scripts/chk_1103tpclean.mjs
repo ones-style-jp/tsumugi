@@ -58,7 +58,7 @@ const planOf = (page, key) => page.evaluate((k) => { const d = JSON.parse(localS
   const tplIso = S.tplIso;
   // ⑧ trial509: 「基本の送迎表」ボタンで型の週(曜日ごと)を開ける。見出しは曜日・コピー/確定/要連絡は出ない・A〜D が型に居る(さっき登録した A・B・D は車、C は基本利用曜日から未割当)。戻るボタンで今週へ
   // trial512: 車の見出し=車名＋運転者の文字。押すとメニュー(運転者・ナビ)。ナビはメニューを開くまで無い。送りは1行(tp-droprow)
-  r.ui_carhead = (await page.locator(`[data-testid^="tp-carhead-${S.today}-AM-"]`).count()) >= 1 && (await page.locator('[data-testid^="tp-navi-"]').count()) === 0 && (await page.locator('[data-testid^="tp-driver-txt-"]').count()) >= 1;
+  r.ui_carhead = (await page.locator(`[data-testid^="tp-carhead-${S.today}-AM-"]`).count()) >= 1 && (await page.locator('[data-testid^="tp-navi-"]').count()) >= 1 /* ★ 2026-11-05 trial522: ナビは車の見出しの横に戻した(メニューの中からは外した) */ && (await page.locator('[data-testid^="tp-driver-txt-"]').count()) >= 1;
   await page.locator(`[data-testid^="tp-carhead-${S.today}-AM-"]`).first().click(); await page.waitForTimeout(400);
   r.ui_carmenu = (await page.locator('[data-testid^="tp-carmenu-"]').count()) === 1 && (await page.locator('[data-testid^="tp-navi-"]').count()) === 1 && (await page.locator(`[data-testid="tp-driver-${S.carId}"]`).count()) >= 1;
   await page.keyboard.press('Escape').catch(() => {}); await page.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {}); await page.waitForTimeout(300);
