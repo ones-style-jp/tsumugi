@@ -19,6 +19,12 @@ html, body, #root {
   textarea {
     font-size: 16px !important;
   }
+  /* ★ 2026-11-05 trial524: 担当者会議記録の小窓は「拡大」で入力欄の文字も大きく(16px より小さくはしない) */
+  [data-testid="meeting-float"] input:not([type="checkbox"]):not([type="radio"]),
+  [data-testid="meeting-float"] select,
+  [data-testid="meeting-float"] textarea {
+    font-size: max(16px, calc(16px * var(--tsu-meet-scale, 1))) !important;
+  }
 }
 
 /* ★ 過剰なスクロール抑制:
@@ -568,3 +574,11 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
 #record-table.tsu-fz-on .text-\[14px\] { font-size: calc(14px * var(--tsu-fz)); }
 #record-table.tsu-fz-on .text-\[15px\] { font-size: calc(15px * var(--tsu-fz)); }
 #record-table.tsu-fz-on .text-\[16px\] { font-size: calc(16px * var(--tsu-fz)); }
+
+/* ★ 2026-11-05 trial524(ユーザー要望「スマホの利用者マスタは、個人ファイル・アカウント管理・保存を名前の下の1行に」): ボタンは横いっぱいに等分(入らなければ折り返す・文字は切らない) */
+@media (max-width: 639px) {
+  .tsu-mhead-btns { width: 100%; gap: 6px !important; }
+  .tsu-mhead-btns > div { width: 100%; display: flex; flex-wrap: wrap; justify-content: stretch !important; gap: 6px !important; }
+  .tsu-mhead-btns button { flex: 1 1 0; min-width: max-content; justify-content: center; padding: 10px 6px !important; font-size: 13px !important; min-height: 44px; }
+  .tsu-mhead-btns button svg { display: none; }
+}
