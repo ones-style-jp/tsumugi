@@ -38071,7 +38071,7 @@ function TsuTimeKeypad({ title, hint, initial, onCommit, onClose, suggest }) {
 //   変えた後に本人が来所して連絡帳が出ている(次の連絡帳に載る)なら要らない。連絡済は _telDone[pid]={ck,on,t}(ck=その変更の時刻)
 // ★ 2026-11-04 trial515(ユーザー報告「13:00 の方が 13:0 に変わったと出る」): 送迎表の _fmtT と同じ正規化(分は2桁に・「8時30分」形も)
 const tpFmtT = (t) => { const v = String(t ?? '').replace(/[\s　]+/g, '').trim(); if (!v || v === '時分' || v === '時') return '';
-  let m = v.match(/^(\d{1,2})時(?:(\d{1,2})分?|(分))?$/); if (m) return `${m[1]}:${m[2] != null ? String(m[2]).padStart(2, '0') : (m[3] ? '--' : '00')}`;
+  let m = v.match(/^(\d{1,2})時(?:(\d{1,2})分?|(分))?$/); if (m) return `${m[1]}:${m[2] != null ? String(m[2]).padStart(2, '0') : '--'}`; /* ★ 2026-11-05 1105b(ユーザー指摘「お迎え時間を入れていない方が13:00と出る」): 「13時」(利用者マスタ未入力のときの提供時間からの目安)も 13:-- */
   m = v.match(/^(\d{1,2}):(\d{1,2}|--)$/); if (m) return `${m[1]}:${m[2] === '--' ? '--' : String(m[2]).padStart(2, '0')}`;
   return String(t ?? '').trim(); };
 const tpSnapOf = (pl) => { const cars = {}; Object.keys(pl?.cars || {}).forEach(cid => { cars[cid] = (pl.cars[cid] || []).filter(Boolean).map(m => ({ pid: m.pid, t: tpFmtT(m.t) })); }); return { cars, walkers: (pl?.walkers || []).filter(Boolean).map(m => m.pid), walkT: Object.fromEntries((pl?.walkers || []).filter(Boolean).map(m => [m.pid, /\d/.test(String(m.t || '')) ? tpFmtT(m.t) : ''])), others: (pl?.others || []).filter(Boolean).map(m => m.pid) }; };
@@ -38522,7 +38522,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _fmtT = (t) => {
     const v = String(t ?? '').replace(/[\s　]+/g, '').trim(); if (!v || v === '時分' || v === '時') return '';
     // 「8時30分」→8:30 ／「8時　分」(分が空欄)→8:-- ／「8時」(自動算出の時のみ)→8:00
-    let m = v.match(/^(\d{1,2})時(?:(\d{1,2})分?|(分))?$/); if (m) return `${m[1]}:${m[2] != null ? String(m[2]).padStart(2, '0') : (m[3] ? '--' : '00')}`;
+    let m = v.match(/^(\d{1,2})時(?:(\d{1,2})分?|(分))?$/); if (m) return `${m[1]}:${m[2] != null ? String(m[2]).padStart(2, '0') : '--'}`; /* ★ 2026-11-05 1105b(ユーザー指摘「お迎え時間を入れていない方が13:00と出る」): 「13時」(利用者マスタ未入力のときの提供時間からの目安)も 13:-- */
     m = v.match(/^(\d{1,2}):(\d{1,2}|--)$/); if (m) return `${m[1]}:${m[2] === '--' ? '--' : String(m[2]).padStart(2, '0')}`;
     return String(t ?? '').trim();
   };
