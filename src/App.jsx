@@ -24173,13 +24173,15 @@ export default function App() {
     trashPurgedRef.current = true;
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
     let changed = false;
+    let _rt = null; const _refText = () => (_rt === null ? (_rt = tsuStorageRefText(appData)) : _rt);
     const patients = (appData.patients || []).map(p => {
       const trash = p.personalFile?.trash;
       if (!Array.isArray(trash) || trash.length === 0) return p;
       const keep = [];
       trash.forEach(t => {
         if (t._deletedAt && new Date(t._deletedAt).getTime() < cutoff) {
-          if (t.storagePath && isSupabaseEnabled) supabaseDeleteFile(t.storagePath).catch(()=>{});
+          // ★ 2026-11-05: 同じ写真がゴミ箱の外でまだ使われていれば(同期で戻った書類など) Storage からは消さない
+          if (t.storagePath && isSupabaseEnabled && !tsuStoragePathInUse(_refText(), t.storagePath)) supabaseDeleteFile(t.storagePath).catch(()=>{});
           changed = true;
         } else { keep.push(t); }
       });
@@ -24193,7 +24195,7 @@ export default function App() {
         const paths = [];
         if (t.storagePath) paths.push(t.storagePath);
         if (Array.isArray(t.photos)) t.photos.forEach(ph => ph?.storagePath && paths.push(ph.storagePath));
-        if (isSupabaseEnabled) paths.forEach(pth => supabaseDeleteFile(pth).catch(()=>{}));
+        if (isSupabaseEnabled) paths.forEach(pth => { if (!tsuStoragePathInUse(_refText(), pth)) supabaseDeleteFile(pth).catch(()=>{}); });
         changed = true;
       } else { annKeep.push(t); }
     });
@@ -43137,9 +43139,16 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         try { await supabaseDeletePatientFamily(_storeId, pid); }
         catch (e) { console.warn('[supabase] delete patient family failed', e); }
       }
-      // ★ この利用者の Storage 実体ファイルを全削除 (完全削除のため。 退所は status 変更のみで残る)
-      try { await supabaseDeleteFolder(`pf/${pid}`); await supabaseDeleteFolder(`fs/${pid}`); }
-      catch (e) { console.warn('[storage] delete patient folder failed', e); }
+      // ★ この利用者の Storage 実体ファイルを削除 (完全削除のため。 退所は status 変更のみで残る)
+      // ★ 2026-11-05(負担割合証の写真が見られない件): 置き場所 pf/<番号>/ には店舗の区別がなく、番号は店舗ごとに 1,2,3… と振る。
+      //   フォルダごと消すと、他の店舗の同じ番号の方の写真まで消えていた → この方の記録が指している写真だけを消す(この店舗の他の記録が使っているものは残す)
+      try {
+        const _pObj = (appData.patients||[]).find(p => p.id === pid);
+        const _mine = tsuStoragePathsOf(_pObj).filter(x => x.startsWith(`pf/${pid}/`) || x.startsWith(`fs/${pid}/`));
+        const _rest = tsuStorageRefText({ ...appData, patients: (appData.patients||[]).filter(p => p.id !== pid) });
+        for (const x of _mine) if (!tsuStoragePathInUse(_rest, x)) await supabaseDeleteFile(x).catch(()=>{});
+      }
+      catch (e) { console.warn('[storage] delete patient files failed', e); }
     }
     // ★ この利用者IDに紐づく全データ (提供記録・気分・体力測定・お知らせ・写真等) を除去 + 墓石付与。
     //   → 削除後にCSV等で同じIDが再利用されても、前の利用者のデータが誤って紐づかない。
@@ -60053,6 +60062,10 @@ const tsumugiRotateExisting = async (file, prefix) => {
   try { const res = await tsumugiRotateStoredImage(file, d, prefix); if (!res) alert('回転できませんでした。通信状態をご確認のうえ、もう一度お試しください。'); return res; }
   catch (e) { alert('回転できませんでした: ' + (e && e.message || e)); return null; }
 };
+// ★ 2026-11-05: 写真の置き場所(storagePath)が、ゴミ箱の外でまだ使われているか。ゴミ箱(個人ファイル・お知らせ)を除いた店舗データの文字で調べる
+const tsuStorageRefText = (data) => { try { return JSON.stringify({ ...(data || {}), trashedAnnouncements: [], patients: ((data && data.patients) || []).map(p => (p && p.personalFile && p.personalFile.trash) ? { ...p, personalFile: { ...p.personalFile, trash: [] } } : p) }); } catch { return ''; } };
+const tsuStoragePathInUse = (refText, path) => !!path && !!refText && refText.includes('"storagePath":' + JSON.stringify(path));
+const tsuStoragePathsOf = (obj) => { try { const out = new Set(); const re = /"storagePath":"((?:[^"\\]|\\.)*)"/g; const t = JSON.stringify(obj || {}); let m; while ((m = re.exec(t))) out.add(JSON.parse('"' + m[1] + '"')); return [...out]; } catch { return []; } };
 // 削除時に、その項目に紐づく Storage 実体ファイルも削除する (storagePath / photos[].storagePath)
 const purgeStorageFiles = (item) => {
   if (!item) return;
@@ -60111,13 +60124,19 @@ function useSignedUrl(file) {
 //   サムネイル枠に「PDF」と表示する(クリックでのプレビューは従来どおり)。
 function StoredImage({ file, alt, className, style, onClick }) {
   const src = useSignedUrl(file);
+  const [bad, setBad] = useState(''); // ★ 2026-11-05: 読めなかった写真は壊れた絵(「image.jpg」と?)ではなく、読み込めないことを文字で出す
   const isPdf = (((file?.type)||'')+'').includes('pdf') || /\.pdf(\?|$)/i.test(file?.name || file?.url || file?.storagePath || '');
   if (isPdf) return (
     <div className={className} style={{background:'#f1f5f9',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,color:'#64748b',border:'1px solid #e2e8f0',cursor:onClick?'pointer':undefined,...(style||{})}} onClick={onClick} title={file?.name||'PDF'}>
       <span style={{fontSize:11,fontWeight:'bold',letterSpacing:'0.5px'}}>PDF</span>
     </div>
   );
-  return src ? <img src={src} alt={alt||''} className={className} style={style} onClick={onClick}/> : <div className={className} style={{background:'#f1f5f9',...(style||{})}} onClick={onClick}/>;
+  if (src && bad === src) return (
+    <div className={className} data-testid="stored-image-missing" style={{background:'#fff7ed',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,color:'#c2410c',border:'1px solid #fed7aa',textAlign:'center',padding:4,boxSizing:'border-box',...(style||{})}} onClick={onClick} title={file?.name||''}>
+      <span style={{fontSize:11,fontWeight:'bold',lineHeight:1.3}}>写真を<br/>読み込めません</span>
+    </div>
+  );
+  return src ? <img src={src} alt={alt||''} className={className} style={style} onClick={onClick} onError={() => setBad(src)}/> : <div className={className} style={{background:'#f1f5f9',...(style||{})}} onClick={onClick}/>;
 }
 // 開く/ダウンロード リンク (署名URL対応)
 function StoredFileLink({ file, className, children }) {
@@ -60619,7 +60638,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     const t = (personalFile.trash || []).find(x => x.id === trashId);
     if (!t) return;
     if (!window.confirm('このファイルを完全に削除します。元に戻せません。よろしいですか?')) return;
-    if (t.storagePath) { supabaseDeleteFile(t.storagePath).catch(()=>{}); }
+    if (t.storagePath && !tsuStoragePathInUse(tsuStorageRefText(appData), t.storagePath)) { supabaseDeleteFile(t.storagePath).catch(()=>{}); } // ★ 2026-11-05: まだ使われている写真は消さない
     updatePatient({ trash: (personalFile.trash || []).filter(x => x.id !== trashId) });
   };
   // ★ ファイルのタイトル/日付を編集
@@ -62280,7 +62299,8 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
             <TsuMeetReasonPicker patient={patient} value={{ reasonType: form.reasonType, reasonNote: form.reasonNote, careBefore: form.careBefore, careAfter: form.careAfter }} onChange={v=>setForm(f=>({...f, ...v}))} fs={14} />
           </div>
           {/* 内容 (様子・状態) ★ 2026-10-16: 画面の残りいっぱいに伸びる(最低16行) */}
-          <div className="border border-slate-200 rounded-lg p-3 flex flex-col flex-1" style={{minHeight:0}}>
+          {/* ★ 2026-11-05(ユーザー報告「検討した項目が枠からずれる」): 枠は縮まない(中の欄が枠からはみ出さない) */}
+          <div className="border border-slate-200 rounded-lg p-3 flex flex-col" style={{flex:'1 0 auto'}}>
             <div className="text-[11px] font-bold text-slate-600 mb-2">検討した項目・内容・結論</div>
             <textarea value={form.content} onChange={e=>setForm(f=>({...f, content: e.target.value}))}
               rows={16}
