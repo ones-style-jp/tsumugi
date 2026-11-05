@@ -1990,7 +1990,21 @@ const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
 const BusySpin = ({ style }) => <span aria-hidden="true" className="tsumugi-busy-spin" style={style} />;
 // ★ 2026-10-03(ユーザー指示「印刷で見切れる恐れのある入力欄は全て文字数制限し、入力中は 現在/最大 を表示。印刷時は非表示」):
 //   文字数の表示(no-print)。上限に達したら赤。入力欄には maxLength を付け、その横にこれを置く。
-const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 40;
+// ★ 2026-11-05 1105e(ユーザー「22字で」): クラス在籍表の待ちは印刷で1行約11字×2行しか入らない(40字だと切れた)→22字・改行は行の残りも数える(ROSTER_WAIT_NL_C)。数え方は試験版 trial525 の共通の部品をそのまま持ってきた
+const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 22, ROSTER_WAIT_NL_C = 11;
+// ★ 2026-11-05 trial525(ユーザー「改行したら、その行の残りの字数もプラスされる数え方に。特記など全部の欄で」):
+//   c=印刷の1行に入る字数。改行で次の行へ移ると、その行の残りも使ったと数える(c が無い欄は今までどおり1字ずつ)
+const tsuNlLen = (text, c) => { const t = String(text ?? ''); if (!c) return [...t].length; const ls = t.split('\n'); let used = 0; ls.forEach((ln, i) => { const w = [...ln].length; used += i < ls.length - 1 ? Math.max(1, Math.ceil(w / c)) * c : w; }); return used; };
+// 上限を超える分を後ろから切る(日本語の変換中は呼ばない)
+const tsuNlCut = (text, c, max) => { const t = String(text ?? ''); if (tsuNlLen(t, c) <= max) return t; const a = [...t]; while (a.length && tsuNlLen(a.join(''), c) > max) a.pop(); return a.join(''); };
+// 上限を超えたときの扱い: 前の文(prev)が上限を超えていた(数え方を変える前に保存した長い文など)なら、前の文より増やさない(減らすのは自由)。
+//   前の文を切って消すことはしない(直しただけで後ろが消える事故を防ぐ)
+const tsuNlKeep = (v, c, max, prev) => { if (tsuNlLen(v, c) <= max) return v; if (prev != null) { const pl = tsuNlLen(prev, c); if (tsuNlLen(v, c) <= pl) return v; if (pl > max) return String(prev); } return tsuNlCut(v, c, max); };
+// 入力欄の onChange 用: 変換中はそのまま・確定していれば上限まで
+const tsuNlFit = (e, c, max, prev) => { const v = e && e.target ? e.target.value : String(e ?? ''); return (e && e.nativeEvent && e.nativeEvent.isComposing) ? v : tsuNlKeep(v, c, max, prev); };
+// 日本語の変換の始まりに前の文を控え、確定したときに上限を確かめる(変えるときだけ新しい文を返す)
+const tsuNlCompStart = (e) => { try { e.currentTarget.dataset.nlPrev = e.currentTarget.value; } catch {} };
+const tsuNlCompEnd = (e, c, max) => { const el = e.currentTarget; const v = el.value; let prev; try { prev = el.dataset.nlPrev; delete el.dataset.nlPrev; } catch {} const t = tsuNlKeep(v, c, max, prev); return t === v ? null : t; };
 const CB_LABEL_MAX = 10, CB_VALUE_MAX = 12; // ★ 2026-10-13: 連絡帳の項目名・表示文字の上限(枠に収まる長さ)
 // ★ 2026-10-03: サーバーPDF(/api/pdf)の共通ヘルパー。
 //   tsumugiBuildPrintSrcDoc(html): 画面の全スタイルを添えた印刷用の完全なHTML(プレビューの iframe と同じ)。
@@ -33089,7 +33103,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
               <div style={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
                 <span style={{ fontWeight: 'bold', color: '#475569', whiteSpace: 'nowrap', fontSize: fs - 1 }}>待ち</span>
                 {print ? <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: fs - 1, color: '#1d4ed8', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.25 }}>{v}</span>
-                  : <><textarea value={v} rows={2} maxLength={ROSTER_WAIT_MAX} placeholder="（空欄）" onChange={e => setWaitDraft(w => ({ ...w, [k]: e.target.value.slice(0, ROSTER_WAIT_MAX) }))} onBlur={e => { saveWait(k, e.target.value.slice(0, ROSTER_WAIT_MAX)); setWaitDraft(w => { const n = { ...w }; delete n[k]; return n; }); }}
+                  : <><textarea value={v} rows={2} maxLength={Math.max(ROSTER_WAIT_MAX, [...String(wait[k] || '')].length)} placeholder="（空欄）" title={`${ROSTER_WAIT_MAX}字まで（印刷で入る量。改行すると、その行の残り（1行${ROSTER_WAIT_NL_C}字）も使います）`} onChange={e => { const nv = tsuNlFit(e, ROSTER_WAIT_NL_C, ROSTER_WAIT_MAX, v); setWaitDraft(w => ({ ...w, [k]: nv })); }} onCompositionStart={tsuNlCompStart} onCompositionEnd={e => { const t = tsuNlCompEnd(e, ROSTER_WAIT_NL_C, ROSTER_WAIT_MAX); if (t != null) setWaitDraft(w => ({ ...w, [k]: t })); }} onBlur={e => { saveWait(k, tsuNlKeep(e.target.value, ROSTER_WAIT_NL_C, ROSTER_WAIT_MAX, wait[k] || '')); setWaitDraft(w => { const n = { ...w }; delete n[k]; return n; }); }}
                       style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#1d4ed8', fontWeight: 'bold', border: '1px dashed #cbd5e1', borderRadius: 4, padding: '1px 3px', background: 'white', resize: 'none', lineHeight: 1.3 }} data-testid={`cr-wait-${k}`} /></>}
               </div>
             </td>); })}
