@@ -38468,13 +38468,14 @@ function TsuFitNotePresetCard({ appData, onSave }) {
 // ★ 2026-10-20(ユーザー要望): 運転者の選択に「その他（名前を入力）」。職員一覧に無い人(応援・家族の送迎など)の名前をその場で入れる
 const TSU_DRIVER_OTHER_MAX = 10; // ★ 2026-10-20: 日本の名前が入る長さ(10文字)まで
 // ★ 2026-10-20(ユーザー要望「その他の名前の欄が1文字しか見えない」): その他の運転者の名前は小窓で入れる
+// ★ 2026-11-06 trial527(ユーザー「座席表で運転手のその他を押しても何も反応しない」): 座席表の小窓(zIndex 10000)の後ろに出ていた → 10100 で前に出す
 function TsuDriverOtherPrompt({ initial, onCancel, onOk, testid }) {
   useTsuBackLock(true);
   const [txt, setTxt] = React.useState(initial || '');
   const n = String(txt || '').trim();
   const ok = () => { if (!n) return; onOk(n.slice(0, TSU_DRIVER_OTHER_MAX)); };
   return (
-    <div data-testid={testid ? `${testid}-other` : undefined} onClick={onCancel} style={{position:'fixed',inset:0,zIndex:400,background:'rgba(15,23,42,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+    <div data-testid={testid ? `${testid}-other` : undefined} onClick={onCancel} style={{position:'fixed',inset:0,zIndex:10100,background:'rgba(15,23,42,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
       <div onClick={e => e.stopPropagation()} role="dialog" aria-label="運転者の名前" style={{background:'white',borderRadius:16,width:400,maxWidth:'100%',padding:'18px 18px 16px',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
         <div style={{fontSize:17,fontWeight:'bold',color:'#1e293b'}}>運転者の名前（その他）</div>
         <div style={{fontSize:13,color:'#475569',lineHeight:1.6,marginTop:6}}>職員の一覧にいない方（応援の方・ご家族など）の名前を入れます。この日・この時間帯だけの運転者です（前週コピーでは次の週に写りません）。</div>
