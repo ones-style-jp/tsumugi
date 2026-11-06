@@ -10812,6 +10812,13 @@ const getPauseReasonOnDate = (p, dateStr) => {
 };
 // ★ 2026-10-30: 休止の履歴に新しい休止を足すとき、終了日のない前の休止は「新しい休止の前日」で閉じる(終了日なしの残骸を残さない)。
 //   再開のときも、終了日のない休止はすべて閉じる(前は最後の1件だけ閉じていた)
+// ★ 2026-11-06 trial528(ユーザー「休止して入院し、そのまま退所する方がいる。休止中に利用終了日を入れたら、休止の期間も利用終了日と同じにして、そのまま退所に」):
+//   利用終了日より前に始まり、終わりが無い(または利用終了日より後)の休止を、利用終了日で閉じる。変えたときは statusUpdatedAt も新しくする(同期で古い休止に戻らない)。
+//   状態(status)はそのまま: 利用終了日までは休止中、過ぎると退所済み(getPatientDisplayStatus)。返り値 { p, changed }
+const tsuPauseEndAt = (p) => { const endIso = p ? dateIsoAny(p.endDate) : ''; const hist = (p && Array.isArray(p.pauseHistory)) ? p.pauseHistory : [];
+  if (!endIso || !hist.length) return { p, changed: false };
+  let changed = false; const next = hist.map(h => { if (h && h.fromDate && String(h.fromDate) <= endIso && (!h.toDate || String(h.toDate) > endIso)) { changed = true; return { ...h, toDate: endIso }; } return h; });
+  return changed ? { p: { ...p, pauseHistory: next, statusUpdatedAt: Date.now() }, changed: true } : { p, changed: false }; };
 const tsuPauseClose = (hist, toIso) => (Array.isArray(hist) ? hist : []).map(h => (h && !h.toDate && h.fromDate) ? { ...h, toDate: (toIso < String(h.fromDate)) ? String(h.fromDate) : toIso } : h);
 const tsuPauseAppend = (hist, entry) => { const f = String(entry && entry.fromDate || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return [...(Array.isArray(hist) ? hist : []), entry];
   const d = new Date(`${f}T00:00:00`); d.setDate(d.getDate() - 1); const prev = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -43345,12 +43352,13 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       const prev = (appData.patients||[]).find(p => p.id === localPatient.id) || {};
       // ★ 最新appData(状態/休止/ファイル)を土台に = 古いスナップショットで 休止→利用中 等に巻き戻さない
       let pat = withLatestFiles({...localPatient});
+      { const _pe = tsuPauseEndAt(pat); if (_pe.changed) { pat = _pe.p; try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `休止の期間を利用終了日（${String(dateIsoAny(pat.endDate)).replace(/-/g, '/')}）までにしました` } })); } catch {} } } // ★ 2026-11-06 trial528
       ['kiou','ryui','scheduleAmPm','costBurden','status'].forEach(field => {
         const ov = Array.isArray(prev[field]) ? JSON.stringify(prev[field]||[]) : (prev[field]||'');
         const nv = Array.isArray(pat[field]) ? JSON.stringify(pat[field]||[]) : (pat[field]||'');
         if (ov !== nv) pat = addChangeLog(pat, field, prev[field], pat[field]);
       });
-      if (pat.changeLog !== localPatient.changeLog) setLocalPatient(pat);
+      if (pat.changeLog !== localPatient.changeLog || pat.pauseHistory !== localPatient.pauseHistory) setLocalPatient(pat); // ★ 2026-11-06 trial528: 休止を利用終了日で閉じたときも画面に出す
       next.patients = appData.patients.map(p => p.id === pat.id ? pat : p);
       // ★ 2026-10-01: 曜日の変更・利用終了日などで合わなくなった空の出席記録を片付ける
       const _cl = cleanupStaleEmptyRecords(next, prev, pat, appData.monthlyShifts);
@@ -43452,6 +43460,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     const prev = (appData.patients||[]).find(p => p.id === localPatient.id) || {};
     // ★ 最新appData(状態/休止/ファイル)を土台に = 古いスナップショットで 休止→利用中 等に巻き戻さない
     let pat = withLatestFiles({...localPatient});
+    { const _pe = tsuPauseEndAt(pat); if (_pe.changed) { pat = _pe.p; try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `休止の期間を利用終了日（${String(dateIsoAny(pat.endDate)).replace(/-/g, '/')}）までにしました` } })); } catch {} } } // ★ 2026-11-06 trial528
     ['kiou','ryui','scheduleAmPm','costBurden','status'].forEach(field => {
       const ov = Array.isArray(prev[field]) ? JSON.stringify(prev[field]||[]) : (prev[field]||'');
       const nv = Array.isArray(pat[field]) ? JSON.stringify(pat[field]||[]) : (pat[field]||'');
@@ -43478,7 +43487,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       _h.push({ office: pat.cmOffice||'', name: pat.cmName||'', from: _td, to: null, note: '' });
       pat = { ...pat, cmHistory: _h };
     }
-    if (pat.changeLog !== localPatient.changeLog) setLocalPatient(pat);
+    if (pat.changeLog !== localPatient.changeLog || pat.pauseHistory !== localPatient.pauseHistory) setLocalPatient(pat); // ★ 2026-11-06 trial528: 休止を利用終了日で閉じたときも画面に出す
     next.patients = appData.patients.map(p => p.id === pat.id ? pat : p);
     // ★ 運動メニュー(予定値)が変わり、かつ過去の提供記録がある場合のみ「何月から適用するか」を確認。
     //    キー順・空値の差で誤検知しないよう正規化して比較 (運動メニュー以外の編集では出さない)
@@ -43836,8 +43845,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     if (diff <= 30) return 'expiring';
     return '';
   };
-  const _insState = (p) => _expiryState(p.careLevelTo, p.careLevelHistory);
-  const _burdenState = (p) => _expiryState(p.costBurdenTo, p.costBurdenHistory);
+  // ★ 2026-11-06 trial528(ユーザー「退所済みの方の保険証などの更新の確認(赤い表示)は、もう必要ない」): 退所済み(利用終了日を過ぎた・状態が退所/終了)は出さない
+  const _insState = (p) => isPatientListable(p) ? _expiryState(p.careLevelTo, p.careLevelHistory) : '';
+  const _burdenState = (p) => isPatientListable(p) ? _expiryState(p.costBurdenTo, p.costBurdenHistory) : '';
   const isInsuranceExpiring = (p) => { const s = _insState(p); return s === 'expired' || s === 'expiring'; };
   // ★ 初回ご利用報告が未報告の利用者 (初回通所日が今日以前 かつ initialReports 未登録)
   const pendingInitialReportSet = React.useMemo(() => tsuPendingInitialReportSet(appData), [appData.ticketRecords, appData.initialReports]);
@@ -44414,7 +44424,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             const _sortExtra =
               masterSort === 'startDate' && p.startDate ? <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 self-start mt-0.5">通所 {dTxt(dBtw(p.startDate,new Date()))}</span> :
               masterSort === 'bday' && p.birthDate ? <span className="text-[10px] font-bold text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1 self-start mt-0.5">誕生 {tsuDateObj(p.birthDate).getMonth()+1}/{tsuDateObj(p.birthDate).getDate()}</span> :
-              masterSort === 'insurance' && p.careLevelTo ? <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-1 self-start mt-0.5">更新 {p.careLevelTo.replace(/-/g,'/')}</span> :
+              masterSort === 'insurance' && p.careLevelTo && isPatientListable(p) ? <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-1 self-start mt-0.5">更新 {p.careLevelTo.replace(/-/g,'/')}</span> :
               masterSort === 'age' && _age !== null ? <span className="text-[10px] font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded px-1 self-start mt-0.5">{_age} 歳</span> :
               (masterSort === 'schedule' || masterDowFilter.length > 0) ? (() => { const _mon=[1,2,3,4,5,6,0]; const _dw='日月火水木金土'; const t=_mon.map(di=>{ const v=(p.scheduleAmPm||[])[di]; return v?_dw[di]+(v==='1日'?'':v):''; }).filter(Boolean).join('・'); return t ? <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded px-1 self-start mt-0.5">{t}</span> : <span className="text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded px-1 self-start mt-0.5">利用日未設定</span>; })() :
               null;
@@ -44474,7 +44484,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               {(() => {
                 const hist = localPatient.careLevelHistory || [];
                 const pending = hist.find(h => h.from && new Date(h.from) > new Date());
-                const expiringSoon = localPatient.careLevelTo && (() => {
+                const expiringSoon = localPatient.careLevelTo && isPatientListable(localPatient) && (() => { // ★ 2026-11-06 trial528: 退所済みは出さない
                   const exp = new Date(localPatient.careLevelTo);
                   const now = new Date();
                   const diffDays = (exp - now) / (1000*60*60*24);
