@@ -46,6 +46,19 @@ describe('端末の控えと端末名の自動付与', () => {
     expect(n2).toBe('南水元2');
     f.mockRestore();
   });
+  it('2026-11-07 trial529: 前から名前がある端末は existed=true で、設定で変えた名前(最後に知らせた名前)を返す。初めての端末には店舗のほかの端末の名前を候補に返す', async () => {
+    const f = mockFetch();
+    localStorage.setItem('tsumugiDeviceId', 'renamed-device');
+    const r1 = await mod.supabaseClaimDeviceNameEx('s9', '扇橋');
+    expect(r1.name).toBe('扇橋1'); expect(r1.existed).toBe(false); expect(r1.others).toEqual([]);
+    const cur = rows.get('diag_s9').data; cur['renamed-device'] = { at: Date.now(), logs: [], name: '受付iPhone' }; rows.set('diag_s9', { data: cur, version: rows.get('diag_s9').version });
+    const r2 = await mod.supabaseClaimDeviceNameEx('s9', '扇橋');
+    expect(r2.name).toBe('受付iPhone'); expect(r2.existed).toBe(true);
+    localStorage.setItem('tsumugiDeviceId', 'same-iphone-chrome');
+    const r3 = await mod.supabaseClaimDeviceNameEx('s9', '扇橋');
+    expect(r3.existed).toBe(false); expect(r3.others).toContain('受付iPhone');
+    f.mockRestore();
+  });
   it('手で付けた名前・旧形式(端末名|版)の名前とは重ならない番号を選ぶ', async () => {
     const f = mockFetch();
     const cur = rows.get('diag_s1').data;
