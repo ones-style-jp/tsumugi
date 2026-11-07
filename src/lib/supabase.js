@@ -156,7 +156,7 @@ export function getDeviceId() {
   if (id !== _devIdMem) { _devIdMem = id; lsSetSmall('tsumugiDeviceId', id); kvSet('tsumugiDeviceId', id); }
   return id;
 }
-// ★ 2026-11-07 1107a: サーバーの Cookie(HttpOnly・400日)に控えた端末の印と照らす。iPhone の Safari が7日ほどで消す保存先が消えたあとでも
+// ★ 2026-11-07 trial529: サーバーの Cookie(HttpOnly・400日)に控えた端末の印と照らす。iPhone の Safari が7日ほどで消す保存先が消えたあとでも
 //   同じ印に戻す(サーバーに印があればそれを使い、無ければ今の印を控えてもらう)。3秒で諦める(つながらない・自動テストでは何もしない)
 async function _devIdServerSync(localId) {
   try {
@@ -178,7 +178,7 @@ export const deviceIdentityReady = (async () => {
     if (lsId && !id0) kvSet('tsumugiDeviceId', lsId);
     if (lsName && !name0) kvSet('tsumugiDeviceName', lsName);
     if (!lsName && name && !name0) kvSet('tsumugiDeviceName', String(name)); // Cookie にしか無ければ IndexedDB にも
-    // ★ 2026-11-07 1107a: サーバーの Cookie の印と照らす(端末の印が消えて作り直されていたら、前の印に戻す)
+    // ★ 2026-11-07 trial529: サーバーの Cookie の印と照らす(端末の印が消えて作り直されていたら、前の印に戻す)
     try { const mine = getDeviceId(); const s = await _devIdServerSync(mine); if (s && s.from_cookie && s.device_id !== mine) { _devIdMem = s.device_id; lsSetSmall('tsumugiDeviceId', s.device_id); kvSet('tsumugiDeviceId', s.device_id); } } catch {}
     return { name: lsName || (name ? String(name) : '') };
   } catch { return { name: '' }; }
@@ -209,7 +209,7 @@ export async function supabaseUploadSyncDiag(storeId, name, ver, use) { // ★ 2
 // ★ 2026-10-17(ユーザー要望): 店舗で初めて使う端末に「<店舗の短縮名>1」「2」…を自動で付ける。割当は diag_<店舗> 行の __names(端末ID → 名前)に控え、
 //   同じ端末は再ログインしても同じ名前。番号は使われていない最小の数(他の端末が付けた名前・手で付けた名前とも重ならないように)
 export async function supabaseClaimDeviceName(storeId, prefix) { const r = await supabaseClaimDeviceNameEx(storeId, prefix); return r ? r.name : null; }
-// ★ 2026-11-07 1107a: { name, existed, others }。existed=この端末の印に前から名前がある(前に付けた名前=最後に知らせた名前を返す・確認画面は出さない)。
+// ★ 2026-11-07 trial529: { name, existed, others }。existed=この端末の印に前から名前がある(前に付けた名前=最後に知らせた名前を返す・確認画面は出さない)。
 //   others=この店舗でほかの端末が使っている名前(新しい順)。同じ iPhone の Safari・Chrome・ホーム画面のアプリは保存先が別々で別の端末に見えるので、前に決めた名前を選べるように
 export async function supabaseClaimDeviceNameEx(storeId, prefix) {
   if (!supabase || !storeId) return null;
@@ -2029,13 +2029,17 @@ const _isNoServer = (e) => !!(e && e.noServer) && !!supabase;
 // ★ 2026-10-19 段階4(従業員ごとのログイン): 招待・本人登録・PIN・退職・ログイン記録(すべてサーバー /api/staff-auth)
 const _devName = () => { try { return localStorage.getItem('tsumugiDeviceName') || ''; } catch { return ''; } };
 export const hashPin = (pin) => hashPassword('pin:' + String(pin || ''));
-export async function supabaseStaffInviteCreate(token, { storeId, memberId, name, role, email }) { return (await staffApi({ action: 'invite_create', token, store_id: storeId, member_id: memberId, name, role, email: email || '' })).invite; }
+export async function supabaseStaffInviteCreate(token, { storeId, memberId, name, role, email }) { const j = await staffApi({ action: 'invite_create', token, store_id: storeId, member_id: memberId, name, role, email: email || '' }); return { ...(j.invite || {}), mailed: !!j.mailed, mail_err: j.mail_err || '', sent_at: j.sent_at || null }; } // ★ 2026-11-01: メールの結果も返す
+export async function supabaseStaffInviteMail(token, { storeId, memberId, email }) { return staffApi({ action: 'invite_mail', token, store_id: storeId, member_id: String(memberId), email: email || '' }); } // ★ 2026-11-01: 招待メールを送る(送り直し)
+export async function supabaseStaffInviteMailStatus(token, { storeId, memberId, email }) { return staffApi({ action: 'invite_mail_status', token, store_id: storeId, member_id: String(memberId), email: email || '' }); } // ★ 2026-11-01: 招待メールが届いたか(Brevo の配信記録)
+export async function supabaseStaffPinReset(token, staffId) { return staffApi({ action: 'pin_reset', token, staff_id: String(staffId) }); } // ★ 2026-11-01: 管理者が PIN を作り直す(返事の pin は一度だけ)
 export async function supabaseStaffInviteLookup(code) { return (await staffApi({ action: 'invite_lookup', code: String(code || '') })).invite; }
-export async function supabaseStaffInviteAccept({ code, username, password, pin }) {
-  const password_hash = await hashPassword(password); const pin_hash = pin ? await hashPin(pin) : '';
-  const j = await staffApi({ action: 'invite_accept', code: String(code || ''), username: String(username || '').trim(), password_hash, pin_hash, device: _devName() });
+export async function supabaseStaffInviteAccept({ code, username, password }) {
+  // ★ 2026-11-01(10/23 ユーザー決定): PIN は端末で決めない。サーバーが乱数4桁を作り、返事の pin で一度だけ渡す(画面に表示して控えてもらう)
+  const password_hash = await hashPassword(password);
+  const j = await staffApi({ action: 'invite_accept', code: String(code || ''), username: String(username || '').trim(), password_hash, device: _devName() });
   if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp);
-  return { ...(j.staff || {}), _token: j.token || '' };
+  return { ...(j.staff || {}), _token: j.token || '', _pin: j.pin || '' };
 }
 export async function supabaseStaffPinSet(token, pin) { return staffApi({ action: 'pin_set', token, pin_hash: await hashPin(pin) }); }
 export async function supabaseStaffPinUnlock(token, storeId) { return staffApi({ action: 'pin_unlock', token, store_id: storeId }); }
@@ -2084,15 +2088,20 @@ export async function supabaseStaffLogin({ username, password, code, noMail }) {
 const _pkU2B = (s) => { let t = String(s || '').replace(/-/g, '+').replace(/_/g, '/'); t += '==='.slice((t.length + 3) % 4); const b = atob(t); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u.buffer; };
 const _pkB2U = (buf) => { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 export const tsuPasskeyAvailable = () => { try { return typeof window !== 'undefined' && !!window.PublicKeyCredential && !!navigator.credentials && window.isSecureContext; } catch { return false; } };
+// ★ 2026-11-01 trial496: 「自動入力」のパスキー(ID 欄に触れたとき)が使えるブラウザか(iOS 16〜の Safari・Chrome・Edge など)
+export async function tsuPasskeyAutofillAvailable() { try { if (!tsuPasskeyAvailable()) return false; const P = window.PublicKeyCredential; if (typeof P.isConditionalMediationAvailable !== 'function') return false; return !!(await P.isConditionalMediationAvailable()); } catch { return false; } }
 export async function supabaseHqPasskeyRegister(token) {
   const { options } = await staffApi({ action: 'passkey_reg_options', token });
   const cred = await navigator.credentials.create({ publicKey: { ...options, challenge: _pkU2B(options.challenge), user: { ...options.user, id: _pkU2B(options.user.id) }, excludeCredentials: (options.excludeCredentials || []).map(c => ({ ...c, id: _pkU2B(c.id) })) } });
   const r = cred.response;
   return staffApi({ action: 'passkey_reg_verify', token, device: _devName(), credential: { id: cred.id, type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), attestationObject: _pkB2U(r.attestationObject) } } });
 }
-export async function supabaseHqPasskeyLogin() {
-  const { options } = await staffApi({ action: 'passkey_login_options' });
-  const cred = await navigator.credentials.get({ publicKey: { ...options, challenge: _pkU2B(options.challenge), allowCredentials: [] } });
+// ★ 2026-11-01 trial496(ユーザー「他のサイトのように ID を自動入力する時点で顔・指紋が出てほしい」): conditional=true で「自動入力」の問いかけ
+//   (ブラウザが ID 欄のそばに、この端末・iCloud キーチェーンにあるつむぎのパスキーを出す。選ぶと顔・指紋 → ログイン)。signal で中止できる(ボタンを押したとき・画面を離れるとき)
+export async function supabaseHqPasskeyLogin({ conditional = false, signal, onAuth } = {}) {
+  const { options } = await staffApi({ action: 'passkey_login_options', ...(conditional ? { long: true } : {}) });
+  const cred = await navigator.credentials.get({ ...(conditional ? { mediation: 'conditional' } : {}), ...(signal ? { signal } : {}), publicKey: { ...options, challenge: _pkU2B(options.challenge), allowCredentials: [] } });
+  try { if (onAuth) onAuth(); } catch {} // ★ 2026-11-01 trial497: 指紋・顔が終わった瞬間(サーバーの確認の前)に画面へ「ログインしています…」を出すため
   const r = cred.response;
   const j = await staffApi({ action: 'passkey_login_verify', device: _devName(), credential: { id: _pkB2U(cred.rawId), type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), authenticatorData: _pkB2U(r.authenticatorData), signature: _pkB2U(r.signature), userHandle: r.userHandle ? _pkB2U(r.userHandle) : '' } } });
   if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp);
@@ -2101,6 +2110,10 @@ export async function supabaseHqPasskeyLogin() {
 }
 export async function supabaseHqPasskeyList(token) { return (await staffApi({ action: 'passkey_list', token })).passkeys || []; }
 export async function supabaseHqPasskeyDelete(token, id) { return (await staffApi({ action: 'passkey_delete', token, id })).passkeys || []; }
+// ★ 2026-11-01 段階4: 本部のアカウント(1人1つ)
+export async function supabaseHqAccountsList(token) { return (await staffApi({ action: 'hq_list', token })).accounts || []; }
+export async function supabaseHqAccountCreate(token, { username, password, last_name, first_name, email }) { const password_hash = await hashPassword(password); return (await staffApi({ action: 'hq_create', token, username, password_hash, last_name, first_name, email })).accounts || []; }
+export async function supabaseHqAccountSetActive(token, staffId, active) { return (await staffApi({ action: 'hq_set_active', token, staff_id: String(staffId), active: !!active })).accounts || []; }
 
 // ★ 2026-10-17 データ保護(段階1): ログインの証から Supabase の証を取り直す(起動時・12時間ごと)。サーバーに秘密が無ければ null(従来どおり)
 export async function supabaseStaffRefreshSbToken(staffToken) {
