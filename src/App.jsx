@@ -47,7 +47,7 @@ import {
   getSyncLog,
   clearSyncLog,
   supabaseUploadSyncDiag,
-  supabaseListSyncDiag, supabaseClaimDeviceName, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧・端末名の自動付与
+  supabaseListSyncDiag, supabaseClaimDeviceName, supabaseClaimDeviceNameEx, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧・端末名の自動付与
   deviceIdentityReady, kvSet, lsSetSmall, deviceStorageStatus, // ★ 2026-10-18: 端末ID・端末名の第2・第3の保存先(IndexedDB・Cookie)と保存の状態
   setFilesContext, // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名はサーバー(/api/files)で
   supabaseStaffInviteCreate, supabaseStaffInviteLookup, supabaseStaffInviteAccept, supabaseStaffPinSet, supabaseStaffPinVerify, supabaseStaffMembersStatus, supabaseStaffSetActive, supabaseStaffLoginsList, // ★ 2026-10-19 段階4
@@ -20181,7 +20181,7 @@ function GlobalAiPanel({ staffSession }) {
   );
 }
 // ★ 2026-10-17(ユーザー要望): 店舗で初めて使う端末に一度だけ出す「この端末の名前」の確認。候補(店舗名1 など)が入っているので、そのまま「この名前で使う」か、書き換えて保存
-function TsuDeviceNamePrompt({ suggested, onDone }) {
+function TsuDeviceNamePrompt({ suggested, others, onDone }) {
   useTsuBackLock(true);
   const [v, setV] = React.useState(suggested || '');
   const ref = React.useRef(null);
@@ -20194,6 +20194,11 @@ function TsuDeviceNamePrompt({ suggested, onDone }) {
         <div style={{fontSize:14,color:'#475569',lineHeight:1.6,marginBottom:12}}>この端末で初めてログインしました。記録に「どの端末で保存したか」が残るので、分かりやすい名前を付けてください（あとから 設定 → システム → 端末名 で変更できます）。</div>
         <input ref={ref} value={v} onChange={e=>setV(e.target.value)} maxLength={20} placeholder={suggested} style={{width:'100%',boxSizing:'border-box',padding:'12px 14px',border:'2px solid #94c456',borderRadius:12,fontSize:18,fontWeight:'bold',outline:'none'}}/>
         <div style={{fontSize:12,color:'#64748b',marginTop:6}}>例: 事務所PC・送迎iPad・フロア1　（空のままなら「{suggested}」になります）</div>
+        {/* ★ 2026-11-07 1107a: 同じ iPhone でも Safari・Chrome・ホーム画面のアプリは別の端末に見える(保存先が別々)。前に決めた名前を押して選べる */}
+        {Array.isArray(others) && others.length > 0 && <div style={{marginTop:12}} data-testid="device-name-others">
+          <div style={{fontSize:13,fontWeight:'bold',color:'#334155',marginBottom:6}}>この端末の別のブラウザなどで前に決めた名前を使う</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:6}}>{others.map(n => <button key={n} type="button" onClick={()=>setV(n)} style={{minHeight:40,padding:'6px 12px',borderRadius:10,border:`1px solid ${v===n?'#7daa3d':'#cbd5e1'}`,background:v===n?'#f0f7e6':'white',color:'#1e293b',fontSize:14,fontWeight:'bold',cursor:'pointer'}}>{n}</button>)}</div>
+        </div>}
         <div style={{display:'flex',gap:10,marginTop:16,justifyContent:'flex-end',flexWrap:'wrap'}}>
           <button type="button" onClick={()=>onDone(suggested)} style={{padding:'12px 16px',minHeight:44,background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>「{suggested}」のまま使う</button>
           <button type="submit" style={{padding:'12px 18px',minHeight:44,background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>この名前で保存</button>
@@ -21242,7 +21247,11 @@ export default function App() {
     if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.role === 'super_admin' || deviceName || !devIdentityReady) return; // ★ 2026-10-18: 控えの読み出しを待つ
     if (_claimedRef.current === staffSession.storeId) return; _claimedRef.current = staffSession.storeId;
     let stop = false;
-    (async () => { try { const nm = await supabaseClaimDeviceName(staffSession.storeId, staffSession.storeShortName || staffSession.storeName || '端末'); if (!stop && nm) { updateDeviceName(nm); setDeviceNamePrompt({ suggested: nm }); } } catch {} })(); // ★ 候補を付けたうえで初回だけ確認画面(そのまま／変更)。安定版(1018b)は確認画面なし(自動付与＋知らせだけ)
+    // ★ 2026-11-07 1107a(ユーザー「何日か経つとまた端末名を聞かれる」「Safari・Chrome・ホーム画面で別々に聞かれる」): 前からこの端末の印に名前があれば聞かずにそのまま使う(サーバーの Cookie で印が戻る)。
+    //   初めてのときは、この店舗でほかの端末が使っている名前も選べるようにする(同じ iPhone の別のブラウザで前に決めた名前を選べる)
+    (async () => { try { const r = await supabaseClaimDeviceNameEx(staffSession.storeId, staffSession.storeShortName || staffSession.storeName || '端末'); if (stop || !r || !r.name) return; updateDeviceName(r.name);
+      if (r.existed) { try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `この端末の名前は「${r.name}」です（前に付けた名前を使います）` } })); } catch {} return; }
+      setDeviceNamePrompt({ suggested: r.name, others: r.others || [] }); } catch {} })(); // ★ 候補を付けたうえで初回だけ確認画面(そのまま／変更)。安定版(1018b)は確認画面なし(自動付与＋知らせだけ)
     return () => { stop = true; };
   }, [staffSession?.storeId, deviceName, devIdentityReady]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 現在の記録者 (店舗ログイン後に選ぶ)
@@ -24669,7 +24678,7 @@ export default function App() {
       {/* グローバルプリントプレビュー */}
       {meetingFloat && <MeetingFloatWidget key={`${meetingFloat.meetingId}_${meetingFloat.nonce || 0}`} appData={appData} onSave={handleSaveToCloud} float={meetingFloat} onClose={()=>setMeetingFloat(null)} />}
       {personLocked && staffSession && <TsuPinPrompt member={{ id: staffSession.memberId, name: staffSession.displayName }} onCancel={() => { handleStaffLogout(); }} onVerify={async (pin) => { await supabaseStaffPinVerify(staffSession.token, staffSession.memberId, pin); setPersonLocked(false); }} />}
-      {deviceNamePrompt && <TsuDeviceNamePrompt suggested={deviceNamePrompt.suggested} onDone={(v) => { const nm = String(v || '').trim() || deviceNamePrompt.suggested; updateDeviceName(nm); setDeviceNamePrompt(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `この端末の名前は「${nm}」です（設定 → システム → 端末名 で変更できます）` } })); } catch {} }} />}
+      {deviceNamePrompt && <TsuDeviceNamePrompt suggested={deviceNamePrompt.suggested} others={deviceNamePrompt.others} onDone={(v) => { const nm = String(v || '').trim() || deviceNamePrompt.suggested; updateDeviceName(nm); setDeviceNamePrompt(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `この端末の名前は「${nm}」です（設定 → システム → 端末名 で変更できます）` } })); } catch {} }} />}
       {/* ★ 2026-10-04: 直接ダウンロードの進行表示。iPad は「開く」(ユーザー操作)で新しいタブに表示 */}
       {pdfJob && (
         <div data-testid="pdf-job" style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',zIndex:10090 /* ★ 2026-10-26(ユーザー: 座席表からダウンロードするとPDFの画面が後ろに来る): 座席表(10000)より前に */,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{ if (pdfJob.status !== 'busy') setPdfJob(null); }}>
@@ -38760,7 +38769,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-01(試験版・ユーザー指示「完成後の変更は利用者の時間をメインに。運転者の変更は含まなくていい」): 運転者の変更は数えない
   // ★ 2026-11-03 trial508(ユーザー決定「印は時間の赤い枠と連絡済だけ」): 件数は「要連絡(配布後に時間が変わった・追加された方)で、まだ連絡済にしていない方」だけ。外れた方(休み)・車の変更は数えない
   const _telDoneOf = (pl, pid) => { const _td = pl && (pl._telDone || {})[pid]; return !!(_td && typeof _td === 'object' && _td.on && String(_td.ck) === String(((pl._chgAt || {})[pid]) || '0')); };
-  const _tpRed = (pl, iso, pid) => !!_dotOf(pl, iso, pid) && !_telDoneOf(pl, pid);
+  const _tpRed = (pl, iso, pid) => !!_dotOf(pl, iso, pid) && !_telDoneOf(pl, pid); // ★ 2026-11-07 1107a(ユーザー「電話してチェックを付けたあとにダウンロードしても赤枠が付く」): 印刷・ダウンロードの赤枠と徒歩の時間の枠もこれで判定(連絡済なら出さない)
   const _chgCount = (pl, iso) => { if (!pl || !_baseOf(pl) || !iso) return 0; const cur = _snapPlan(pl); let n = 0; [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { if (_tpRed(pl, iso, pid)) n++; }); return n; };
   // ★ 2026-10-05: この車の中身が基準(確定時)から変わったか(乗る方の増減・順番・時間)。運転者の変更は数えない
   const _carChanged = (pl, cid) => { const base = _baseOf(pl); if (!base) return false; const cur = (pl.cars && pl.cars[cid]) || []; if (cur.some(m => _chgOf(pl, m.pid))) return true; const now = new Set(cur.map(m => String(m.pid))); return ((base.cars && base.cars[cid]) || []).some(m => !now.has(String(m.pid)) && _tpListable(m.pid)); };
@@ -39950,7 +39959,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _sendLabel = (tg) => { const s0 = String(tg || '').replace(/^送/, ''); const mm = s0.match(/^(.*?)\s*(\d{1,2}:\d{2})$/); return mm && mm[1] ? `${mm[2]} ${mm[1]}` : s0; };
     let _maxNameEm = 3, _anyDropTag = false, _maxSendEm = 2;
     ['AM','PM'].forEach(sl => days.forEach(d => { const iso = _iso(d); const pl0 = getPlan(iso, sl);
-      [ ...Object.values(pl0.cars||{}), pl0.walkers||[], pl0.others||[] ].forEach(ms => (ms||[]).forEach(m => { const mk = (m.mark || _dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 1 : 0; const tg = _dropLabelP(pl0, m.pid); if (tg) { _anyDropTag = true; _maxSendEm = Math.max(_maxSendEm, _emW(_sendLabel(tg))); } _maxNameEm = Math.max(_maxNameEm, _emW(_pname(m.pid)) + mk); })); }));
+      [ ...Object.values(pl0.cars||{}), pl0.walkers||[], pl0.others||[] ].forEach(ms => (ms||[]).forEach(m => { const mk = (m.mark || _tpRed(plans[`${iso}_${sl}`], iso, m.pid)) ? 1 : 0; const tg = _dropLabelP(pl0, m.pid); if (tg) { _anyDropTag = true; _maxSendEm = Math.max(_maxSendEm, _emW(_sendLabel(tg))); } _maxNameEm = Math.max(_maxNameEm, _emW(_pname(m.pid)) + mk); })); }));
     if (opt.dropTable) _anyDropTag = false; // ★ 2026-10-21: 送りは下の「送り」の表に出すので、迎えの行には出さない
     else if (!_noDropAtPrintRef.current) _anyDropTag = true; // ★ 2026-10-21(不具合修正): 「名前の右に時間」を選んだら、送りの時間がまだ無い週も送りの欄を出す(空欄は手書き用)
     const _hasDrv = ['AM','PM'].some(sl => days.some(d => { const p0 = getPlan(_iso(d), sl); return Object.values(p0.driver||{}).some(Boolean) || (opt.dropTable && p0.dropMode === 'custom' && p0.drop && Object.values(p0.drop.driver||{}).some(Boolean)); })); // ★ 2026-10-21: 送りの表では座席表の送りの運転者も
@@ -40029,7 +40038,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _rowStyle = `height:${_rowH}px;`;
     const _tagHtml = (tg, f) => tg ? `<span style="display:inline-block;margin-left:3px;padding:0 2px;border:1px solid #6366f1;border-radius:2px;color:#3730a3;background:#fff;font-size:${Math.max(7, Math.round(f * 0.62))}px;line-height:1.15;font-weight:700;vertical-align:middle;">${esc(tg)}</span>` : '';
     // ★ 2026-10-05(ユーザー指示): 印は画面と同じ判定(_dotOf=電話が必要な変更だけ)。以前は確定後の変更すべてに●が付き、画面(一覧)と食い違っていた
-    const _telOf = (m, iso, sl) => !!(m.mark || _dotOf(plans[`${iso}_${sl}`], iso, m.pid));
+    const _telOf = (m, iso, sl) => !!(m.mark || _tpRed(plans[`${iso}_${sl}`], iso, m.pid));
     const _nameTd = (m, iso, sl) => `<td style="border-bottom:1px solid #d7dcd7;padding:1px 3px;font-size:${fz}px;line-height:1.25;white-space:nowrap;overflow:hidden;font-weight:600;">${esc(_pname(m.pid))}${(_anyDropTag || opt.dropTable) ? '' : _tagHtml(_dropLabelP(getPlan(iso, sl), m.pid), fz)}</td>`;
     const _rowBg = (m, iso, sl) => { const fk = _isFurikae(iso, sl, m.pid); const fv = !fk && _isFirstVisit(m.pid, iso); return fk ? '#a7f3d0' : (fv ? '#bae6fd' : '#fff'); };
     // その他の行: 時間・次回の欄をつなげて理由(家族送迎・途中参加など)。長い理由は欄に収まる大きさまで縮める
@@ -40165,7 +40174,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   const buildContactsPages = () => {
     // ★ 2026-09-16(店舗指摘): 住所列が長く右端が見切れる→左右2段組。電話は携帯優先(無ければ固定)。
-    const pts = _weekPids().map(pid => (appData.patients||[]).find(x=>x.id===pid)).filter(Boolean)
+    // ★ 2026-11-07 1107a(ユーザー「その週に休みの方が連絡先一覧に出ない。その週の欠席に関係なく、利用中・休止中の方を全員」): 利用中・休止中(退所済みでない)の全員＋その週の送迎表にいる方
+    const _wk = new Set(_weekPids().map(String));
+    const pts = (appData.patients||[]).filter(p => p && String(p.name || '').trim() && (isPatientListable(p) || _wk.has(String(p.id))))
       .sort((a,b)=>String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''),'ja'));
     const _emW2 = (t) => [...String(t||'')].reduce((a, ch) => a + (ch === '　' ? 1 : (/[ -~]/.test(ch) ? (ch === ' ' ? 0.3 : 0.55) : 1)), 0);
     const addrText = (pt) => `${[_addrDisp(pt.address), tsuBldRoom(pt.addressBuilding, pt.addressRoom)].filter(Boolean).join(' ')}${pt.pickupPlace?`（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）`:''}${String(pt.pickupMinutes||'')==='walk'?'［徒歩］':''}`;
@@ -40273,7 +40284,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const addrHtml = (b && b.other) ? `<span style="color:#6d28d9;font-weight:700;">${_escP(m.why || '')}</span>` : `${_escP([_addrDisp(pt.address), tsuBldRoom(pt.addressBuilding, pt.addressRoom)].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)}）</span>`:''}`;
       return `<tr style="background:${bg};">
         ${td(`${_escP(_pname(m.pid))}${_tagD(_dropLabelP(pl, m.pid))}`, `font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}
-        ${td((b && b.other) ? '' : _escP(_fmtT(m.t)), `font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 2px;${(m.mark||_dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 'outline:2px solid #c82c35;outline-offset:-3px;' : ''}`)}
+        ${td((b && b.other) ? '' : _escP(_fmtT(m.t)), `font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 2px;${(m.mark||_tpRed(plans[`${iso}_${sl}`], iso, m.pid)) ? 'outline:2px solid #c82c35;outline-offset:-3px;' : ''}`)}
         ${td(addrHtml, `font-size:${fA}px;line-height:1.15;${fit >= 9 ? 'white-space:nowrap;' : ''}overflow:hidden;`)}
         ${td(_escP(telOf(pt)), `font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 4px;`)}
       </tr>`; };
@@ -40358,7 +40369,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const at = b.other ? String(m.why || '') : `${[_addrDisp(pt.address), tsuBldRoom(pt.addressBuilding, pt.addressRoom)].filter(Boolean).join(' ')}${pt.pickupPlace ? `（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）` : ''}`;
       const fit = Math.floor((w.addr - 10) / Math.max(1, _em(at))); const fA = Math.max(8, Math.min(fz, fit));
       const addrHtml = b.other ? `<span style="color:#6d28d9;font-weight:700;">${_escP(m.why || '')}</span>` : `${_escP([_addrDisp(pt.address), tsuBldRoom(pt.addressBuilding, pt.addressRoom)].filter(Boolean).join(' '))}${pt.pickupPlace ? `<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)}）</span>` : ''}`;
-      return `<tr style="background:${bg};">${td(_escP(_nm(m)), `font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(b.other ? '' : _escP(_fmtT(m.t)), `font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 2px;${(m.mark || _dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 'outline:2px solid #c82c35;outline-offset:-3px;' : ''}`)}${td(addrHtml, `font-size:${fA}px;line-height:1.15;${fit >= 8 ? 'white-space:nowrap;' : ''}overflow:hidden;`)}${td(_escP(telOf(pt)), `font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 3px;`)}</tr>`; };
+      return `<tr style="background:${bg};">${td(_escP(_nm(m)), `font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(b.other ? '' : _escP(_fmtT(m.t)), `font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 2px;${(m.mark || _tpRed(plans[`${iso}_${sl}`], iso, m.pid)) ? 'outline:2px solid #c82c35;outline-offset:-3px;' : ''}`)}${td(addrHtml, `font-size:${fA}px;line-height:1.15;${fit >= 8 ? 'white-space:nowrap;' : ''}overflow:hidden;`)}${td(_escP(telOf(pt)), `font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 3px;`)}</tr>`; };
     const dropRow = (m, pl, b) => `<tr>${td(_escP(_nm(m)), `font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(b.other ? `<span style="color:#6d28d9;">${_escP(m.why || '')}</span>` : _escP(b.walk ? '' : (_dropAtOf(pl, m.pid) || '')), `font-size:${b.other ? Math.max(7, Math.min(fz, Math.floor((w.dtime - 6) / Math.max(1, _em(m.why || ''))))) : fz}px;font-weight:700;text-align:center;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;color:#3730a3;padding:0 2px;`)}</tr>`;
     const emptyP = () => `<tr>${td('&nbsp;', `font-size:${fz}px;`)}${td('', '')}${td('', '')}${td('', '')}</tr>`;
     const COLP = `<colgroup><col style="width:${w.name}px"/><col style="width:${w.time}px"/><col/><col style="width:${w.tel}px"/></colgroup>`;
@@ -40968,7 +40979,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 {(() => { const raw = String(m.t ?? ''); const own = /\d/.test(raw); const shown = !own && raw !== '' ? _classStart(sl) : (/^\d{1,2}:\d?$/.test(raw) ? raw : _fmtT(raw));
                                   return <TpTimeInput data-testid={`tp-walk-time-${m.pid}`} value={shown} normalize={_normTimeInput} placeholder={_classStart(sl) || '—:—'} title="到着時間（空にするとクラスの開始時刻）"
                                     onCommit={v2 => { if (!v2) { if (raw !== '徒歩') setWalkTime(iso, sl, m.pid, '徒歩'); return; } if (!own && v2 === _classStart(sl)) return; if (v2 !== raw) setWalkTime(iso, sl, m.pid, v2); }}
-                                    className={`w-[54px] text-center text-[15px] font-bold rounded px-0.5 py-0.5 outline-none shrink-0 ${_dotOf(pl, iso, m.pid) ? 'border-2 border-red-600 text-slate-800 bg-white' : (own && _fmtT(raw) !== _classStart(sl) ? 'border border-orange-500 text-orange-800 bg-orange-50' : 'border border-orange-200 text-slate-600 bg-white')}`} style={{fontVariantNumeric:'tabular-nums'}}/>; })()}
+                                    className={`w-[54px] text-center text-[15px] font-bold rounded px-0.5 py-0.5 outline-none shrink-0 ${_tpRed(pl, iso, m.pid) ? 'border-2 border-red-600 text-slate-800 bg-white' : (own && _fmtT(raw) !== _classStart(sl) ? 'border border-orange-500 text-orange-800 bg-orange-50' : 'border border-orange-200 text-slate-600 bg-white')}`} style={{fontVariantNumeric:'tabular-nums'}}/>; })()}
                               </div>
                             ))}
                             {!(pl.walkers||[]).length && <div className="text-[10px] text-orange-500">ここにドロップで徒歩</div>}
@@ -41113,7 +41124,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                     </label>
                   ))}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1.5">連絡先一覧＝その週の利用者の住所・電話を五十音順で。</div>
+                <div className="text-[10px] text-slate-400 mt-1.5">連絡先一覧＝利用中・休止中の方全員の住所・電話を五十音順で。</div>
               </div>
             )}
             {printModal.mode==='days' && (

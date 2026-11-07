@@ -156,6 +156,17 @@ export function getDeviceId() {
   if (id !== _devIdMem) { _devIdMem = id; lsSetSmall('tsumugiDeviceId', id); kvSet('tsumugiDeviceId', id); }
   return id;
 }
+// ★ 2026-11-07 1107a: サーバーの Cookie(HttpOnly・400日)に控えた端末の印と照らす。iPhone の Safari が7日ほどで消す保存先が消えたあとでも
+//   同じ印に戻す(サーバーに印があればそれを使い、無ければ今の印を控えてもらう)。3秒で諦める(つながらない・自動テストでは何もしない)
+async function _devIdServerSync(localId) {
+  try {
+    if (typeof fetch !== 'function' || typeof location === 'undefined' || !/^https?:$/.test(location.protocol)) return null;
+    const ac = typeof AbortController !== 'undefined' ? new AbortController() : null; const to = setTimeout(() => { try { ac && ac.abort(); } catch {} }, 3000);
+    const r = await fetch('/api/staff-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'device_id', device_id: localId || '' }), ...(ac ? { signal: ac.signal } : {}) }).finally(() => clearTimeout(to));
+    if (!r.ok) return null; const j = await r.json().catch(() => null);
+    return (j && typeof j.device_id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(j.device_id)) ? j : null;
+  } catch { return null; }
+}
 // 起動時に1回: IndexedDB の控え(端末ID・端末名)を読み、localStorage に無ければ戻す。App は初回の名前付けの前にこれを待つ
 export const deviceIdentityReady = (async () => {
   try {
@@ -167,6 +178,8 @@ export const deviceIdentityReady = (async () => {
     if (lsId && !id0) kvSet('tsumugiDeviceId', lsId);
     if (lsName && !name0) kvSet('tsumugiDeviceName', lsName);
     if (!lsName && name && !name0) kvSet('tsumugiDeviceName', String(name)); // Cookie にしか無ければ IndexedDB にも
+    // ★ 2026-11-07 1107a: サーバーの Cookie の印と照らす(端末の印が消えて作り直されていたら、前の印に戻す)
+    try { const mine = getDeviceId(); const s = await _devIdServerSync(mine); if (s && s.from_cookie && s.device_id !== mine) { _devIdMem = s.device_id; lsSetSmall('tsumugiDeviceId', s.device_id); kvSet('tsumugiDeviceId', s.device_id); } } catch {}
     return { name: lsName || (name ? String(name) : '') };
   } catch { return { name: '' }; }
 })();
@@ -195,15 +208,21 @@ export async function supabaseUploadSyncDiag(storeId, name, ver, use) { // ★ 2
 }
 // ★ 2026-10-17(ユーザー要望): 店舗で初めて使う端末に「<店舗の短縮名>1」「2」…を自動で付ける。割当は diag_<店舗> 行の __names(端末ID → 名前)に控え、
 //   同じ端末は再ログインしても同じ名前。番号は使われていない最小の数(他の端末が付けた名前・手で付けた名前とも重ならないように)
-export async function supabaseClaimDeviceName(storeId, prefix) {
+export async function supabaseClaimDeviceName(storeId, prefix) { const r = await supabaseClaimDeviceNameEx(storeId, prefix); return r ? r.name : null; }
+// ★ 2026-11-07 1107a: { name, existed, others }。existed=この端末の印に前から名前がある(前に付けた名前=最後に知らせた名前を返す・確認画面は出さない)。
+//   others=この店舗でほかの端末が使っている名前(新しい順)。同じ iPhone の Safari・Chrome・ホーム画面のアプリは保存先が別々で別の端末に見えるので、前に決めた名前を選べるように
+export async function supabaseClaimDeviceNameEx(storeId, prefix) {
   if (!supabase || !storeId) return null;
   const id = getDeviceId(); const pf = String(prefix || '端末').slice(0, 20);
-  let picked = null;
+  let picked = null, existed = false, others = [];
+  const _named = (v) => !!(v && v.name && v.name !== '名称未設定の端末' && v.name !== '管理局');
   try {
     const r = await supabaseCasUpdate(`diag_${storeId}`, (cur) => {
       const d = (cur && typeof cur === 'object') ? { ...cur } : {};
       const names = (d.__names && typeof d.__names === 'object') ? { ...d.__names } : {};
-      if (names[id]) { picked = names[id]; return null; } // すでに割当済み → 書き込まない
+      others = Object.keys(d).filter(k => !k.startsWith('__') && k !== id && _named(d[k])).sort((a, b) => (Number(d[b].at) || 0) - (Number(d[a].at) || 0)).map(k => String(d[k].name));
+      others = [...new Set(others)].slice(0, 8);
+      if (names[id] || _named(d[id])) { picked = _named(d[id]) ? String(d[id].name) : names[id]; existed = true; return null; } // すでに名前がある → 書き込まない(最後に知らせた名前を優先: 設定で変えた名前)
       const used = new Set(Object.values(names));
       for (const k of Object.keys(d)) { if (k.startsWith('__')) continue; const v = d[k]; if (v && v.name) used.add(v.name); if (k.includes('|')) used.add(k.slice(0, k.lastIndexOf('|'))); }
       let n = 1; while (used.has(`${pf}${n}`)) n++;
@@ -211,8 +230,8 @@ export async function supabaseClaimDeviceName(storeId, prefix) {
       return d;
     }, { maxRetries: 2 });
     if (r && r.ok === false && !picked) return null;
-    return picked;
-  } catch { return picked; }
+    return picked ? { name: picked, existed, others: others.filter(n => n !== picked) } : null;
+  } catch { return picked ? { name: picked, existed, others } : null; }
 }
 // ★ 2026-10-17 データ保護(段階2): 管理局用。全店の diag_ 行を読み、店舗ごとの端末一覧 [{storeId, devices:[{tag,name,ver,at,sb}]}] にする
 export async function supabaseListSyncDiag() {

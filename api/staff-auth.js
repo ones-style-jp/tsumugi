@@ -241,6 +241,16 @@ export default async function handler(req, res) {
   try {
     // ★ 2026-10-17 データ保護(段階1): 証の発行状態の確認(ログイン不要・本部が Vercel に秘密を入れた後の確認用)。
     //   返すのは「秘密が設定されているか」「その秘密で作った証を Supabase が受け付けるか」だけ。証そのものや秘密は返さない
+    // ★ 2026-11-07 1107a(ユーザー「iPhone で何日か経つとまた端末名を聞かれる」): 端末の印を、サーバーが付ける Cookie(HttpOnly・400日)にも控える。
+    //   iPhone の Safari は、7日ほどそのサイトを開かないと、ページの中から保存したもの(localStorage・IndexedDB・JS の Cookie)を消す。
+    //   サーバーが付けた Cookie はその対象外なので、消えたあとでも同じ端末の印に戻せる(→ 前に付けた端末名がそのまま使える)。ログイン不要・印のほかは何も返さない
+    if (action === 'device_id') {
+      const okId = (s) => /^[A-Za-z0-9_-]{8,64}$/.test(String(s || ''));
+      const m = String(req.headers.cookie || '').match(/(?:^|;\s*)tsu_did=([^;]+)/); let cur = ''; try { cur = m ? decodeURIComponent(m[1]) : ''; } catch { cur = ''; }
+      const id = okId(cur) ? cur : (okId(body.device_id) ? String(body.device_id) : '');
+      if (id) res.setHeader('Set-Cookie', `tsu_did=${encodeURIComponent(id)}; Path=/api; Max-Age=${400 * 24 * 3600}; HttpOnly; Secure; SameSite=Lax`);
+      return res.status(200).json({ device_id: id || null, from_cookie: okId(cur) });
+    }
     if (action === 'sb_status') {
       const mc = await mintSbTokenChecked({ id: 'probe', role: '', store_id: null });
       return res.status(200).json({ configured: !!JWT_SECRET, ok: !!mc.ok, reason: mc.ok ? undefined : mc.reason });
