@@ -47,7 +47,7 @@ import {
   getSyncLog,
   clearSyncLog,
   supabaseUploadSyncDiag,
-  supabaseListSyncDiag, supabaseClaimDeviceName, supabaseClaimDeviceNameEx, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧・端末名の自動付与
+  supabaseListSyncDiag, supabaseClaimDeviceName, supabaseClaimDeviceNameEx, supabaseDeleteSyncDiagDevices, // ★ 2026-11-08 trial530: 端末の控えを消す ★ ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧・端末名の自動付与
   deviceIdentityReady, kvSet, lsSetSmall, deviceStorageStatus, // ★ 2026-10-18: 端末ID・端末名の第2・第3の保存先(IndexedDB・Cookie)と保存の状態
   setFilesContext, // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名はサーバー(/api/files)で
   supabaseStaffInviteCreate, supabaseStaffInviteLookup, supabaseStaffInviteAccept, supabaseStaffPinSet, supabaseStaffPinVerify, supabaseStaffMembersStatus, supabaseStaffSetActive, supabaseStaffLoginsList, supabaseStaffInviteMail, supabaseStaffPinReset, supabaseStaffInviteMailStatus, // ★ 2026-10-19 段階4・2026-11-01 招待メール/PIN作り直し/届いたか
@@ -13966,6 +13966,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
     if (modal.kind !== 'task' && (!modal.repeat || modal.repeat === 'none') && modal.endDate && String(modal.endDate) < String(modal.date)) { alert('終わりの日は、開始の日より後の日を選んでください'); return; } // ★ 2026-11-07 trial529
     const evId = modal.id || `ev_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
     const ev = { ...modal, id: evId, title: modal.title.trim(), ...(modal.kind === 'task' ? { kind: 'task', color: TSU_TASK_COLOR, end: '', notify: false } : {}), _savedAt: syncNow() }; if (ev.kind !== 'task') delete ev.kind; // ★ 2026-10-30: タスク
+    delete ev._allDay; // ★ 2026-11-08 trial530: 「終日」の切り替えは画面だけの印(時刻が空=終日)
     if (ev.kind === 'task' || (ev.repeat && ev.repeat !== 'none') || !ev.endDate || String(ev.endDate) <= String(ev.date)) delete ev.endDate; // ★ 2026-11-07 trial529: 同じ日・繰り返し・タスクは終わりの日なし
     const list = modal.id ? events.map(e=>e.id===modal.id?ev:e) : [...events, ev];
     // ★ お知らせ配信: 利用者を選び「お知らせとして配信」ON → その利用者(ご家族)＋担当ケアマネの閲覧画面のお知らせに掲載
@@ -14306,116 +14307,137 @@ function ScheduleView({ appData, onSave, navigateTo }) {
           </div>
         </div>
       ); })()}
-      {modal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.55)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>{/* ★ 外側タップでは閉じない(入力が消えるため・キャンセルのみ) 2026-09-27 */}
-          <div className="tsu-cap-dvh" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,width:440,maxWidth:'100%',maxHeight:'90vh',overflow:'auto',padding:20,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
-            {/* ★ Googleカレンダー風(2026-08-21): タイトルを最上部の大きな下線入力に、日付と時刻を1行に */}
-            {/* ★ 2026-10-30: 予定かタスクかを選ぶ(タスク=チェックで済み・済むまでホームに残る) */}
-            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
-              <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',marginRight:'auto'}}>{modal.kind==='task' ? (modal.id?'タスクを編集':'タスクを追加') : (modal.id?'予定を編集':'予定を追加')}</span>
-              {[['', '予定'], ['task', 'タスク']].map(([k, l]) => { const on = (modal.kind || '') === k; return <button key={l} type="button" data-testid={`sch-kind-${k || 'event'}`} onClick={()=>setModal(m=>({ ...m, kind: k || undefined, ...(k === 'task' ? { end: '', notify: false } : {}) }))} style={{fontSize:13,fontWeight:'bold',padding:'6px 14px',borderRadius:16,border:on?`2px solid ${k?TSU_TASK_COLOR:'#6366f1'}`:'1px solid #e2e8f0',background:on?(k?'#ecfdf5':'#eef2ff'):'white',color:on?(k?'#047857':'#4338ca'):'#64748b',cursor:'pointer'}}>{l}</button>; })}
-            </div>
-            <input value={modal.title} onChange={e=>setModal(m=>({...m,title:e.target.value}))} placeholder={modal.kind==='task' ? 'やること（例: 月末の請求の確認）' : 'タイトルを追加'}
-              style={{width:'100%',boxSizing:'border-box',padding:'6px 2px 8px',border:'none',borderBottom:'2px solid #c7d2fe',fontSize:20,fontWeight:'bold',color:'#1e293b',outline:'none',marginBottom:14,background:'transparent'}}/>
-            {/* ★ 日時は必ず横一列(2026-08-21): 幅を明示し折り返し禁止。 狭い画面では各入力が縮む */}
-            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,flexWrap:'nowrap',minWidth:0}}>
-              <Clock size={16} style={{color:'#64748b',flexShrink:0}}/>
-              <input type="date" value={modal.date} onChange={e=>setModal(m=>({...m,date:e.target.value}))} style={{flex:'1 1 120px',minWidth:0,maxWidth:150,boxSizing:'border-box',padding:'7px 6px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',background:'#f8fafc'}}/>
-              <input type="time" value={modal.start||''} onChange={e=>setModal(m=>({...m,start:e.target.value}))} style={{flex:'0 1 84px',minWidth:0,boxSizing:'border-box',padding:'7px 4px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',background:'#f8fafc'}}/>
-              {modal.kind!=='task' && <span style={{color:'#94a3b8',fontWeight:'bold',flexShrink:0}}>〜</span>}
-              {modal.kind!=='task' && <input type="time" value={modal.end||''} onChange={e=>setModal(m=>({...m,end:e.target.value}))} style={{flex:'0 1 84px',minWidth:0,boxSizing:'border-box',padding:'7px 4px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',background:'#f8fafc'}}/>}
-            </div>
-            {/* ★ 2026-11-07 trial529(ユーザー「3日続くなど、何月何日何時〜何月何日何時の期間で」): 終わりの日(何日か続く予定のときだけ・繰り返しなし) */}
-            {modal.kind!=='task' && (!modal.repeat || modal.repeat==='none') && <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,marginTop:-4,flexWrap:'wrap'}}>
-              <span style={{fontSize:12,fontWeight:'bold',color:'#64748b',flexShrink:0}}>終わりの日</span>
-              <input type="date" data-testid="sch-end-date" value={modal.endDate||''} min={modal.date||undefined} onChange={e=>setModal(m=>({...m,endDate:e.target.value}))} style={{flex:'0 1 150px',minWidth:0,boxSizing:'border-box',padding:'7px 6px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',background:'#f8fafc'}}/>
-              {modal.endDate ? <button type="button" onClick={()=>setModal(m=>({...m,endDate:''}))} style={{fontSize:12,fontWeight:'bold',color:'#64748b',background:'white',border:'1px solid #cbd5e1',borderRadius:8,padding:'5px 10px',cursor:'pointer'}}>同じ日にする</button>
-                : <TsuHint>何日か続く予定のときだけ入れます（例: 11/7 10:00〜11/9 15:00）。空なら開始と同じ日です。終わりの時刻は終わりの日の時刻になります。</TsuHint>}
-            </div>}
-            {/* ★ 所要時間で終了を自動セット (開始時刻が必要) */}
-            {modal.kind==='task' && <div style={{fontSize:11,color:'#64748b',marginBottom:12,marginTop:-4}}>時刻は決めなくてもかまいません。済むまで、ホームの「本日の業務」に残ります。</div>}
-            {modal.kind!=='task' && <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:12,marginTop:-4}}>
-              <span style={{fontSize:11,fontWeight:'bold',color:'#64748b'}}>終了を自動:</span>
-              {[['30分',30],['1時間',60],['1時間半',90],['2時間',120]].map(([lbl,mins])=>(
-                <button key={mins} type="button" disabled={!modal.start} onClick={()=>setModal(m=>({...m,end:addMin(m.start,mins)}))}
-                  style={{fontSize:11,fontWeight:'bold',padding:'4px 10px',borderRadius:14,border:'1px solid #c7d2fe',background:modal.start?'#eef2ff':'#f1f5f9',color:modal.start?'#4338ca':'#cbd5e1',cursor:modal.start?'pointer':'default'}}>{lbl}</button>
-              ))}
-            </div>}
-            {/* ★ 担当者会議など: 対象の利用者を任意で紐付け → 担当ケアマネ事業所・担当者を表示 */}
-            <label style={{fontSize:12,fontWeight:'bold',color:'#475569',display:'block',marginBottom:4}}>{modal.kind==='task' ? '対象の利用者（任意）' : '対象の利用者（任意・担当者会議など）'}</label>
-            <select value={modal.patientId||''} onChange={e=>setModal(m=>({...m,patientId:e.target.value?Number(e.target.value):undefined}))} style={{width:'100%',boxSizing:'border-box',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',marginBottom:8,background:'white'}}>
-              <option value="">— なし —</option>
-              {/* ★ 休止中でも担当者会議等で予定を組むことがあるため、利用中と休止中の両方を選べるようにする(退所は除外) */}
-              {(appData.patients||[]).filter(p=>['利用中','休止'].includes(getPatientDisplayStatus(p))).sort((a,b)=>(a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja')).map(p=>(<option key={p.id} value={p.id}>{p.name}{getPatientDisplayStatus(p)==='休止'?'（休止中）':''}</option>))}
-            </select>
-            {modal.patientId && (()=>{ const p=(appData.patients||[]).find(x=>x.id===modal.patientId); if(!p) return null; return (
-              <div style={{fontSize:11,color:'#475569',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px',marginBottom:12}}>
-                担当ケアマネ：<b>{p.cmOffice||'（事業所未登録）'}</b>{p.cmName?` / ${p.cmName} 様`:''}{(() => { const _f = tsumugiCmContact(p, appData).fax; return _f ? `　FAX ${_f}` : ''; })()}
+      {modal && (() => {
+        // ★ 2026-11-08 trial530(ユーザー「添付のカレンダーアプリのように、予定やリマインダー(タスク)を作れる見やすい入力に」):
+        //   上の段=×・予定/タスクの切り替え・保存。題名。日時のカード(開始=日付と時刻・終了=日付と時刻・終日・繰り返し)。対象の利用者。メモ。色・分類。
+        //   終了の日付が開始と違えば「何日か続く予定」(endDate・trial529)。終日は時刻を空に。スマホは下から出る全幅の紙、iPad/PC は真ん中の小窓。
+        //   行や入力は部品(コンポーネント)にしない(描き直すたびに作り直され、入力中に焦点が外れるため)
+        const isTask = modal.kind === 'task';
+        const rep = !!(modal.repeat && modal.repeat !== 'none');
+        const allDay = isTask ? false : (modal._allDay !== undefined ? !!modal._allDay : (!!modal.id && !modal.start && !modal.end));
+        const pill = { boxSizing:'border-box', padding:'7px 10px', border:'none', borderRadius:10, background:'#eceff3', fontSize:15, color:'#1e293b', outline:'none', fontVariantNumeric:'tabular-nums', minHeight:36, fontFamily:'inherit' };
+        const pillDate = { ...pill, width:170, maxWidth:'100%' }, pillTime = { ...pill, width:112 }; // 日付と時刻がスマホでも1行に並ぶ幅
+        const card = { background:'white', borderRadius:14, padding:'0 14px', marginBottom:10, boxShadow:'0 1px 2px rgba(0,0,0,0.05)' };
+        const row = (label, inner, opts = {}) => (
+          <div key={label} style={{display:'flex',alignItems:'center',gap:8,minHeight:48,padding:'5px 0',borderBottom:opts.last?'none':'1px solid #eef0f3'}}>
+            <span style={{fontSize:15,color:'#1e293b',flex:'0 0 auto',minWidth:60}}>{label}</span>
+            <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',justifyContent:'flex-end',minWidth:0}}>{inner}</div>
+          </div>);
+        const toggle = (on, onChange, testid) => (
+          <button type="button" role="switch" aria-checked={on} data-testid={testid} onClick={()=>onChange(!on)} style={{width:51,height:31,borderRadius:16,border:'none',background:on?'#16a34a':'#cbd5e1',position:'relative',cursor:'pointer',padding:0,flexShrink:0,transition:'background .15s'}}>
+            <span style={{position:'absolute',top:3,left:on?23:3,width:25,height:25,borderRadius:'50%',background:'white',boxShadow:'0 1px 3px rgba(0,0,0,0.3)',transition:'left .15s'}}/>
+          </button>);
+        const chipBtn = (on, color) => ({fontSize:12,fontWeight:'bold',padding:'6px 10px',borderRadius:14,border:on?`2px solid ${color}`:'1px solid #cbd5e1',background:on?`${color}18`:'white',color:on?'#1e293b':'#64748b',cursor:'pointer'});
+        const setStartDate = (v) => setModal(m => ({ ...m, date: v, ...((m.endDate && v && String(m.endDate) <= String(v)) ? { endDate: '' } : {}) }));
+        const setEndDate = (v) => setModal(m => ({ ...m, endDate: (v && m.date && String(v) > String(m.date)) ? v : '' }));
+        return (
+        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.55)',zIndex:100,display:'flex',alignItems:_schPhone?'flex-end':'center',justifyContent:'center',padding:_schPhone?0:16}}>{/* ★ 外側タップでは閉じない(入力が消えるため・×のみ) 2026-09-27 */}
+          <div className="tsu-cap-dvh" data-testid="sch-modal" onClick={e=>e.stopPropagation()} style={{background:'#f3f4f6',borderRadius:_schPhone?'20px 20px 0 0':20,width:_schPhone?'100%':470,maxWidth:'100%',maxHeight:_schPhone?'94vh':'90vh',overflow:'auto',padding:_schPhone?'10px 14px calc(18px + env(safe-area-inset-bottom))':'14px 18px 18px',boxSizing:'border-box',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+            {_schPhone && <div style={{width:40,height:5,borderRadius:3,background:'#cbd5e1',margin:'0 auto 8px'}}/>}
+            {/* 上の段: × ・ 予定／タスク ・ 保存 */}
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+              <button type="button" aria-label="閉じる" data-testid="sch-modal-close" onClick={()=>setModal(null)} style={{width:42,height:42,borderRadius:21,border:'1px solid #e2e8f0',background:'white',fontSize:22,lineHeight:1,color:'#334155',cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+              <div style={{flex:1,display:'flex',background:'#e2e5ea',borderRadius:21,padding:3,minWidth:0}}>
+                {[['', '予定'], ['task', 'タスク']].map(([k, l]) => { const on = (modal.kind || '') === k; return <button key={l} type="button" data-testid={`sch-kind-${k || 'event'}`} onClick={()=>setModal(m=>({ ...m, kind: k || undefined, ...(k === 'task' ? { end: '', notify: false, endDate: '', _allDay: undefined } : {}) }))} style={{flex:1,minWidth:0,padding:'8px 6px',borderRadius:18,border:on?`2px solid ${k?TSU_TASK_COLOR:'#6366f1'}`:'2px solid transparent',background:on?'white':'transparent',color:on?'#1e293b':'#64748b',fontWeight:'bold',fontSize:15,cursor:'pointer',boxShadow:on?'0 1px 3px rgba(0,0,0,0.12)':'none',whiteSpace:'nowrap'}}>{l}</button>; })}
               </div>
-            ); })()}
-            {modal.patientId && modal.kind!=='task' && (
-              <label style={{display:'flex',alignItems:'flex-start',gap:8,background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'8px 10px',marginBottom:12,cursor:'pointer'}}>
-                <input type="checkbox" checked={!!modal.notify} onChange={e=>setModal(m=>({...m,notify:e.target.checked}))} style={{width:16,height:16,marginTop:1}}/>
-                <span style={{fontSize:12,fontWeight:'bold',color:'#4338ca',lineHeight:1.5}}>この予定を<b>お知らせとして配信</b>する<br/><span style={{fontSize:10,fontWeight:'normal',color:'#64748b'}}>ご家族・関係者・担当ケアマネの画面に日時入りで載ります</span></span>
-              </label>
-            )}
-            <label style={{fontSize:12,fontWeight:'bold',color:'#475569',display:'block',marginBottom:4}}>メモ（任意）</label>
-            <textarea value={modal.note||''} onChange={e=>setModal(m=>({...m,note:e.target.value}))} rows={3} placeholder={modal.kind==='task' ? '手順・気をつけることなど' : '場所・持ち物・参加者など'} style={{width:'100%',boxSizing:'border-box',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',resize:'vertical',marginBottom:12}}/>
-            <label style={{fontSize:12,fontWeight:'bold',color:'#475569',display:'block',marginBottom:4}}>繰り返し</label>
-            <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:8,flexWrap:'wrap'}}>
-              <select value={modal.repeat||'none'} onChange={e=>setModal(m=>{ const rep=e.target.value; const upd={...m, repeat:rep, repeatEvery:m.repeatEvery||1}; if(rep==='monthly_lastbiz' && m.date){ const [yy,mm]=m.date.split('-').map(Number); const lb=tsuLastBizOfMonth(appData,yy,mm); if(lb) upd.date=lb; } /* ★ 2026-10-30: 毎月（最終営業日）はその月の最終営業日から */ if(rep==='monthly_nth' && (!m.monthlyNthWeeks||!m.monthlyNthWeeks.length) && m.date){ upd.monthlyNthWeeks=[nthOfMonth(m.date)]; } return upd; })} style={{padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',background:'white'}}>
-                <option value="none">なし</option>
-                <option value="daily">毎日</option>
-                <option value="weekly">毎週</option>
-                <option value="monthly">毎月（同じ日）</option>
-                <option value="monthly_nth">毎月（第◯曜日）</option>
-                <option value="monthly_lastbiz">毎月（最終営業日）</option>
-                <option value="yearly">毎年</option>
-              </select>
-              {modal.repeat && modal.repeat!=='none' && modal.repeat!=='monthly_nth' && (
-                <div style={{display:'flex',alignItems:'center',gap:4}}>
-                  <input type="number" min={1} max={99} value={modal.repeatEvery||1} onChange={e=>setModal(m=>({...m,repeatEvery:Math.max(1,Math.min(99,Number(e.target.value)||1))}))} style={{width:54,boxSizing:'border-box',padding:'8px 8px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',textAlign:'center'}}/>
-                  <span style={{fontSize:12,color:'#475569',fontWeight:'bold'}}>{modal.repeat==='daily'?'日':modal.repeat==='weekly'?'週':(modal.repeat==='monthly'||modal.repeat==='monthly_lastbiz')?'月':'年'}ごと</span>
+              <button data-testid="sch-modal-save" onClick={upsert} style={{whiteSpace:'nowrap',background:'#6366f1',border:'none',color:'white',borderRadius:21,padding:'10px 20px',fontWeight:'bold',fontSize:15,cursor:'pointer',flexShrink:0,minHeight:42}}>保存</button>
+            </div>
+            <div style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',margin:'0 2px 6px'}}>{isTask ? (modal.id?'タスクを編集':'タスクを追加（済むまでホームの「本日の業務」に残ります）') : (modal.id?'予定を編集':'予定を追加')}</div>
+            <input value={modal.title} onChange={e=>setModal(m=>({...m,title:e.target.value}))} placeholder={isTask ? 'やること（例: 月末の請求の確認）' : 'タイトルまたは予定を説明'}
+              style={{width:'100%',boxSizing:'border-box',padding:'12px 14px',border:'none',borderRadius:14,fontSize:17,fontWeight:'bold',color:'#1e293b',outline:'none',marginBottom:10,background:'white',boxShadow:'0 1px 2px rgba(0,0,0,0.05)'}}/>
+            {/* 日時のカード: 開始・終了・終日・繰り返し */}
+            <div style={card} data-testid="sch-when-card">
+              {row('開始', <>
+                <input type="date" data-testid="sch-start-date" value={modal.date||''} onChange={e=>setStartDate(e.target.value)} style={pillDate}/>
+                {!allDay && <input type="time" data-testid="sch-start-time" value={modal.start||''} onChange={e=>setModal(m=>({...m,start:e.target.value}))} style={pillTime}/>}
+              </>)}
+              {!isTask && row('終了', <>
+                <input type="date" data-testid="sch-end-date" value={modal.endDate||modal.date||''} min={modal.date||undefined} disabled={rep} title={rep ? '繰り返しの予定は1日ずつです' : '開始と違う日にすると、何日か続く予定になります'} onChange={e=>setEndDate(e.target.value)} style={{...pillDate,opacity:rep?0.45:1}}/>
+                {!allDay && <input type="time" data-testid="sch-end-time" value={modal.end||''} onChange={e=>setModal(m=>({...m,end:e.target.value}))} style={pillTime}/>}
+              </>)}
+              {!isTask && !allDay && (
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',padding:'2px 0 8px',borderBottom:'1px solid #eef0f3'}}>
+                  <span style={{fontSize:11,fontWeight:'bold',color:'#64748b'}}>終了を自動:</span>
+                  {[['30分',30],['1時間',60],['1時間半',90],['2時間',120]].map(([lbl,mins])=>(
+                    <button key={mins} type="button" disabled={!modal.start} onClick={()=>setModal(m=>({...m,end:addMin(m.start,mins)}))}
+                      style={{fontSize:11,fontWeight:'bold',padding:'4px 10px',borderRadius:14,border:'1px solid #c7d2fe',background:modal.start?'#eef2ff':'#f1f5f9',color:modal.start?'#4338ca':'#cbd5e1',cursor:modal.start?'pointer':'default'}}>{lbl}</button>
+                  ))}
+                  {tsuEvMulti({ ...modal, endDate: modal.endDate }) && <span style={{fontSize:11,color:'#047857',fontWeight:'bold',marginLeft:'auto'}}>{tsuDaysBetweenIso(modal.date, modal.endDate) + 1}日間</span>}
+                </div>)}
+              {!isTask && row('終日', toggle(allDay, (v)=>setModal(m=>({...m,_allDay:v,...(v?{start:'',end:''}:{})})), 'sch-allday'))}
+              {isTask && <div style={{fontSize:11,color:'#64748b',padding:'0 0 8px',borderBottom:'1px solid #eef0f3'}}>時刻は決めなくてもかまいません。</div>}
+              {row('繰り返し', <>
+                <select data-testid="sch-repeat" value={modal.repeat||'none'} onChange={e=>setModal(m=>{ const rp2=e.target.value; const upd={...m, repeat:rp2, repeatEvery:m.repeatEvery||1, ...(rp2 !== 'none' ? { endDate: '' } : {})}; if(rp2==='monthly_lastbiz' && m.date){ const [yy,mm]=m.date.split('-').map(Number); const lb=tsuLastBizOfMonth(appData,yy,mm); if(lb) upd.date=lb; } /* ★ 2026-10-30: 毎月（最終営業日）はその月の最終営業日から */ if(rp2==='monthly_nth' && (!m.monthlyNthWeeks||!m.monthlyNthWeeks.length) && m.date){ upd.monthlyNthWeeks=[nthOfMonth(m.date)]; } return upd; })} style={{...pill,paddingRight:28,appearance:'auto',WebkitAppearance:'menulist'}}>
+                  <option value="none">しない</option>
+                  <option value="daily">毎日</option>
+                  <option value="weekly">毎週</option>
+                  <option value="monthly">毎月（同じ日）</option>
+                  <option value="monthly_nth">毎月（第◯曜日）</option>
+                  <option value="monthly_lastbiz">毎月（最終営業日）</option>
+                  <option value="yearly">毎年</option>
+                </select>
+              </>, { last: !rep })}
+              {rep && modal.repeat!=='monthly_nth' && row('間隔', <>
+                <input type="number" min={1} max={99} value={modal.repeatEvery||1} onChange={e=>setModal(m=>({...m,repeatEvery:Math.max(1,Math.min(99,Number(e.target.value)||1))}))} style={{...pill,width:64,textAlign:'center'}}/>
+                <span style={{fontSize:14,color:'#475569',fontWeight:'bold'}}>{modal.repeat==='daily'?'日':modal.repeat==='weekly'?'週':(modal.repeat==='monthly'||modal.repeat==='monthly_lastbiz')?'月':'年'}ごと</span>
+              </>, { last: modal.repeat!=='monthly_lastbiz' && !(isTask && modal.repeat==='daily') })}
+              {modal.repeat==='monthly_nth' && (
+                <div style={{padding:'6px 0 10px'}}>
+                  <div style={{fontSize:11,color:'#64748b',marginBottom:6}}>毎月の「第◯ <b style={{color:'#4338ca'}}>{modal.date?dowLabel(modal.date):''}曜日</b>」に繰り返します（複数選択可・例: 第2と第4）</div>
+                  <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                    {[[1,'第1'],[2,'第2'],[3,'第3'],[4,'第4'],[5,'第5'],['last','最終']].map(([v,lbl])=>{
+                      const on=(modal.monthlyNthWeeks||[]).includes(v);
+                      return <button key={String(v)} type="button" onClick={()=>setModal(m=>{ const cur=m.monthlyNthWeeks||[]; return {...m, monthlyNthWeeks: on?cur.filter(x=>x!==v):[...cur,v]}; })} style={chipBtn(on,'#6366f1')}>{lbl}</button>;
+                    })}
+                  </div>
                 </div>
               )}
+              {modal.repeat==='monthly_lastbiz' && <div data-testid="sch-lastbiz-note" style={{fontSize:11,color:'#047857',padding:'4px 0 10px'}}>毎月、定休日と休業日を除いた月の最後の日に出ます（今の期日: {modal.date ? fmtJp(modal.date) : '-'}）</div>}
+              {isTask && modal.repeat==='daily' && <div style={{fontSize:11,color:'#047857',padding:'4px 0 10px'}}>タスクの「毎日」は営業日だけ出ます（定休日・休業日は出ません）</div>}
             </div>
-            {modal.repeat==='monthly_nth' && (
-              <div style={{marginBottom:8}}>
-                <div style={{fontSize:11,color:'#64748b',marginBottom:4}}>毎月の「第◯ <b style={{color:'#4338ca'}}>{modal.date?dowLabel(modal.date):''}曜日</b>」に繰り返します（複数選択可・例: 第2と第4）</div>
-                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                  {[[1,'第1'],[2,'第2'],[3,'第3'],[4,'第4'],[5,'第5'],['last','最終']].map(([v,lbl])=>{
-                    const on=(modal.monthlyNthWeeks||[]).includes(v);
-                    return <button key={String(v)} type="button" onClick={()=>setModal(m=>{ const cur=m.monthlyNthWeeks||[]; return {...m, monthlyNthWeeks: on?cur.filter(x=>x!==v):[...cur,v]}; })} style={{fontSize:12,fontWeight:'bold',padding:'5px 10px',borderRadius:14,border:on?'2px solid #6366f1':'1px solid #cbd5e1',background:on?'#eef2ff':'white',color:on?'#4338ca':'#64748b',cursor:'pointer'}}>{lbl}</button>;
-                  })}
+            {rep && <div style={{fontSize:11,color:'#64748b',margin:'-4px 2px 10px'}}>例:「2」＋「週ごと」で隔週。<b>終了・削除</b>は右上の <b>繰り返し設定</b> から（編集はすべての回に反映）。</div>}
+            {/* 対象の利用者(担当者会議など)・ご家族へのお知らせ */}
+            <div style={card}>
+              {row('利用者', <>
+                <select data-testid="sch-patient" value={modal.patientId||''} onChange={e=>setModal(m=>({...m,patientId:e.target.value?Number(e.target.value):undefined}))} style={{...pill,maxWidth:'100%',paddingRight:28,appearance:'auto',WebkitAppearance:'menulist'}}>
+                  <option value="">なし{isTask ? '' : '（担当者会議など）'}</option>
+                  {/* ★ 休止中でも担当者会議等で予定を組むことがあるため、利用中と休止中の両方を選べるようにする(退所は除外) */}
+                  {(appData.patients||[]).filter(p=>['利用中','休止'].includes(getPatientDisplayStatus(p))).sort((a,b)=>(a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja')).map(p=>(<option key={p.id} value={p.id}>{p.name}{getPatientDisplayStatus(p)==='休止'?'（休止中）':''}</option>))}
+                </select>
+              </>, { last: !modal.patientId })}
+              {modal.patientId && (()=>{ const p=(appData.patients||[]).find(x=>x.id===modal.patientId); if(!p) return null; return (
+                <div style={{fontSize:12,color:'#475569',padding:'8px 0',borderBottom:(!isTask)?'1px solid #eef0f3':'none'}}>
+                  担当ケアマネ：<b>{p.cmOffice||'（事業所未登録）'}</b>{p.cmName?` / ${p.cmName} 様`:''}{(() => { const _f = tsumugiCmContact(p, appData).fax; return _f ? `　FAX ${_f}` : ''; })()}
                 </div>
-              </div>
-            )}
-            {modal.repeat==='monthly_lastbiz' && <div data-testid="sch-lastbiz-note" style={{fontSize:11,color:'#047857',marginBottom:6}}>毎月、定休日と休業日を除いた月の最後の日に出ます（今の期日: {modal.date ? fmtJp(modal.date) : '-'}）</div>}
-            {modal.kind==='task' && modal.repeat==='daily' && <div style={{fontSize:11,color:'#047857',marginBottom:6}}>タスクの「毎日」は営業日だけ出ます（定休日・休業日は出ません）</div>}
-            {modal.repeat && modal.repeat!=='none' && <div style={{fontSize:10,color:'#64748b',marginBottom:12}}>例:「2」＋「週ごと」で隔週。<b>終了・削除</b>は右上の <b>繰り返し設定</b> から（編集はすべての回に反映）。</div>}
-            {modal.kind!=='task' && <><label style={{fontSize:12,fontWeight:'bold',color:'#475569',display:'block',marginBottom:6}}>色・分類（押すとタイトルに入ります）</label>
-            <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>
-              {colorLabels.map((cl,i)=>{
-                const selected = modal.color===cl.color;
-                return (
-                  <button key={i} type="button" onClick={()=>setModal(m=>{ const presetTitles=colorLabels.map(x=>x.label); const keepTitle = m.title && !presetTitles.includes(m.title); return {...m, color:cl.color, title: keepTitle ? m.title : cl.label}; })}
-                    style={{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',borderRadius:16,border:selected?`2px solid ${cl.color}`:'1px solid #e2e8f0',background:selected?`${cl.color}18`:'white',cursor:'pointer'}}>
-                    <span style={{width:14,height:14,borderRadius:'50%',background:cl.color,flexShrink:0}}/>
-                    <span style={{fontSize:12,fontWeight:'bold',color:'#334155'}}>{cl.label||'（無題）'}</span>
-                  </button>
-                );
-              })}
-            </div></>}
-            {modal.kind==='task' && <div style={{marginBottom:12}}/>}
-            <div style={{display:'flex',gap:8}}>
-              {modal.id && <button onClick={()=>del(modal.id)} style={{whiteSpace:'nowrap',background:'#fee2e2',border:'none',color:'#b91c1c',borderRadius:8,padding:'10px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>削除</button>}
-              <div style={{flex:1}}/>
-              <button onClick={()=>setModal(null)} style={{whiteSpace:'nowrap',background:'#e2e8f0',border:'none',color:'#334155',borderRadius:8,padding:'10px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
-              <button data-testid="sch-modal-save" onClick={upsert} style={{whiteSpace:'nowrap',background:'#6366f1',border:'none',color:'white',borderRadius:8,padding:'10px 18px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>保存</button>
+              ); })()}
+              {modal.patientId && !isTask && row('お知らせを配信', toggle(!!modal.notify, (v)=>setModal(m=>({...m,notify:v})), 'sch-notify'), { last: true })}
+              {modal.patientId && !isTask && <div style={{fontSize:11,color:'#64748b',padding:'0 0 10px',marginTop:-6}}>ご家族・関係者・担当ケアマネの画面に、日時入りで載ります。</div>}
             </div>
+            {/* メモ */}
+            <div style={{...card,padding:'10px 14px'}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:4}}>メモ</div>
+              <textarea data-testid="sch-note" value={modal.note||''} onChange={e=>setModal(m=>({...m,note:e.target.value}))} rows={3} placeholder={isTask ? '手順・気をつけることなど' : '場所・持ち物・参加者など'} style={{width:'100%',boxSizing:'border-box',padding:'8px 10px',border:'none',borderRadius:10,fontSize:15,outline:'none',resize:'vertical',background:'#eceff3',fontFamily:'inherit'}}/>
+            </div>
+            {/* 色・分類 */}
+            {!isTask && <div style={{...card,padding:'10px 14px'}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:6}}>色・分類（押すとタイトルに入ります）</div>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {colorLabels.map((cl,i)=>{
+                  const selected = modal.color===cl.color;
+                  return (
+                    <button key={i} type="button" onClick={()=>setModal(m=>{ const presetTitles=colorLabels.map(x=>x.label); const keepTitle = m.title && !presetTitles.includes(m.title); return {...m, color:cl.color, title: keepTitle ? m.title : cl.label}; })}
+                      style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',borderRadius:16,border:selected?`2px solid ${cl.color}`:'1px solid #e2e8f0',background:selected?`${cl.color}18`:'white',cursor:'pointer'}}>
+                      <span style={{width:14,height:14,borderRadius:'50%',background:cl.color,flexShrink:0}}/>
+                      <span style={{fontSize:12,fontWeight:'bold',color:'#334155'}}>{cl.label||'（無題）'}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>}
+            {modal.id && <button type="button" data-testid="sch-modal-del" onClick={()=>del(modal.id)} style={{width:'100%',background:'white',border:'1px solid #fdba74',color:'#c2410c',borderRadius:14,padding:'12px 14px',fontWeight:'bold',fontSize:15,cursor:'pointer',marginTop:2}}>{isTask ? 'このタスクを削除' : 'この予定を削除'}</button>}
           </div>
         </div>
-      )}
+        ); })()}
       {labelEditorOpen && (()=>{
         const dl = labelDraft || colorLabels;
         const _dirtyL = JSON.stringify(dl) !== JSON.stringify(colorLabels);
@@ -20265,6 +20287,7 @@ function HqDevicePanel({ stores }) {
   const [rows, setRows] = React.useState(null);
   const [showOld, setShowOld] = React.useState(false);
   const [open, setOpen] = React.useState(false); // ★ 2026-10-17(ユーザー要望): 折りたたんで表示(見出しに集計だけ)
+  const [busy, setBusy] = React.useState(false); // ★ 2026-11-08 trial530: 端末の控えを消している間
   const load = React.useCallback(async () => { setRows(null); try {
     // 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): window.__tsumugiE2E.syncDiag があればそれを使う
     const mock = (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.syncDiag) || null;
@@ -20277,6 +20300,24 @@ function HqDevicePanel({ stores }) {
   const byStore = new Map((rows || []).map(r => [r.storeId, r.devices]));
   const list = (stores || []).map(st => { const all = byStore.get(String(st.id)) || []; const devs = showOld ? all : all.filter(d => now - d.at < RECENT); return { st, devs, ok: devs.filter(d => d.sb === true).length }; });
   const totalDev = list.reduce((a, x) => a + x.devs.length, 0), totalOk = list.reduce((a, x) => a + x.ok, 0);
+  // ★ 2026-11-08 trial530(ユーザー「端末名が 扇橋店36 など増えすぎ。登録されていない・別の名前に変わった端末の控えは消したい。30何台もあるとどの端末で書いたか分からない」):
+  //   端末の控えを消す(1台ずつ／7日以上動いていない端末をまとめて)。iPhone の Safari が7日で控えを消して増えた分(1107a で止めた)がおもな対象。
+  //   消しても記録に残った端末名は変わらない。今も使っている端末を消しても、名前は端末の中にあるので次に動いたとき同じ名前で戻る
+  const STALE = 7 * 24 * 60 * 60 * 1000;
+  const staleOf = (st) => (byStore.get(String(st.id)) || []).filter(d => now - d.at >= STALE);
+  const delDevs = async (st, devs, why) => {
+    if (!devs.length || busy) return;
+    if (!window.confirm(`${st.name}の端末 ${devs.length} 台の控えを消します。\n${why}\n（記録に残っている端末名は消えません。今も使っている端末なら、次に動いたときに同じ名前で戻ります）`)) return;
+    setBusy(true);
+    try {
+      const mock = (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.syncDiag) || null; // 自動テスト
+      let ok = false;
+      if (mock) { const tags = new Set(devs.map(d => d.tag)); window.__tsumugiE2E.syncDiag = mock.map(r => String(r.storeId) === String(st.id) ? { ...r, devices: (r.devices || []).filter(d => !tags.has(d.tag)) } : r); ok = true; }
+      else ok = await supabaseDeleteSyncDiagDevices(String(st.id), devs.map(d => d.tag));
+      if (!ok) alert('消せませんでした。少し待ってから、もう一度お試しください');
+    } finally { setBusy(false); }
+    await load();
+  };
   // ★ 2026-10-23: 各端末が送ってきた「画面を開いた回数」(use: {年-月: {入口:画面: 回数}})を店舗で合算して「今月開いた画面」にする
   const useLine = (devs) => { const d0 = new Date(); const ym = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}`; const agg = {}; let home = 0, side = 0;
     devs.forEach(d => { const m = d.use && d.use[ym]; if (!m || typeof m !== 'object') return; Object.keys(m).forEach(k => { const i = k.indexOf(':'); const src = k.slice(0, i), v = k.slice(i + 1); const n = Number(m[k]) || 0; agg[v] = (agg[v] || 0) + n; if (src === 'home') home += n; else side += n; }); });
@@ -20304,6 +20345,7 @@ function HqDevicePanel({ stores }) {
         「古い版」はアプリの更新が届いていない端末（更新のお知らせから更新するか、再読み込み）。「証なし」は新しい版だがログインし直していない端末です。
         「今月開いた画面」は、各端末でホームのタイルや横のメニューから画面を開いた回数の合計です（2026-10-23 以降の版の端末から集まります）。
         端末名は、店舗で初めて使った端末に「店舗名1・2…」が自動で付きます（店舗の 設定 → システム → 端末名 で変更できます）。管理局でログインした端末は「管理局」と出ます。
+        使っていない端末の控えは「消す」で外せます（記録に残っている端末名はそのまま。今も使っている端末を消しても、次に動いたときに同じ名前で戻ります）。消した番号は、次に初めて使う端末が使います。
       </div>
       {rows === null ? <div style={{textAlign:'center',padding:24,color:'#64748b'}}><BusySpin/>読込中...</div> : (
         <div style={{display:'grid',gap:10}}>
@@ -20311,18 +20353,22 @@ function HqDevicePanel({ stores }) {
             <div key={st.id} style={{border:'1px solid #e2e8f0',borderRadius:12,padding:'10px 14px'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
                 <div style={{fontWeight:'bold',color:'#1e293b',fontSize:14}}>{st.name}</div>
-                <div style={{fontSize:12,fontWeight:'bold',color: devs.length && ok === devs.length ? '#15803d' : devs.length ? '#b45309' : '#64748b'}}>{devs.length ? `証あり ${ok} / ${devs.length} 台` : '直近の端末なし'}</div>
+                <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+                  {staleOf(st).length > 0 && <button type="button" data-testid={`hq-dev-clean-${st.id}`} disabled={busy} onClick={()=>delDevs(st, staleOf(st), '7日以上動いていない端末です。')} style={{padding:'5px 10px',background:'white',color:'#b45309',border:'1px solid #fdba74',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:busy?'default':'pointer',opacity:busy?0.5:1}}>7日以上動いていない {staleOf(st).length} 台を消す</button>}
+                  <div style={{fontSize:12,fontWeight:'bold',color: devs.length && ok === devs.length ? '#15803d' : devs.length ? '#b45309' : '#64748b'}}>{devs.length ? `証あり ${ok} / ${devs.length} 台` : '直近の端末なし'}</div>
+                </div>
               </div>
               {devs.length > 0 && (
                 <div style={{overflowX:'auto',marginTop:6}}>
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-                    <thead><tr style={{color:'#64748b',textAlign:'left'}}><th style={{padding:'4px 6px',fontWeight:'normal'}}>端末名</th><th style={{padding:'4px 6px',fontWeight:'normal'}}>版</th><th style={{padding:'4px 6px',fontWeight:'normal'}}>最後に動いた</th><th style={{padding:'4px 6px',fontWeight:'normal'}}>証</th></tr></thead>
+                    <thead><tr style={{color:'#64748b',textAlign:'left'}}><th style={{padding:'4px 6px',fontWeight:'normal'}}>端末名</th><th style={{padding:'4px 6px',fontWeight:'normal'}}>版</th><th style={{padding:'4px 6px',fontWeight:'normal'}}>最後に動いた</th><th style={{padding:'4px 6px',fontWeight:'normal'}}>証</th><th style={{padding:'4px 6px',fontWeight:'normal'}}></th></tr></thead>
                     <tbody>{devs.map(d => (
                       <tr key={d.tag} style={{borderTop:'1px solid #f1f5f9'}}>
                         <td style={{padding:'5px 6px',color:'#1e293b',fontWeight:'bold',whiteSpace:'nowrap'}}>{d.name}</td>
                         <td style={{padding:'5px 6px',color:'#475569',fontFamily:'monospace',whiteSpace:'nowrap'}}>{verLabel(d.ver)}</td>
                         <td style={{padding:'5px 6px',color:'#475569',whiteSpace:'nowrap'}}>{ago(d.at)}</td>
                         <td style={{padding:'5px 6px',whiteSpace:'nowrap'}}>{sbCell(d)}</td>
+                        <td style={{padding:'3px 6px',whiteSpace:'nowrap',textAlign:'right'}}><button type="button" data-testid={`hq-dev-del-${d.tag}`} disabled={busy} onClick={()=>delDevs(st, [d], `「${d.name}」（最後に動いたのは ${ago(d.at)}）`)} style={{padding:'3px 10px',background:'white',color:'#b45309',border:'1px solid #fdba74',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:busy?'default':'pointer',opacity:busy?0.5:1}}>消す</button></td>
                       </tr>))}</tbody>
                   </table>
                 </div>
@@ -40374,66 +40420,75 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return /^[ア-ン]$/.test(ch) ? ch : '他';
   };
   const buildContactsPages = () => {
-    // ★ 2026-09-16(店舗指摘): 住所列が長く右端が見切れる→左右2段組。電話は携帯優先(無ければ固定)。
     // ★ 2026-11-07 trial529(ユーザー「その週に休みの方が連絡先一覧に出ない。その週の欠席に関係なく、利用中・休止中の方を全員」): 利用中・休止中(退所済みでない)の全員＋その週の送迎表にいる方
+    // ★ 2026-11-08 trial530(ユーザー相談「A4横2列だと携帯と固定を分ける幅がない。A4縦1列で 氏名・住所・携帯・固定、幅に余裕があれば緊急連絡先も。普段も災害時も使える」):
+    //   A4縦・1列。携帯と固定は別の欄(送迎時にかける相手の番号。相手がご家族などのときは名前を小さく添える)。緊急連絡先=送迎の連絡先とは別の方を1人(続柄 氏名・電話)。
+    //   1枚40行(45人までは1枚に詰める・少ない店舗は30行まで空欄=手書き用)。運行表と一緒に出すときは、このページだけ縦(名前付き @page tsuP・サーバーのPDFが縦横混在に対応)
     const _wk = new Set(_weekPids().map(String));
     const pts = (appData.patients||[]).filter(p => p && String(p.name || '').trim() && (isPatientListable(p) || _wk.has(String(p.id))))
       .sort((a,b)=>String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''),'ja'));
     const _emW2 = (t) => [...String(t||'')].reduce((a, ch) => a + (ch === '　' ? 1 : (/[ -~]/.test(ch) ? (ch === ' ' ? 0.3 : 0.55) : 1)), 0);
     const addrText = (pt) => `${[_addrDisp(pt.address), tsuBldRoom(pt.addressBuilding, pt.addressRoom)].filter(Boolean).join(' ')}${pt.pickupPlace?`（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）`:''}${String(pt.pickupMinutes||'')==='walk'?'［徒歩］':''}`;
-    // ★ 2026-10-01d(ユーザー要望): 左25人・右25人(1枚50人)で固定。表は用紙の下まで伸ばし、行の高さをそろえる(下の余白をなくす)。
-    //   左の段から25人ずつ埋め、人がいない行は空欄(手書き用)で25行まで埋める。
-    const ROWS = 25, HALF = 505, BODY_H = 650; // BODY_H=本文の高さの目安(px)
+    const _isMobile = (n) => /^0[5789]0/.test(String(n || '').replace(/[^0-9]/g, ''));
+    const _digits = (n) => String(n || '').replace(/[^0-9]/g, '');
+    // 送迎時にかける相手の 携帯・固定(本人: 名前なし／ご家族・その他: 名前を添える)
+    const telPair = (pt) => {
+      const mode = String(pt.pickupCallTo || '');
+      if (mode === 'family') return { who: [pt.familyRelation, pt.familyName].filter(Boolean).join(' ') || 'ご家族', mobile: String(pt.familyPhoneMobile || '').trim(), fixed: String(pt.familyPhone || '').trim(), key: String(pt.familyName || '') };
+      if (mode === 'other') { const ph = String(pt.pickupCallPhone || '').trim(); return { who: String(pt.pickupCallName || '').trim() || '連絡先', mobile: _isMobile(ph) ? ph : '', fixed: _isMobile(ph) ? '' : ph, key: String(pt.pickupCallName || '') }; }
+      return { who: '', mobile: String(pt.phoneMobile || '').trim(), fixed: String(pt.phone || '').trim(), key: '' };
+    };
+    // 緊急連絡先: 送迎の連絡先と別の方を1人(名前・番号が同じ方は除く)
+    const emgOf = (pt, tp) => { try {
+      const used = new Set([tp.mobile, tp.fixed].map(_digits).filter(Boolean)); const nk = _contactNameKey({ name: tp.key });
+      return (getAllContacts(pt) || []).find(c => c && ((c.name || '').trim() || (c.phoneMobile || c.phone || '').trim()) && !(nk && _contactNameKey(c) === nk) && ![c.phoneMobile, c.phone].map(_digits).filter(Boolean).some(x => used.has(x))) || null;
+    } catch { return null; } };
+    const ROWS_MAX = 40, ONE_PAGE_MAX = 45, ROWS_MIN = 30, BODY_H = 1030, headH = 20; // BODY_H=本文(283mm)の高さの目安(px)
+    const n = pts.length; const rowsPer = n <= ONE_PAGE_MAX ? Math.max(ROWS_MIN, n) : ROWS_MAX;
+    const tblH = BODY_H - 26 - 18 - 4;
     const maxNameEm = Math.max(4, ...pts.map(pt => _emW2(pt.name)));
-    // ★ 2026-10-02(西馬込報告: 電話の前に「奥様」等を付けると電話が見切れる): 電話の幅は「数字12桁ぶん」の固定ではなく、
-    //   いちばん長い電話(文字付きを含む・最大20文字ぶん)に合わせる。さらに長ければ欄に収まるまで文字を縮める(下の tel セル)
-    // ★ 2026-10-13: 「送迎時の連絡先」をご家族などにしている方は、その相手と番号を出す(例: 長女 090-…)
-    // ★ 2026-11-07 trial529(ユーザー「携帯と固定の両方を載せてほしい」): かける相手の携帯と固定を両方(2行)。相手の名前は1行目だけ
-    const telLines = (pt) => { const cs = tsumugiPickupCalls(pt); const c0 = cs[0]; if (!c0) return []; return cs.filter(c => c.label === c0.label).slice(0, 2).map((c, i) => (i === 0 && c.label !== '本人') ? `${c.label} ${c.phone}` : c.phone); };
-    const telText = (pt) => telLines(pt).reduce((a, s) => (_emW2(s) > _emW2(a) ? s : a), '');
-    const maxTelEm = Math.min(20, Math.max(8.4, ...pts.map(pt => _emW2(telText(pt)))));
-    const colW = (f) => { const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil(maxTelEm * Math.max(8, f - 1) * 1.02) + 12; return { ini, name, tel, addr: Math.max(80, HALF - ini - name - tel) }; };
-    const headH = 18;
-    // 文字: 1行の高さ(本文÷25)に収まる大きさ・11〜18px。氏名と電話で住所の欄が狭くなりすぎないように
-    let fz = Math.max(11, Math.min(18, Math.floor(((BODY_H - headH) / ROWS - 6) / 1.3)));
-    while (fz > 11 && colW(fz).addr < 150) fz--;
-    const cols = [];
-    for (let k = 0; k < Math.max(1, pts.length); k += ROWS * 2) {
-      const chunk = pts.slice(k, k + ROWS * 2);
-      const cut = ROWS; // ★ 2026-10-01e(ユーザー要望): 人数に関係なく左の段から25人ずつ埋める(右は残り・足りない行は空欄)
-      cols.push(chunk.slice(0, cut), chunk.slice(cut));
-    }
-    const w = colW(fz); const fT = Math.max(8, fz - 1); const fA0 = Math.max(9, fz - 2);
+    const pairs = new Map(pts.map(pt => [pt.id, telPair(pt)]));
+    const telEm = Math.min(14, Math.max(7.2, ...pts.map(pt => { const tp = pairs.get(pt.id); return Math.max(_emW2(tp.mobile), _emW2(tp.fixed)); })));
+    const colW = (f) => { const fT0 = Math.max(9, f - 1); const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil(telEm * fT0 * 1.18) + 12, emg = tel; return { ini, name, tel, emg, addr: Math.max(80, 720 - ini - name - tel * 2 - emg) }; };
+    // 文字: 1行の高さに収まる大きさ・11〜16px。住所の欄が狭くなりすぎないように
+    let fz = Math.max(11, Math.min(16, Math.floor(((tblH - headH) / rowsPer - 6) / 1.3)));
+    while (fz > 11 && colW(fz).addr < 230) fz--;
+    const w = colW(fz); const fT = Math.max(9, fz - 1); const fA0 = Math.max(9, fz - 2); const fS = Math.max(8, fT - 4); // fS=相手の名前・続柄の小さい文字
     const tbl = (list) => {
       const rows = list.map(pt => ({ pt, ini: _kanaIni(pt) }));
-      while (rows.length < ROWS) rows.push(null);
+      while (rows.length < rowsPer) rows.push(null);
       let html = '';
       rows.forEach((r, k) => {
         const bg = k % 2 === 1 ? '#eceeea' : '#ffffff'; // 1行おきに薄いグレー
         const td = (inner, st) => `<td style="border:1px solid #66756b;background:${bg};${st}">${inner}</td>`;
-        if (!r) { html += `<tr>${td('', '')}${td('&nbsp;', `font-size:${fz}px;`)}${td('', '')}${td('', '')}</tr>`; return; }
+        if (!r) { html += `<tr>${td('', '')}${td('&nbsp;', `font-size:${fz}px;`)}${td('', '')}${td('', '')}${td('', '')}${td('', '')}</tr>`; return; }
         let iniTd = '';
         if (k === 0 || !rows[k-1] || rows[k-1].ini !== r.ini) { let span = 1; while (k + span < rows.length && rows[k+span] && rows[k+span].ini === r.ini) span++;
           iniTd = `<td rowspan="${span}" style="border:1px solid #66756b;background:#dfe6dc;text-align:center;vertical-align:middle;font-size:${fz}px;font-weight:800;color:#2f4a35;">${_escP(r.ini)}</td>`; }
         // 住所は1行に収まるよう文字を縮める(9px未満になる長い住所だけ2行)
         const at = addrText(r.pt); const fitA = Math.floor((w.addr - 10) / Math.max(1, _emW2(at)));
         const fA = Math.max(9, Math.min(fA0, fitA)); const wrapA = fitA < 9;
-        html += `<tr>${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), tsuBldRoom(r.pt.addressBuilding, r.pt.addressRoom)].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${(() => { const tl = telLines(r.pt); const tt = telText(r.pt); const fit = Math.floor((w.tel - 8) / Math.max(1, _emW2(tt))); const fTt = Math.max(8, Math.min(fT, fit, tl.length > 1 ? 11 : 99)); return td(tl.map(s => `<div>${_escP(s)}</div>`).join(''), `padding:0 4px;font-size:${fTt}px;line-height:${tl.length > 1 ? 1.1 : 1.3};white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`); })()}</tr>`;
+        const tp = pairs.get(r.pt.id); const whoOn = tp.who ? (tp.mobile ? 'mobile' : (tp.fixed ? 'fixed' : '')) : '';
+        const telTd = (num, kind) => { const fit = num ? Math.floor((w.tel - 8) / Math.max(1, _emW2(num))) : fT; const f2 = Math.max(8, Math.min(fT, fit));
+          return td(num ? `${whoOn === kind ? `<div style="font-size:${fS}px;color:#475569;line-height:1.1;white-space:nowrap;overflow:hidden;">${_escP(tp.who)}</div>` : ''}<div>${_escP(num)}</div>` : '', `padding:0 4px;font-size:${f2}px;line-height:1.2;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`); };
+        const c = emgOf(r.pt, tp); const cPh = c ? String(c.phoneMobile || c.phone || '').trim() : ''; const cNm = c ? [c.relation, c.name].filter(Boolean).join(' ') : '';
+        const fE = cPh ? Math.max(8, Math.min(fT, Math.floor((w.emg - 8) / Math.max(1, _emW2(cPh))))) : fT;
+        html += `<tr>${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), tsuBldRoom(r.pt.addressBuilding, r.pt.addressRoom)].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${telTd(tp.mobile, 'mobile')}${telTd(tp.fixed, 'fixed')}${td(c ? `${cNm ? `<div style="font-size:${fS}px;color:#475569;line-height:1.1;white-space:nowrap;overflow:hidden;">${_escP(cNm)}</div>` : ''}<div>${_escP(cPh)}</div>` : '', `padding:0 4px;font-size:${fE}px;line-height:1.2;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`)}</tr>`;
       });
-      // ★ 2026-10-01(iPad): 高さは px で(Safari・PDF化では height:100% が効かず表が縮んでいた)。本文 718px − 題字 − 注記 − 余裕
-      return `<table style="border-collapse:collapse;width:100%;height:${718 - 26 - 18 - 4}px;table-layout:fixed;">
-      <colgroup><col style="width:${w.ini}px"/><col style="width:${w.name}px"/><col/><col style="width:${w.tel}px"/></colgroup>
-      <thead><tr style="height:${headH}px;">${['','氏名','住所（待ち合わせ場所）','電話'].map(h2=>`<th style="border:1px solid #66756b;background:#e3e8e1;font-size:10px;padding:1px 2px;">${h2}</th>`).join('')}</tr></thead>
+      // 高さは px で(Safari・PDF化では height:100% が効かない)。本文 − 題字 − 注記 − 余裕
+      return `<table style="border-collapse:collapse;width:100%;height:${tblH}px;table-layout:fixed;">
+      <colgroup><col style="width:${w.ini}px"/><col style="width:${w.name}px"/><col/><col style="width:${w.tel}px"/><col style="width:${w.tel}px"/><col style="width:${w.emg}px"/></colgroup>
+      <thead><tr style="height:${headH}px;">${['','氏名','住所（待ち合わせ場所）','携帯','固定','緊急連絡先'].map(h2=>`<th style="border:1px solid #66756b;background:#e3e8e1;font-size:10px;padding:1px 2px;">${h2}</th>`).join('')}</tr></thead>
       <tbody>${html}</tbody></table>`;
     };
-    const nPages = Math.max(1, Math.ceil(cols.length / 2));
+    const nPages = Math.max(1, Math.ceil(Math.max(1, n) / rowsPer));
     const pages = [];
     for (let pg = 0; pg < nPages; pg++) {
-      const L = cols[pg * 2] || [], R = cols[pg * 2 + 1] || [];
+      const chunk = pts.slice(pg * rowsPer, (pg + 1) * rowsPer);
       pages.push(`<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="text-align:center;font-size:14px;font-weight:bold;letter-spacing:6px;margin-bottom:2mm;flex:none;">利用者連絡先一覧（${_mon.getMonth()+1}/${_mon.getDate()}週・五十音順）${nPages > 1 ? `<span style="letter-spacing:1px;font-weight:normal;font-size:11px;">　${pg+1}/${nPages}枚</span>` : ''}</div>
-      ${pts.length ? `<div style="display:flex;gap:5mm;align-items:flex-start;flex:none;"><div style="flex:1;min-width:0;">${tbl(L)}</div><div style="flex:1;min-width:0;">${tbl(R)}</div></div>` : '<div style="font-size:11px;color:#94a3b8;">この週に乗車予定の利用者がいません</div>'}
-      <div style="font-size:9px;color:#64748b;margin-top:1mm;flex:none;">※ 電話は携帯と固定の両方（送迎時の連絡先をご家族などにしている方はその相手）。この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
+      ${pts.length ? `<div style="flex:none;">${tbl(chunk)}</div>` : '<div style="font-size:11px;color:#94a3b8;">利用中・休止中の利用者がいません</div>'}
+      <div style="font-size:9px;color:#64748b;margin-top:1mm;flex:none;">※ 携帯・固定＝送迎時にかける相手の番号（ご家族などのときは名前を添えています）。緊急連絡先＝それとは別の方。この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
     </div>`);
     }
     return pages;
@@ -40652,11 +40707,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-09-16(店舗指摘): 実機で右端(金曜)が見切れる→印字可能域(約275×190mm)に縮小して中央配置
     // ★ 2026-09-16c(店舗指摘): margin:autoは印刷ホストのbody>*{margin:0!important}で無効化され左上に寄る→全面ラッパー+flexで中央配置
     const _wrap = (inner, brk) => `<div data-page-break="1" style="${brk?'page-break-before:always;':''}width:297mm;height:209mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:283mm;height:196mm;box-sizing:border-box;background:#fff;overflow:hidden;">${inner}</div></div>`; // ★ 2026-10-13(ユーザー要望「周りの空欄を減らす」): 余白7mm(見切れ防止のため0にはしない)
+    // ★ 2026-11-08 trial530: 連絡先一覧は A4縦(名前付き @page tsuP。運行表(横)と一緒に出すときも、このページだけ縦になる)
+    const _wrapP = (inner, brk) => `<div data-page-break="1" style="${brk?'page-break-before:always;':''}page:tsuP;width:210mm;height:296mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:196mm;height:283mm;box-sizing:border-box;background:#fff;overflow:hidden;">${inner}</div></div>`;
+    const _pStyle = '<style>@page tsuP{size:210mm 297mm;margin:0;}</style>';
     if (content === 'contacts') {
-      window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `利用者連絡先一覧_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: buildContactsPages().map((pg, k) => _wrap(pg, k > 0)).join(''), elementId: null } }));
+      window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `利用者連絡先一覧_${_iso(_mon)}週`, pageSize: '210mm 297mm', html: _pStyle + buildContactsPages().map((pg, k) => _wrapP(pg, k > 0)).join(''), elementId: null } }));
       return;
     }
-    const page2 = withContacts ? buildContactsPages().map(pg => _wrap(pg, true)).join('') : '';
+    const page2 = withContacts ? _pStyle + buildContactsPages().map(pg => _wrapP(pg, true)).join('') : '';
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_sheetPages ? _wrap(_sheetPages, false) : _splitSlots.map((sl, k) => _wrap(((_splitBuilt && _splitBuilt[k]) ? _splitBuilt[k] : _buildW([sl], { dropTable: !!popt.dropTable, fzCap: _FZCAP })).html, k > 0)).join('')}${page2}`, elementId: null } }));
   };
 
@@ -41327,7 +41385,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                     </label>
                   ))}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1.5">連絡先一覧＝利用中・休止中の方全員の住所・電話を五十音順で。</div>
+                <div className="text-[10px] text-slate-400 mt-1.5">連絡先一覧＝利用中・休止中の方全員の住所・携帯・固定・緊急連絡先を五十音順で（A4縦）。</div>
               </div>
             )}
             {printModal.mode==='days' && (
@@ -44509,8 +44567,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         </TsuPhonePin>
         {localPatient ? (<>
           {/* ★ 2026-11-05 trial524(ユーザー「スマホは名前の右にケアマネ事業所と名前、その下の1行に個人ファイル・アカウント管理・保存」): スマホは2段(上=名前とケアマネ・下=ボタン)。iPad/PC は今のまま */}
+          {/* ★ 2026-11-08 trial530(ユーザー「スマホで利用者マスタを開くと利用者名が真ん中に来る」): 「ml-auto を持つ折返しバーは右寄せ」の全体CSS(10/13)が名前の行(ケアマネの ml-auto)にも効いて、名前が右へ押されていた → この行は左から */}
           <div data-testid="master-head" className="px-4 sm:px-6 py-3 border-b border-slate-200 bg-white flex flex-col items-stretch gap-2 sm:flex-row sm:justify-between sm:items-center shrink-0 z-10 shadow-sm">
-            <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap"><div className="order-1 sm:order-none min-w-0"><span className="text-[10px] font-bold text-slate-400">ID:{String(localPatient.id).padStart(4, '0')}</span>{localPatient.kana && <span className="text-[11px] font-bold text-slate-500 leading-none block mt-0.5 mb-0.5">{localPatient.kana}</span>}<h2 className="text-xl font-bold text-slate-800 leading-tight">{localPatient.name} <span className="text-base font-normal">様</span>{calcAge(localPatient.birthDate)!==null && <span className="text-sm font-bold text-slate-500 ml-1">（{calcAge(localPatient.birthDate)}）</span>}</h2></div>{localPatient.careLevel && <span className="order-2 sm:order-none text-sm font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-lg">{localPatient.careLevel}</span>}
+            <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap" style={{justifyContent:'flex-start'}}><div className="order-1 sm:order-none min-w-0"><span className="text-[10px] font-bold text-slate-400">ID:{String(localPatient.id).padStart(4, '0')}</span>{localPatient.kana && <span className="text-[11px] font-bold text-slate-500 leading-none block mt-0.5 mb-0.5">{localPatient.kana}</span>}<h2 className="text-xl font-bold text-slate-800 leading-tight">{localPatient.name} <span className="text-base font-normal">様</span>{calcAge(localPatient.birthDate)!==null && <span className="text-sm font-bold text-slate-500 ml-1">（{calcAge(localPatient.birthDate)}）</span>}</h2></div>{localPatient.careLevel && <span className="order-2 sm:order-none text-sm font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-lg">{localPatient.careLevel}</span>}
               {(() => {
                 const hist = localPatient.careLevelHistory || [];
                 const pending = hist.find(h => h.from && new Date(h.from) > new Date());

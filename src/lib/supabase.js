@@ -200,6 +200,8 @@ export async function supabaseUploadSyncDiag(storeId, name, ver, use) { // ★ 2
         const at = Number(d[k] && d[k].at); if (!at || now - at > DIAG_KEEP_MS) { delete d[k]; if (d.__names && typeof d.__names === 'object' && d.__names[k]) { d.__names = { ...d.__names }; delete d.__names[k]; } continue; } // 30日見ていない端末の控え(と名前の割当)は消す(行が太らない・番号が空く)
         if (k.includes('|') && k.slice(0, k.lastIndexOf('|')) === nm) delete d[k]; // 旧形式(端末名|版)の自分の控え
       }
+      // ★ 2026-11-08 trial530: 設定で名前を変えた端末は、名前の割当表(__names)も今の名前にする(前の「店舗名N」の番号が空く。空いた番号は次の端末が使う)
+      if (d.__names && typeof d.__names === 'object' && d.__names[id] && d.__names[id] !== nm) d.__names = { ...d.__names, [id]: nm };
       d[id] = { at: now, logs, sb, name: nm, ver: vr, ...((use && typeof use === 'object' && Object.keys(use).length) ? { use } : {}) };
       return d;
     }, { maxRetries: 1 });
@@ -232,6 +234,23 @@ export async function supabaseClaimDeviceNameEx(storeId, prefix) {
     if (r && r.ok === false && !picked) return null;
     return picked ? { name: picked, existed, others: others.filter(n => n !== picked) } : null;
   } catch { return picked ? { name: picked, existed, others } : null; }
+}
+// ★ 2026-11-08 trial530(ユーザー「端末名が 扇橋店36 など増えすぎ。使っていない・別の名前に変わった端末の控えは消してほしい」): 管理局から端末の控え(と名前の割当)を消す。
+//   記録に残っている端末名は変わらない。今も使っている端末を消しても、名前は端末の中にあるので次の知らせで同じ名前で戻る。消した番号は空く
+export async function supabaseDeleteSyncDiagDevices(storeId, tags) {
+  if (!supabase || !storeId || !Array.isArray(tags) || !tags.length) return false;
+  try {
+    const r = await supabaseCasUpdate(`diag_${storeId}`, (cur) => {
+      const d = (cur && typeof cur === 'object') ? { ...cur } : {};
+      const names = (d.__names && typeof d.__names === 'object') ? { ...d.__names } : null;
+      let hit = false;
+      tags.forEach(tg => { const k = String(tg); if (!k || k.startsWith('__')) return; if (k in d) { delete d[k]; hit = true; } if (names && names[k]) { delete names[k]; hit = true; } });
+      if (!hit) return null;
+      if (names) d.__names = names;
+      return d;
+    }, { maxRetries: 2 });
+    return !!(r && r.ok);
+  } catch { return false; }
 }
 // ★ 2026-10-17 データ保護(段階2): 管理局用。全店の diag_ 行を読み、店舗ごとの端末一覧 [{storeId, devices:[{tag,name,ver,at,sb}]}] にする
 export async function supabaseListSyncDiag() {
