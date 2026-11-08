@@ -13,7 +13,7 @@ const go = async (view) => { await page.evaluate((view) => sessionStorage.setIte
 await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); d.scheduleEvents = []; localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); });
 await go('schedule');
 await page.locator('button:visible', { hasText: /^予定を追加$/ }).first().click(); await page.waitForTimeout(400);
-await page.locator('input[placeholder="タイトルを追加"]').fill('三日続く研修テスト');
+await page.locator('input[placeholder^="タイトル"]').fill('三日続く研修テスト');
 const dt = page.locator('input[type="date"]:visible').first(); await dt.fill(today);
 const times = page.locator('input[type="time"]:visible'); await times.nth(0).fill('10:00'); await times.nth(1).fill('15:00');
 r.endField = (await page.getByTestId('sch-end-date').count()) === 1;
