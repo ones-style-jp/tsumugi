@@ -57,10 +57,10 @@ async function start(prep, date) {
   await page.screenshot({ path: '/tmp/chk_1105tpnavi_base.png' }).catch(() => {});
   await page.context().close(); }
 // ⑥ 座席表の下の「この日の午後の迎え」を大きく(名前 16px)・説明はⓘ
-{ const { page, ids } = await start("const ps=(d.patients||[]).filter(p=>p.status==='利用中'&&p.address).slice(0,4); const k=Object.keys(d.transportPlans)[0]; const pl=d.transportPlans[k]; pl.dropMode='custom'; pl.drop={cars:{car1:[{pid:ps[0].id,seat:0}],car2:[{pid:ps[2].id,seat:0}]},walkers:[],others:[],depart:{}}; d.transportPlans[k.replace('_AM','_PM')]={cars:{car1:[{pid:ps[1].id,t:'13:15',mark:false}]},walkers:[],others:[],un:[],memo:'',driver:{},_savedAt:Date.now()};");
+{ const { page, ids } = await start("const ps=(d.patients||[]).filter(p=>p.status==='利用中'&&p.address).slice(0,4); const k='${iso(mon)}_AM'; /* ★ 2026-11-09: 最初のコマではなく、この週の月曜(見本データの週が変わると見つからなかった) */ const pl=d.transportPlans[k]||(d.transportPlans[k]={cars:{car1:[{pid:ps[3].id,t:'8:30'}]},walkers:[],others:[],un:[],memo:'',driver:{},_savedAt:Date.now()}); pl.dropMode='custom'; pl.drop={cars:{car1:[{pid:ps[0].id,seat:0}],car2:[{pid:ps[2].id,seat:0}]},walkers:[],others:[],depart:{}}; d.transportPlans[k.replace('_AM','_PM')]={cars:{car1:[{pid:ps[1].id,t:'13:15',mark:false}]},walkers:[],others:[],un:[],memo:'',driver:{},_savedAt:Date.now()};");
   await page.getByTestId(`tp-seatbtn-${iso(mon)}-AM`).first().click().catch(async () => { await page.getByTestId(`tp-fb-seatbtn-${iso(mon)}-AM`).first().click(); }); await page.waitForTimeout(900);
   const box = page.getByTestId('tp-seat-pm'); r.seat_pm_shown = (await box.count()) === 1;
-  r.seat_pm_big = r.seat_pm_shown && await page.getByTestId('tp-seat-pm-car1').evaluate((el) => { const row = [...el.querySelectorAll('div')].find(x => /13:15/.test(x.textContent) && x.children.length === 2); return !!row && parseFloat(getComputedStyle(row).fontSize) >= 16; });
+  r.seat_pm_big = r.seat_pm_shown && (await page.getByTestId('tp-seat-pm-car1').count()) === 1 && await page.getByTestId('tp-seat-pm-car1').evaluate((el) => { const row = [...el.querySelectorAll('div')].find(x => /13:15/.test(x.textContent) && x.children.length === 2); return !!row && parseFloat(getComputedStyle(row).fontSize) >= 16; });
   r.seat_pm_hint = r.seat_pm_shown && (await box.getByTestId('tsu-hint').count()) === 1 && !/確認用/.test(await box.innerText());
   await page.screenshot({ path: '/tmp/chk_1105tpnavi_seatpm.png' }).catch(() => {}); void ids;
   await page.context().close(); }

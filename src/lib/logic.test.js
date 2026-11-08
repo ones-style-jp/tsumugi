@@ -222,6 +222,26 @@ describe('半日休業(holidayAmpmOn・holidayClosesSlots・2026-10-28)', () => 
   });
 });
 
+describe('カレンダーのタスクの済みの同期(mergeTaskDone)', () => {
+  it('別の端末で別の回を済みにしても両方残る', () => {
+    const a = { id: 't', kind: 'task', _savedAt: 2, done: { '2026-10-30': { by: 'A', at: 200 } } };
+    const b = { id: 't', kind: 'task', _savedAt: 1, done: { '2026-10-29': { by: 'B', at: 100 } } };
+    const m = mergeTaskDone(a, b);
+    expect(Object.keys(m.done).sort()).toEqual(['2026-10-29', '2026-10-30']);
+  });
+  it('同じ回は新しい方(戻したのが後なら戻した方)', () => {
+    const a = { id: 't', kind: 'task', _savedAt: 2, done: { '2026-10-30': { by: 'A', at: 100 } } };
+    const b = { id: 't', kind: 'task', _savedAt: 1, done: { '2026-10-30': { off: true, by: 'B', at: 300 } } };
+    expect(mergeTaskDone(a, b).done['2026-10-30'].off).toBe(true);
+    expect(mergeTaskDone(b, a).done['2026-10-30'].off).toBe(true);
+  });
+  it('足すものが無ければ同じものを返す', () => {
+    const a = { id: 't', kind: 'task', done: { x: { at: 5 } } };
+    expect(mergeTaskDone(a, { id: 't', done: { x: { at: 1 } } })).toBe(a);
+    expect(mergeTaskDone(a, null)).toBe(a);
+  });
+});
+
 import { dateIsoAny, healPatientDates } from './logic';
 describe('日付をどの書き方でも読む(dateIsoAny・扇橋店の CSV 取込 2026-10-30)', () => {
   it('よくある書き方', () => {
@@ -303,26 +323,6 @@ describe('被保険者番号を10桁に(2026-10-30)', () => {
   });
 });
 
-describe('カレンダーのタスクの済みの同期(mergeTaskDone)', () => {
-  it('別の端末で別の回を済みにしても両方残る', () => {
-    const a = { id: 't', kind: 'task', _savedAt: 2, done: { '2026-10-30': { by: 'A', at: 200 } } };
-    const b = { id: 't', kind: 'task', _savedAt: 1, done: { '2026-10-29': { by: 'B', at: 100 } } };
-    const m = mergeTaskDone(a, b);
-    expect(Object.keys(m.done).sort()).toEqual(['2026-10-29', '2026-10-30']);
-  });
-  it('同じ回は新しい方(戻したのが後なら戻した方)', () => {
-    const a = { id: 't', kind: 'task', _savedAt: 2, done: { '2026-10-30': { by: 'A', at: 100 } } };
-    const b = { id: 't', kind: 'task', _savedAt: 1, done: { '2026-10-30': { off: true, by: 'B', at: 300 } } };
-    expect(mergeTaskDone(a, b).done['2026-10-30'].off).toBe(true);
-    expect(mergeTaskDone(b, a).done['2026-10-30'].off).toBe(true);
-  });
-  it('足すものが無ければ同じものを返す', () => {
-    const a = { id: 't', kind: 'task', done: { x: { at: 5 } } };
-    expect(mergeTaskDone(a, { id: 't', done: { x: { at: 1 } } })).toBe(a);
-    expect(mergeTaskDone(a, null)).toBe(a);
-  });
-});
-
 import { healStalePauseRecords } from './logic';
 describe('休止中に保存された先の日の記録を出席に戻す(healStalePauseRecords・2026-11-01)', () => {
   const today = '2026-11-01'; const now = Date.parse('2026-11-01T09:00:00+09:00'); const old = now - 3600 * 1000;
@@ -352,6 +352,33 @@ describe('休止中に保存された先の日の記録を出席に戻す(healSt
     expect(healStalePauseRecords(r.records, pats, today, paused, sched, { now }).fixed).toEqual([]);
   });
   it('直す物がなければ同じ配列を返す', () => { const recs = [rec('d', 2, '2026-11-08')]; expect(healStalePauseRecords(recs, pats, today, paused, sched, { now }).records).toBe(recs); });
+});
+
+import { backfillFaceSheetLevels } from './logic';
+describe('計画書の自立度をフェイスシートへ反映する(backfillFaceSheetLevels・2026-11-01・新しい方が勝つ)', () => {
+  const pats = [
+    { id: 1, name: 'A', personalFile: { faceSheet: { kiou: '高血圧' } } },
+    { id: 2, name: 'B', personalFile: { faceSheet: { adlLevel: 'B1', dementiaLevel: 'Ⅱa' } } },
+    { id: 3, name: 'C' },
+  ];
+  it('空のフェイスシートに入る・ほかの方と既存の項目は変わらない', () => {
+    const out = backfillFaceSheetLevels(pats, 1, { adlLevel: 'A2', dementiaLevel: 'Ⅲa' });
+    expect(out).not.toBeNull();
+    expect(out[0].personalFile.faceSheet).toEqual({ kiou: '高血圧', adlLevel: 'A2', dementiaLevel: 'Ⅲa' });
+    expect(out[1]).toBe(pats[1]); expect(out[2]).toBe(pats[2]);
+  });
+  it('フェイスシートに値があっても計画書の値で更新する(違うときだけ)・同じなら null', () => {
+    const out = backfillFaceSheetLevels(pats, 2, { adlLevel: 'A1', dementiaLevel: 'Ⅱa' });
+    expect(out[1].personalFile.faceSheet).toEqual({ adlLevel: 'A1', dementiaLevel: 'Ⅱa' });
+    expect(backfillFaceSheetLevels(pats, 2, { adlLevel: 'B1', dementiaLevel: 'Ⅱa' })).toBeNull();
+  });
+  it('計画書側が空の項目は触らない・personalFile が無い方にも作れる・値が無ければ null', () => {
+    const out = backfillFaceSheetLevels([{ id: 2, personalFile: { faceSheet: { adlLevel: 'B1', dementiaLevel: 'Ⅱa' } } }], 2, { adlLevel: '', dementiaLevel: 'Ⅰ' });
+    expect(out[0].personalFile.faceSheet).toEqual({ adlLevel: 'B1', dementiaLevel: 'Ⅰ' });
+    expect(backfillFaceSheetLevels(pats, 3, { adlLevel: 'J1' })[2].personalFile.faceSheet).toEqual({ adlLevel: 'J1' });
+    expect(backfillFaceSheetLevels(pats, 3, { adlLevel: '', dementiaLevel: '' })).toBeNull();
+    expect(backfillFaceSheetLevels(pats, 99, { adlLevel: 'J1' })).toBeNull();
+  });
 });
 
 import { pushEmptyGuard } from './logic';

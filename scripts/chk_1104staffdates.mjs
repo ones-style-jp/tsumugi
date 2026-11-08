@@ -42,7 +42,8 @@ r.today_S2_in_seikatsu = roleOf(txtT, '検 相談二') === '生活相談員';
 // 送迎表: 運転者の候補(車の見出しを押すとメニューの選択肢)
 const drivers = async (iso) => { await page.evaluate((iso) => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'transport', pid: null, t: Date.now(), date: iso, ampm: 'AM' })), iso); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500);
   const head = page.locator(`[data-testid^="tp-carhead-${iso}-AM-"]`).first(); if (!(await head.count())) return null; await head.click(); await page.waitForTimeout(400);
-  const sel = page.locator(`[data-testid^="tp-carmenu-${iso}-AM-"] select`).first(); if (!(await sel.count())) return null; return await sel.locator('option').allInnerTexts(); };
+  // ★ 2026-11-09 trial531: 候補は選ぶ欄でなく、そのまま並んだ名前のボタン(tp-driver-<車>-opt)
+  const opts = page.locator(`[data-testid^="tp-carmenu-${iso}-AM-"] [data-testid$="-opt"]`); if (!(await opts.count())) return null; return await opts.evaluateAll(els => els.map(e => e.dataset.name || e.textContent)); };
 const dr3 = await drivers(isoOf(d3)), drT = await drivers(isoOf(today));
 if (!dr3) console.log('dr3 null'); r.driver_past_has_S1 = !!dr3 && dr3.some(x => /検 相談一/.test(x)); r.driver_today_no_S1 = !!drT && !drT.some(x => /検 相談一/.test(x)) && drT.some(x => /検 相談二/.test(x));
 // 各種設定: × → 日付 → いつまで → 過去の職員
