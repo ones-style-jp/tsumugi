@@ -38591,6 +38591,28 @@ function TsuDriverSelect({ value, names, onChange, placeholder, className, testi
     {editing && ReactDOM.createPortal(<TsuDriverOtherPrompt testid={testid} initial={isOther ? v : ''} onCancel={() => setEditing(false)} onOk={nm => { setEditing(false); onChange(nm); }}/>, document.body)}
   </>);
 }
+// ★ 2026-11-09 trial531(ユーザー「送迎表で押したらすぐプルダウン候補が出るように」): 車の見出しを押したメニューに、運転者の候補をそのまま並べる(選ぶ欄をもう1回押さなくてよい)
+//   押した名前で決まる・今の運転者には印・いちばん下に「その他（名前を入力）」と「未選択にする」。44px の高さ(スマホの押せる範囲)
+function TsuDriverList({ value, names, onPick, onOther, testid }) {
+  const v = String(value || ''); const list = names || [];
+  const isOther = !!v && !list.includes(v);
+  const row = (key, label, on, onClick, extra) => (
+    <button key={key} type="button" role="option" aria-selected={on} data-testid={`${testid}-opt`} data-name={label} onClick={onClick}
+      className={`w-full flex items-center gap-2 px-3 min-h-[44px] text-left text-[15px] font-bold hover:bg-emerald-50 active:bg-emerald-100 ${on ? 'text-emerald-800 bg-emerald-50/60' : 'text-slate-800'}`}>
+      <span aria-hidden="true" className={`w-4 shrink-0 text-center text-[14px] ${on ? 'text-emerald-700' : 'text-transparent'}`}>✓</span>
+      <span className="flex-1 min-w-0 break-all leading-tight">{label}</span>{extra}
+    </button>);
+  return (
+    <div data-testid={testid} role="listbox" aria-label="運転者">
+      <div className="px-3 pt-1.5 pb-0.5 text-[10px] font-bold text-slate-500">運転者（押すと決まります）</div>
+      {list.map(n => row(n, n, n === v, () => onPick(n)))}
+      {isOther && row('__cur', v, true, () => onOther(), <span className="ml-1 text-[10px] font-bold text-orange-700 whitespace-nowrap">その他</span>)}
+      <div className="border-t border-slate-200 mt-1 pt-1">
+        <button type="button" data-testid={`${testid}-other-btn`} onClick={onOther} className="w-full flex items-center gap-2 px-3 min-h-[44px] text-left text-[14px] font-bold text-orange-700 hover:bg-orange-50"><span aria-hidden="true" className="w-4 shrink-0 text-center">＋</span>その他（名前を入力）</button>
+        {!!v && <button type="button" data-testid={`${testid}-clear`} onClick={() => onPick('')} className="w-full flex items-center gap-2 px-3 min-h-[44px] text-left text-[14px] font-bold text-slate-500 hover:bg-slate-50"><span aria-hidden="true" className="w-4 shrink-0 text-center">×</span>未選択にする</button>}
+      </div>
+    </div>);
+}
 // ★ 2026-10-21(ユーザー要望「髙橋と高橋も同じ名字として区別して」): 名前を比べるときに旧字・異体字をそろえる(表示は元のまま)
 const TSU_NAME_VARIANT = { '髙': '高', '﨑': '崎', '嵜': '崎', '濵': '浜', '濱': '浜', '邊': '辺', '邉': '辺', '齋': '斎', '齊': '斎', '斉': '斎', '澤': '沢', '櫻': '桜', '廣': '広', '國': '国', '德': '徳', '嶋': '島', '嶌': '島', '冨': '富', '栁': '柳', '檜': '桧', '槗': '橋', '龍': '竜', '惠': '恵', '眞': '真', '𠮷': '吉', '桒': '桑' };
 const tsuNameKey = (t) => [...String(t || '')].map(ch => TSU_NAME_VARIANT[ch] || ch).join('');
@@ -39573,6 +39595,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [ordDrag, setOrdDrag] = useState(null); const ordDragRef = React.useRef(null); // ★ 2026-10-15: 送りの順番の一覧でつかんでいる方 {cid, pid, y0, dy, over}
   const [seatKp, setSeatKp] = useState(null); // ★ 2026-10-15: 送りの出発時間のテンキー {iso, sl, cid}
   const [carMenu, setCarMenu] = useState(null); // ★ 2026-11-04 trial512: 車名を押したときの小さなメニュー(運転者・ナビ) {iso, sl, cid}
+  const [drvOther, setDrvOther] = useState(null); // ★ 2026-11-09 trial531: 車の見出しのメニューから「その他（名前を入力）」を押したとき {iso, sl, cid, cur}
   const [tpMoreOpen, setTpMoreOpen] = useState(false); // ★ 2026-11-04 trial512: 上の帯の「その他」(基本の送迎表・送りの時間の表示・設定)
   // ★ 2026-11-04 trial511(ユーザー「画面の大きさに合わせて座席表も大きくしていいかも」): 座席表の車の絵を画面の幅に合わせて拡大(1〜1.9倍・CSS zoom・向きを変えたら測り直す)
   const [_seatVw, setSeatVw] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1366));
@@ -40801,6 +40824,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   return (
     <div className="h-full overflow-auto w-full bg-slate-100">
       {_autoCalcModal}
+      {/* ★ 2026-11-09 trial531: 車の見出しのメニュー「その他（名前を入力）」の小窓(候補の一覧を閉じてから出す) */}
+      {drvOther && ReactDOM.createPortal(<TsuDriverOtherPrompt testid={`tp-driver-${drvOther.cid}`} initial={(drvOther.cur && !_driverNamesFor(drvOther.iso, drvOther.sl).includes(drvOther.cur)) ? drvOther.cur : ''} onCancel={() => setDrvOther(null)} onOk={nm => { setDriver(drvOther.iso, drvOther.sl, drvOther.cid, nm); setDrvOther(null); }}/>, document.body)}
       <TsuPhonePin testId="pin-transport"><div className={`sticky top-0 z-30 ${_tpPhone ? 'tsu-tp-stick' : ''}`}>
       {/* ★ 2026-09-13c(店舗要望): 重複タイトルを削除し週切替を左端へ。バーは画面上部のタイトル帯に密着(スクロール中も固定)。凡例は同じ列に常時表示・操作説明は「?」に格納 */}
       {_tpPhone && !driveAck && ReactDOM.createPortal((
@@ -41190,8 +41215,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 {!!(pl.cars?.[c.id]||[]).length && <button type="button" data-testid={`tp-navi-${iso}-${sl}-${c.id}`} onClick={() => { setCarMenu(null); openNavi(iso, sl, c.id); }} title="この車の乗車順でGoogleマップの経路案内" aria-label="ナビ（この車の乗車順で経路案内）" className="shrink-0 inline-flex items-center gap-0.5 h-7 px-1.5 rounded-lg border border-blue-300 bg-white hover:bg-blue-50 text-blue-700 text-[11px] font-bold"><Navigation className="w-3.5 h-3.5" aria-hidden="true"/>ナビ</button>}
                                 {_mo && (<>
                                   <div className="fixed inset-0 z-[79]" onClick={() => setCarMenu(null)} aria-hidden="true"/>
-                                  <div data-testid={`tp-carmenu-${iso}-${sl}-${c.id}`} className="absolute left-0 right-0 top-8 z-[80] bg-white border border-slate-300 rounded-xl shadow-xl p-2 space-y-2">
-                                    <div><div className="text-[10px] font-bold text-slate-500 mb-0.5">運転者</div><TsuDriverSelect value={_drv} names={_driverNamesFor(iso, sl)} onChange={nm=>setDriver(iso, sl, c.id, nm)} placeholder="運転者: 未選択" testid={`tp-driver-${c.id}`} className="text-[13px] font-bold border border-slate-300 rounded bg-white px-1 py-1.5 w-full" /></div>
+                                  {/* ★ 2026-11-09 trial531(ユーザー「押したらすぐプルダウン候補が出るように」): 小窓の中の選ぶ欄(もう1回押す)をやめ、候補の名前をそのまま並べる。押した名前で決まる */}
+                                  <div data-testid={`tp-carmenu-${iso}-${sl}-${c.id}`} className="absolute left-0 right-0 top-8 z-[80] bg-white border border-slate-300 rounded-xl shadow-xl py-1 max-h-[60vh] overflow-y-auto">
+                                    <TsuDriverList value={_drv} names={_driverNamesFor(iso, sl)} testid={`tp-driver-${c.id}`} onPick={nm => { setDriver(iso, sl, c.id, nm); setCarMenu(null); }} onOther={() => { setCarMenu(null); setDrvOther({ iso, sl, cid: c.id, cur: _drv }); }} />
                                   </div>
                                 </>)}
                               </div>); })()}
