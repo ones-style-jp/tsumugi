@@ -23004,12 +23004,12 @@ export default function App() {
   // ★ 2026-11-10 trial536: スマホの下のバー(この端末の設定で切れる)。設定の切り替えは 'tsumugi-tabbar-change' で受ける
   const _phoneW = useTsuIsPhone();
   const [_tabBarTick, _setTabBarTick] = useState(0);
-  React.useEffect(() => { const h = () => _setTabBarTick(t => t + 1); window.addEventListener('tsumugi-tabbar-change', h); return () => window.removeEventListener('tsumugi-tabbar-change', h); }, []);
+  React.useEffect(() => { const h = () => _setTabBarTick(t => t + 1); window.addEventListener('tsumugi-tabbar-change', h); const iv = setInterval(h, 5 * 60 * 1000); /* ★ trial539: 午前→午後の切り替わり(12:30)で印を数え直す */ return () => { window.removeEventListener('tsumugi-tabbar-change', h); clearInterval(iv); }; }, []);
   const _tabBarOn = _phoneW && tsuTabBarOn(); // _tabBarTick が変わるたびに描き直されて読み直す
   React.useEffect(() => { try { document.documentElement.classList.toggle('tsu-tabbar-on', !!_tabBarOn); } catch {} return () => { try { document.documentElement.classList.remove('tsu-tabbar-on'); } catch {} }; }, [_tabBarOn, _tabBarTick]);
   const [_phoneMenuOpen, _setPhoneMenuOpen] = useState(false);
   React.useEffect(() => { if (!_tabBarOn) _setPhoneMenuOpen(false); }, [_tabBarOn]);
-  // 「今日の記録」の印: 今日来る予定(基本利用日)で、まだ提供記録が1件も無い方の数。休業日・定休日は0
+  // 「今日の記録」の印: 今日来る予定(基本利用日)で、まだ提供記録が1件も無い方の数。休業日・定休日は0。午前/午後は今の時刻で切り替え(trial539)
   const _recTodayMissing = React.useMemo(() => {
     try {
       const t = new Date(); const iso = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; const dow = t.getDay();
@@ -23017,9 +23017,11 @@ export default function App() {
       if (closed) return 0;
       const dateJp = `${t.getMonth()+1}月${t.getDate()}日`;
       const done = new Set((appData.ticketRecords||[]).filter(r => r && r.date === dateJp && String(r.year ?? t.getFullYear()) === String(t.getFullYear())).map(r => String(r.patientId)));
-      return (appData.patients||[]).filter(p => isPatientListable(p) && p.status === '利用中' && !done.has(String(p.id)) && ((getScheduleOnDate(p, iso) || {})[dow] || '')).length;
+      // ★ trial539(ユーザー「今日の記録のバッジも午前と午後で分けたほうがいい」): 今の時間帯(12:30 までは午前・それ以降は午後)に来る方だけ数える(1日の方は両方)
+      const cur = (t.getHours() * 60 + t.getMinutes()) < 12 * 60 + 30 ? 'AM' : 'PM';
+      return (appData.patients||[]).filter(p => { if (!isPatientListable(p) || p.status !== '利用中' || done.has(String(p.id))) return false; const sl = (getScheduleOnDate(p, iso) || {})[dow] || ''; return sl === cur || sl === '1日'; }).length;
     } catch { return 0; }
-  }, [appData.patients, appData.ticketRecords, appData.holidays, appData.systemSettings?.facilityInfo?.closedDays]);
+  }, [appData.patients, appData.ticketRecords, appData.holidays, appData.systemSettings?.facilityInfo?.closedDays, _tabBarTick]);
   // ★ サイドバー「日誌」バッジ(2026-08-31 店舗要望): 今日のAM/PMが未完了(未入力or未確認あり)なら1を表示。休業日・定休日は出さない
   const diaryTodayBadge = React.useMemo(() => {
     try {
@@ -28681,14 +28683,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         </>);
                       })()}</select>}
                 </div>
-                {_kibunOn && <div className={`grid ${_kibunBoth ? 'grid-cols-2' : 'grid-cols-1'} gap-2 mb-2`}>
+                {_kibunOn && <div className={`grid ${_kibunBoth ? 'grid-cols-2' : 'grid-cols-1'} gap-2 mb-2 tsu-rv-kibun`}>
                   {_kibunTimings.map(t=>{ const mo=KIBUN_MOODS.find(m=>m.key===p[t==='arrival'?'kibunArrival':'kibunDeparture']); return (
                     <button key={t} disabled={dis} onClick={()=>openKibunModal(p.id,t)} className={`rounded-lg py-2 flex items-center justify-center gap-2 disabled:opacity-40 ${mo?mo.color+' font-bold':'bg-slate-100 text-slate-400'}`}>
                       <span className="text-xs font-bold text-slate-700">{t==='arrival'?'通所':'帰宅'}</span><span className="text-2xl leading-none">{mo?mo.emoji:'＋'}</span>
                     </button>
                   );})}
                 </div>}
-                <div className="grid grid-cols-3 gap-2 mb-2">
+                <div className="grid grid-cols-3 gap-2 mb-2 tsu-rv-vit">{/* ★ trial539: スマホは1行に(CSS) */}
                   {(() => { const vPlSt=p[`plSt_${tf}`]||'', vPlEn=p[`plEn_${tf}`]||''; return [
                     ['体温',`temp_${tf}`,vT,getTempColorClass(vT),vT?`${vT}℃`:'＋'],
                     // ★ 血圧の自動スラッシュ表示をやめる(2026-08-10): 上だけ入力の段階では「126」とだけ表示し、
@@ -28725,7 +28727,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 </div>
                 {/* ★ 再測定(2026-09-29): 開始時・終了時それぞれ。今の値は n回目 として残り、入力欄は再測定の値に */}
                 {_reOn && !dis && (
-                  <div className="flex gap-1.5 mb-2">
+                  <div className="flex gap-1.5 mb-2 tsu-rv-re">
                     {['St', ...(_showEn ? ['En'] : [])].map(ph => { const cnt = bpReList(p, tf).filter(e => e.phase === ph).length; return (
                       <div key={ph} className="flex flex-col items-start">
                         <button type="button" data-testid={`bp-re-${ph}-${p.id}`} onClick={()=>applyBpRemeasure(p.id, ph)} className={`text-[11px] font-bold rounded-lg px-2 py-1 border ${cnt ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-slate-300 text-slate-600'}`}>{ph === 'St' ? '開始時' : '終了時'}を再測定{cnt ? `（${cnt}回）` : ''}</button>
@@ -28744,7 +28746,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     {_exFolded && _exAllFilled && <span className="text-[12px] text-slate-500">入力済み</span>}
                   </div>
                 )}
-                {!isAbsent && !_exFolded && <div className="grid grid-cols-3 gap-1.5" data-testid={`rv-exgrid-${p.id}`}>
+                {!isAbsent && !_exFolded && <div className="grid grid-cols-3 gap-1.5 tsu-rv-ex" data-testid={`rv-exgrid-${p.id}`}>
                   {exItems.map(item=>{
                     // ★ 2026-10-07(店舗報告「スマホ縦で個別運動を入力しても反映されない」): 個別運動は {itemId,value} の形で保存されるのに、
                     //   このカードは通常の運動と同じ扱い(値がオブジェクトなら空表示)で、種目も選べず、入れた値が表示されなかった。
@@ -28815,7 +28817,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 </div>}
                 {/* ★ 2026-10-22(ユーザー指示「スマホの縦画面でも介護整体が抜けている」): 一覧と同じ吹き出しで担当を選ぶ・実施にする
                     ★ trial538: 運動をたたんでも見えるよう、運動の枠の外(別の段)に */}
-                {!isAbsent && <div className="grid grid-cols-3 gap-1.5 mt-1.5">
+                {!isAbsent && <div className="grid grid-cols-3 gap-1.5 mt-1.5 tsu-rv-ex">
                   {(() => { const _mmOpen = massageMenu && massageMenu.recId === p.id; return (
                     <button key="__massage" type="button" disabled={dis} data-testid={`m-massage-${p.id}`}
                       onClick={(e)=>{ e.stopPropagation(); if (_mmOpen) { setMassageMenu(null); return; } const r0=e.currentTarget.getBoundingClientRect(); setMassageMenu({ pid: p.patientId || p.id, recId:p.id, cx:Math.min(Math.max(r0.left+r0.width/2, 100), (window.innerWidth||400) - 100), cy:r0.top, cyB:r0.bottom, view: p.massage ? 'main' : 'pick' }); }}

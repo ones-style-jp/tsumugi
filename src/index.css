@@ -657,3 +657,31 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
   .tsu-rv-foot > button.nx { margin-left: auto; background: #3c8d47; border-color: #3c8d47; color: #fff; max-width: 70%; }
   .tsu-rv-foot > button.nx { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* ★ 2026-11-10 trial539(ユーザー「折り畳みもいいけど1画面に全て埋まらないから、たたむのもスクロールしないと」): 広げた1人分を1画面に収める。
+   バイタルは1行(5つ)・体調は低く・再測定は小さく・運動は4列の小さい札・「たたむ／次の方」は画面の下(下のバーの上)に貼り付く */
+@media (max-width: 767px) {
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-kibun > button { padding-top: 4px !important; padding-bottom: 4px !important; min-height: 40px; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-kibun > button .text-2xl { font-size: 20px !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-vit { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; gap: 4px !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-vit:has(> :last-child:nth-child(3)) { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-vit > * { padding: 4px 2px !important; min-height: 50px; justify-content: center; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-vit .text-\[12px\] { font-size: 10.5px !important; white-space: nowrap; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-vit .text-base { font-size: 15px !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-vit input { height: 28px !important; font-size: 14px !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-re > div > button { font-size: 10.5px !important; padding: 3px 8px !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-exbar { margin: 2px 0 4px; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-exbar-t { min-height: 32px; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-usual { min-height: 32px; font-size: 12.5px; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-ex { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; gap: 4px !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-ex > * { padding: 3px 2px !important; min-height: 48px; justify-content: center; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-ex .text-\[12px\] { font-size: 10.5px !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-ex .text-sm, .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-ex .font-bold.text-blue-700 { font-size: 13px !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-ex input { height: 26px !important; font-size: 13px !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-ex select { height: 20px !important; font-size: 11px !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-ex.mt-1\.5 { margin-top: 4px !important; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-foot { position: sticky; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); z-index: 5; background: #fff;
+    margin: 6px -10px -8px; padding: 6px 10px calc(6px + 2px); border-top: 1px solid #e2e8f0; }
+  html:not(.tsu-tabbar-on) .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-foot { bottom: 0; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-foot > button { min-height: 40px; }
+}

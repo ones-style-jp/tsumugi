@@ -26,6 +26,9 @@ ok(await open.isVisible(), '押した人が広がる');
 ok((await page.locator('.tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row)').count()) === 1, '広がるのは1人だけ');
 ok((await page.locator('.tsu-rv-cards > .tsu-rv-row').count()) === n - 1, 'ほかは行のまま');
 await page.screenshot({ path: `${OUT}/open.png` });
+// ★ trial539: 広げた1人分が1画面に収まる(下のバー 66px を除いた高さ)。「たたむ／次の方」はスクロールせずに見える
+const ob = await open.boundingBox(); ok(ob && ob.height <= 844 - 48 - 56 - 66, `広げたカードの高さ ${ob && Math.round(ob.height)}px（1画面に収まる）`);
+const fb = await page.getByTestId(`rv-next-${firstId}`).boundingBox(); ok(fb && fb.y + fb.height <= 844 - 60, `「次の方」がスクロールせずに見える (y=${fb && Math.round(fb.y)})`);
 // 運動の見出し・いつも通り
 const exbar = page.getByTestId(`rv-exbar-${firstId}`);
 if (await exbar.count()) {
