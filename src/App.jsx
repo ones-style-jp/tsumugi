@@ -43266,6 +43266,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     next.monthlyShifts = ms;
     // 4. patients: keep を更新し drop を除去
     next.patients = (appData.patients||[]).filter(p=>!drops.has(p.id)).map(p => p.id===keepId ? mergedKeep : p);
+    // ★ 2026-11-09 1109c: 統合で外した方の番号は墓石に(保存の合成が「クラウドにだけいる利用者は残す」になったので、墓石が無いと他の端末から戻ってくる)
+    { const _dt = { ...(next.deletedIds || appData.deletedIds || {}) }; const _pm = { ...(_dt.patients || {}) }; const _now = Date.now(); [...drops].forEach(id => { _pm[String(id)] = _now; }); _dt.patients = _pm; next.deletedIds = _dt; }
     onSave(next, { manual: true, message: '✓ 重複を統合しました' });
   };
   const [currentMonth, setCurrentMonth] = useState(new Date());
