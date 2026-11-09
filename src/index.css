@@ -633,3 +633,27 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
   .tsu-phone-menu-foot .ver { padding: 6px 4px 0; font-size: 10px; color: #94a3b8; font-family: ui-monospace, monospace; }
   @media (prefers-reduced-motion: reduce) { .tsu-phone-menu { animation: none; } .tsu-tabbar { transition: none; } }
 }
+
+/* ★ 2026-11-10 trial538(ユーザー「スマホの提供記録入力は1画面に1人しか見えないのは使い勝手が悪そう」): スマホのカードは1人1行(tsu-rv-row)、
+   押した人だけ広げる。広げた中の運動は見出し行(tsu-rv-exbar)で入り具合・「いつも通り」・たたむ。下に「たたむ／次の方」(tsu-rv-foot) */
+@media (max-width: 767px) {
+  .tsu-rv-cards > .tsu-rv-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 52px; padding: 6px 12px !important; background: #fff;
+    border: 0; border-bottom: 1px solid #e2e8f0; text-align: left; -webkit-tap-highlight-color: transparent; }
+  .tsu-rv-cards > .tsu-rv-row + .tsu-rv-row { margin-top: 0 !important; }
+  .tsu-rv-cards > .tsu-rv-row.is-off { background: #f8fafc; }
+  .tsu-rv-cards > .tsu-rv-row.is-off .nm { color: #64748b; }
+  .tsu-rv-row .st { flex: none; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 8px; }
+  .tsu-rv-row .nm { flex: none; max-width: 42%; font-size: 16px; font-weight: 700; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tsu-rv-row .sm { flex: 1 1 0; min-width: 0; font-size: 12px; font-weight: 700; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+  .tsu-rv-row .sm.is-empty { color: #ea7a1f; }
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) { box-shadow: 0 6px 20px rgba(15,23,42,0.10) !important; border-top: 2px solid #3c8d47 !important; border-bottom: 2px solid #3c8d47 !important; }
+  .tsu-rv-exbar { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; }
+  .tsu-rv-exbar-t { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 4px; background: none; border: 0; font-size: 14px; font-weight: 700; color: #1e293b; }
+  .tsu-rv-exbar-t .cnt { font-size: 12px; font-weight: 700; color: #475569; background: #f1f5f9; border-radius: 999px; padding: 2px 8px; }
+  .tsu-rv-exbar-t .cnt.ok { color: #2f7a3d; background: #eef6ea; }
+  .tsu-rv-usual { margin-left: auto; min-height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid #a9d3a3; background: #eef6ea; color: #2f7a3d; font-size: 13px; font-weight: 700; }
+  .tsu-rv-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0; }
+  .tsu-rv-foot > button { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid #cbd5e1; background: #fff; color: #475569; font-size: 14px; font-weight: 700; }
+  .tsu-rv-foot > button.nx { margin-left: auto; background: #3c8d47; border-color: #3c8d47; color: #fff; max-width: 70%; }
+  .tsu-rv-foot > button.nx { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}

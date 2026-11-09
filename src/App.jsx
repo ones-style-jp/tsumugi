@@ -27531,11 +27531,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-10-27(ユーザー報告「縦表示で利用者をタップしてサイドバーを開くとバグった感じ」・決定「サイドバーを押したら一覧は閉じる」): 一覧(z 9000)がサイドバーの上に残っていた
   React.useEffect(() => { if (isSidebarOpen) setRecJump(null); }, [isSidebarOpen]);
   const [recFlash, setRecFlash] = useState(null);
+  // ★ 2026-11-10 trial538(ユーザー「スマホの提供記録入力は1画面に1人しか見えないのは使い勝手が悪そう」): スマホのカードは1人1行にたたみ、
+  //   押した人だけ広げる(開くのは1人)。広げた中の運動は「いつも通り」で○を入れてたたむ。「次の方」で順に進む
+  const [recOpenId, setRecOpenId] = useState(null);
+  const [recExFold, setRecExFold] = useState({}); // pid -> true(たたむ)/false(開く)。未指定なら運動が全部入っていればたたむ
   const _recKana = (t) => String(t || '').replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60)).replace(/[\s　]/g, '');
   // ★ 2026-10-28(ユーザー要望「スマホの全画面でも利用者を選べるボタンを」): 全画面のときは全画面の帯の下から出す
   const openRecJump = () => { const pin = document.querySelector(isFullscreen ? '[data-testid="rec-fs-bar"]' : '.tsu-pin'); const top = pin ? Math.round(pin.getBoundingClientRect().bottom) : 96; setRecJump(v => v ? null : { top, q: '' }); };
   const jumpToRecCard = (id) => {
     setRecJump(null);
+    setRecOpenId(id); // ★ trial538: スマホはその人のカードを広げる
     setTimeout(() => {
       tsuBackLockRescan(); // ★ 2026-10-28: 一覧が閉じたら背面止めをすぐ外してから動かす
       const el = document.querySelector(`[data-rec-card="${id}"]`); if (!el) return;
@@ -28632,13 +28637,35 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             const vT = p[`temp_${tf}`]||'';
             const vBuSt=p[`bpUpSt_${tf}`]||'', vBdSt=p[`bpDnSt_${tf}`]||'';
             const vBuEn=p[`bpUpEn_${tf}`]||'', vBdEn=p[`bpDnEn_${tf}`]||'';
+            // ★ trial538: 運動の入力状況(個別運動以外)。「いつも通り」= 基準値がある項目に○(一括○と同じ決め方)
+            const _exMain = exItems.filter(it => it.type !== 'individual');
+            const _exVal = (it) => { const v = p.exercises?.[it.id]; return String((typeof v === 'object' ? (v && v.value) : v) ?? '').trim(); };
+            const _exFilled = _exMain.filter(it => _exVal(it) !== '').length;
+            const _exAllFilled = _exMain.length > 0 && _exFilled === _exMain.length;
+            const _exFolded = recExFold[p.id] != null ? recExFold[p.id] : _exAllFilled;
+            const _fillUsual = () => { let n = 0; _exMain.forEach(it => { if (_exVal(it) !== '') return; const b = String(_exBaselineOf(p.id, it.id) || '').trim(); if (/^[ー\-－×✕xX]+$/.test(b)) return; if (it.type !== 'toggle' && !/[0-9０-９]/.test(b)) return; updateExercise(p.id, it.id, '○'); n++; }); setRecExFold(f => ({ ...f, [p.id]: true })); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: n ? `運動 ${n}項目に○を入れました` : '○を入れる項目がありません（基準値なし）' } })); } catch {} };
+            const _idx = displayRecords.indexOf(p); const _next = displayRecords[_idx + 1] || null;
+            // ★ trial538: たたんだ1行(開いていない人)。状態・体温・血圧・運動の入り具合を1行に
+            if (recOpenId !== p.id) {
+              const _sum = []; if (vT) _sum.push(`${vT}℃`); if (vBuSt || vBdSt) _sum.push(`${vBuSt}${vBdSt ? `/${vBdSt}` : ''}`); if (_exMain.length) _sum.push(`運動 ${_exFilled}/${_exMain.length}`); if (p.tokki) _sum.push('特記');
+              const _empty = !isAbsent && !isPause && !vT && !(vBuSt || vBdSt) && _exFilled === 0 && !p.tokki;
+              return (
+                <button type="button" key={`m-${p.id}`} data-rec-card={p.id} data-testid={`rv-crow-${p.id}`} data-rv-mark={_rvMarks.includes(p.id) ? '1' : undefined} onClick={() => setRecOpenId(p.id)}
+                  className={`tsu-rv-row ${isAbsent || isPause ? 'is-off' : ''} ${recFlash === p.id ? 'ring-4 ring-amber-400' : ''}`}>
+                  <span className={`st ${config.lightColor} ${config.textColor}`}>{p.status || '出席'}</span>
+                  <span className="nm">{p.name}</span>
+                  <span className={`sm ${_empty ? 'is-empty' : ''}`}>{isAbsent || isPause ? (p.tokki || '') : (_empty ? '未入力' : _sum.join('・'))}</span>
+                  <ChevronDown size={18} className="shrink-0 text-slate-400" />
+                </button>
+              );
+            }
             return (
               <div key={`m-${p.id}`} data-rec-card={p.id} data-rv-mark={_rvMarks.includes(p.id) ? '1' : undefined} className={`bg-white rounded-xl border-2 shadow-sm p-3 transition-shadow ${isAbsent||isPause?'border-slate-200 opacity-70':'border-slate-300'} ${recFlash===p.id?'ring-4 ring-amber-400':''}`}>
                 <div className="flex items-center justify-between gap-2 mb-2.5">
                   <button {..._rvLpHandlers(p.id)} onClick={_rvLpClick(()=>setPatientInfoModal(masterData))} data-testid={`rv-cname-${p.id}`} style={{WebkitUserSelect:'none',userSelect:'none',WebkitTouchCallout:'none'}} className="font-bold text-base text-slate-800 flex items-center gap-1 min-w-0"><span className="truncate">{p.name}</span><span className="text-[10px] text-blue-500 shrink-0">ⓘ</span></button>
                   <button type="button" onClick={()=>setZoomPid(p.id)} title="この方だけを大きな文字で入力します" className="shrink-0 text-teal-600 hover:text-teal-800 bg-teal-50 border border-teal-200 rounded-md p-1.5" style={{lineHeight:0}}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.6" y1="15.6" x2="21" y2="21"/><line x1="10.5" y1="8" x2="10.5" y2="13"/><line x1="8" y1="10.5" x2="13" y2="10.5"/></svg></button>
                   {isReadOnly||isPause ? <span className={`px-3 py-1.5 rounded-lg text-sm font-bold ${config.lightColor} ${config.textColor}`}>{p.status||'出席'}</span>
-                    : <select value={p.status||'出席'} onChange={e=>handleStatusChange(p.id,e.target.value)} className={`px-2 py-1.5 rounded-lg text-sm font-bold border-0 shadow-sm outline-none ${config.lightColor} ${config.textColor} ring-1 ring-inset ${config.ring}`}>{(()=>{
+                    : <select value={p.status||'出席'} onChange={e=>handleStatusChange(p.id,e.target.value)} className={`px-2 py-1.5 rounded-lg text-sm font-bold border-0 shadow-sm outline-none ${config.lightColor} ${config.textColor} ring-1 ring-inset ${config.ring}`} style={{maxWidth:'7.5rem'}}>{(()=>{
                         if (p.status==='振替') return (<><option value="振替">振替</option><option value="取り消し">取り消し</option></>);
                         const _dowSel = new Date(selectedDate).getDay();
                         const _baseSel = getScheduleOnDate(p, selectedDate)?.[_dowSel] || '';
@@ -28707,7 +28734,17 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     ); })}
                   </div>
                 )}
-                {!isAbsent && <div className="grid grid-cols-3 gap-1.5">
+                {/* ★ trial538: 運動の見出し行。入り具合・「いつも通り」(基準値のある項目に○)・たたむ/開く */}
+                {!isAbsent && _exMain.length > 0 && (
+                  <div className="tsu-rv-exbar" data-testid={`rv-exbar-${p.id}`}>
+                    <button type="button" onClick={() => setRecExFold(f => ({ ...f, [p.id]: !_exFolded }))} className="tsu-rv-exbar-t" aria-expanded={!_exFolded}>
+                      <span>運動</span><span className={`cnt ${_exAllFilled ? 'ok' : ''}`}>{_exFilled}/{_exMain.length}</span>{_exFolded ? <ChevronDown size={16}/> : <ChevronUp size={16}/>}
+                    </button>
+                    {!dis && !_exAllFilled && <button type="button" data-testid={`rv-usual-${p.id}`} onClick={_fillUsual} className="tsu-rv-usual">いつも通り（○を入れる）</button>}
+                    {_exFolded && _exAllFilled && <span className="text-[12px] text-slate-500">入力済み</span>}
+                  </div>
+                )}
+                {!isAbsent && !_exFolded && <div className="grid grid-cols-3 gap-1.5" data-testid={`rv-exgrid-${p.id}`}>
                   {exItems.map(item=>{
                     // ★ 2026-10-07(店舗報告「スマホ縦で個別運動を入力しても反映されない」): 個別運動は {itemId,value} の形で保存されるのに、
                     //   このカードは通常の運動と同じ扱い(値がオブジェクトなら空表示)で、種目も選べず、入れた値が表示されなかった。
@@ -28775,7 +28812,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       })()}
                     </button>
                     );})}
-                  {/* ★ 2026-10-22(ユーザー指示「スマホの縦画面でも介護整体が抜けている」): 一覧と同じ吹き出しで担当を選ぶ・実施にする */}
+                </div>}
+                {/* ★ 2026-10-22(ユーザー指示「スマホの縦画面でも介護整体が抜けている」): 一覧と同じ吹き出しで担当を選ぶ・実施にする
+                    ★ trial538: 運動をたたんでも見えるよう、運動の枠の外(別の段)に */}
+                {!isAbsent && <div className="grid grid-cols-3 gap-1.5 mt-1.5">
                   {(() => { const _mmOpen = massageMenu && massageMenu.recId === p.id; return (
                     <button key="__massage" type="button" disabled={dis} data-testid={`m-massage-${p.id}`}
                       onClick={(e)=>{ e.stopPropagation(); if (_mmOpen) { setMassageMenu(null); return; } const r0=e.currentTarget.getBoundingClientRect(); setMassageMenu({ pid: p.patientId || p.id, recId:p.id, cx:Math.min(Math.max(r0.left+r0.width/2, 100), (window.innerWidth||400) - 100), cy:r0.top, cyB:r0.bottom, view: p.massage ? 'main' : 'pick' }); }}
@@ -28792,6 +28832,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   {!isReadOnly && !isAbsent && !isPause && !appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-ctokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-11 h-11" size={20}/>}
                   <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="flex-1 min-w-0 h-11 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
                 </div>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX} c={TOKKI_NL_C}/></div>}
+                {/* ★ trial538: たたむ / 次の方へ(次の人を広げてそこまで送る) */}
+                <div className="tsu-rv-foot">
+                  <button type="button" data-testid={`rv-fold-${p.id}`} onClick={() => setRecOpenId(null)}><ChevronUp size={16}/> たたむ</button>
+                  {_next && <button type="button" data-testid={`rv-next-${p.id}`} className="nx" onClick={() => jumpToRecCard(_next.id)}>次の方（{_next.name}） <ChevronRight size={16}/></button>}
+                </div>
               </div>
             );
           })}
