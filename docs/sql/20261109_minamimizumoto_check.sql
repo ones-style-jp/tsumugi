@@ -133,3 +133,13 @@ select d.value->>'name' as 端末名, d.value->>'ver' as 版, l->>'t' as 端末�
 from app_state a, jsonb_each(a.data) d, jsonb_array_elements(coalesce(d.value->'logs','[]'::jsonb)) l
 where a.key = 'diag_store_test' and d.key not like '\_\_%' and (d.value->>'at')::bigint > (extract(epoch from now() - interval '6 hours') * 1000)::bigint
 order by 端末名, 連番;
+
+-- ===== 11/10 0時 追加 =====
+-- 11) の端末の記録で確定: Claude の検査用の端末(証が無く行が読めない)が「行が無い=新規店舗」と誤認し、空の状態で上書きしていた(22:36〜22:42 に push-ok v184/191/192/195/197)。
+--     安定版 1109d で、行の有無をサーバーで確かめてからでないと空で書かない・読み込み前の状態は書かないように直した。
+-- 12) 【復旧・テスト店舗】利用者がいた最後の控えから丸ごと戻す(テスト店舗なので丸ごとでよい)
+update app_state a
+set data = s.data, version = coalesce(a.version,0) + 1
+from (select data from app_state_snapshots where key = 'store_test' and jsonb_array_length(coalesce(data->'patients','[]'::jsonb)) > 0 order by taken_at desc limit 1) s
+where a.key = 'store_test';
+select jsonb_array_length(data->'patients') as 利用者数, jsonb_array_length(coalesce(data->'storeMembers','[]'::jsonb)) as メンバー数, version from app_state where key = 'store_test';
