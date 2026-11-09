@@ -1369,7 +1369,14 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
       merged.patients = localData.patients
         .filter(lp => !(lp && lp.id != null && _patTomb[String(lp.id)])) // ★ 墓石にある利用者は除外(復活防止)
         .map(lp => { if (!lp || lp.id == null) return lp; const cp = cloudPatMap.get(String(lp.id)); return cp ? mergePatientBackfill(lp, cp) : lp; });
+      // ★ 2026-11-09 1109c(南水元店: 15:00 に登録した新しい利用者(番号81)が、まだ取り込んでいない端末の保存で消えた):
+      //   これまで「ローカルに無い利用者は復活させない」(端末基準)だったが、利用者の削除は墓石(deletedIds.patients)で管理しているので、
+      //   クラウドにだけいて墓石に無い利用者=「他の端末が登録した方」。落とさずに残す(union)。連番(patientIdSeq)も大きい方にそろえる(戻ると同じ番号を使い回す)
+      const _localIds = new Set(merged.patients.map(p => (p && p.id != null) ? String(p.id) : null).filter(Boolean));
+      const _cloudOnly = (Array.isArray(cloud.patients) ? cloud.patients : []).filter(cp => cp && cp.id != null && !_localIds.has(String(cp.id)) && !_patTomb[String(cp.id)]);
+      if (_cloudOnly.length) { merged.patients = [...merged.patients, ..._cloudOnly]; try { syncLog('push-keep-cloud-patients', { n: _cloudOnly.length, ids: _cloudOnly.map(p => p.id).slice(0, 20) }); } catch {} }
     }
+    { const _ls = Number(localData.patientIdSeq) || 0, _cs = Number(cloud.patientIdSeq) || 0; if (_cs > _ls) merged.patientIdSeq = _cs; } // ★ 2026-11-09 1109c
     // ★ オブジェクトをフィールド単位でマージ。 各フィールドは _fieldTs[field] の新しい方を採用。
     //   _fieldTs が両者に無いフィールドは、全体 _updatedAt の新しい方(base)を採用(後方互換)。
     //   → 古い端末が別フィールドを1つ編集して _updatedAt を更新しても、触っていないフィールドは巻き戻らない。
