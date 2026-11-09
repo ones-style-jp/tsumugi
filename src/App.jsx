@@ -12060,15 +12060,16 @@ function TsuPhonePin({ children, testId, z = 30, on = true }) {
   if (!isPhone || !on) return children;
   return (<>
     <div aria-hidden="true" data-pin-spacer="1" style={{ height: h }} />
-    <div ref={ref} data-testid={testId} className="tsu-pin" style={{ position: 'fixed', top: 47, left: 0, right: 0, zIndex: z }}>{children}</div>
+    <div ref={ref} data-testid={testId} className="tsu-pin" style={{ position: 'fixed', top: 'var(--tsu-pin-top, 47px)', left: 0, right: 0, zIndex: z }}>{children}</div>{/* ★ trial540: 見出しを消す画面(html.tsu-nohdr)は 0 */}
   </>);
 }
-function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true, below = null }) {
+function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true, below = null, sheet = false }) {
+  // ★ 2026-11-10 trial540(ユーザー「上部に固定されているものが大きすぎる」): sheet=true なら「操作」の中身を下に押し広げず、下から出る小窓(下のバーの上)に出す。開閉は覚えない
   const isPhone = useTsuIsPhone();
-  const [open, setOpen] = React.useState(() => { try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
+  const [open, setOpen] = React.useState(() => { if (sheet) return false; try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
   const foldRef = React.useRef(null); // ★ 2026-10-08: フックは必ず早期 return より前(向きを変えてスマホ幅⇔それ以外が切り替わると「フックの数が違う」エラーで画面が落ちていた)
   if (!isPhone) return children;
-  const tog = () => { setOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} return nv; }); };
+  const tog = () => { setOpen(v => { const nv = !v; if (!sheet) { try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} } return nv; }); };
   const _inner = (
     <div ref={foldRef} data-testid={`fold-${storageKey}`} className={`bg-white border-b border-slate-200 shadow-sm ${className}`}>
       <div className="flex items-center gap-1.5 px-2 py-1.5" style={{minHeight:48}}>
@@ -12079,7 +12080,11 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
         </button>
       </div>
       {/* 閉じているときも中身は消さずに高さ0で隠す(中にある確認の小窓=画面全体に出る窓 が開けなくならないように) */}
-      <div data-testid={`fold-body-${storageKey}`} data-open={open ? '1' : '0'} aria-hidden={!open} className={open ? 'border-t border-slate-200' : ''} style={open ? undefined : { height: 0, overflow: 'hidden' }}>{children}</div>
+      {sheet && open && <div data-testid={`fold-sheet-back-${storageKey}`} className="tsu-fold-sheet-back" onClick={tog} aria-hidden="true" />}
+      <div data-testid={`fold-body-${storageKey}`} data-open={open ? '1' : '0'} aria-hidden={!open} className={open ? (sheet ? 'tsu-fold-sheet' : 'border-t border-slate-200') : ''} style={open ? undefined : { height: 0, overflow: 'hidden' }}>
+        {sheet && open && <div className="tsu-fold-sheet-head"><span>操作</span><button type="button" data-testid={`fold-sheet-close-${storageKey}`} onClick={tog} aria-label="閉じる"><X size={20} /></button></div>}
+        {children}
+      </div>
       {/* ★ 2026-10-28: 帯のすぐ下に重ねて出す行(提供記録の「印」など)。帯の高さは変えない(下の表・カードの位置が動かない) */}
       {below ? <div className="relative" style={{ height: 0 }}><div className="absolute left-0 right-0 top-0">{below}</div></div> : null}
     </div>
@@ -23007,6 +23012,8 @@ export default function App() {
   React.useEffect(() => { const h = () => _setTabBarTick(t => t + 1); window.addEventListener('tsumugi-tabbar-change', h); const iv = setInterval(h, 5 * 60 * 1000); /* ★ trial539: 午前→午後の切り替わり(12:30)で印を数え直す */ return () => { window.removeEventListener('tsumugi-tabbar-change', h); clearInterval(iv); }; }, []);
   const _tabBarOn = _phoneW && tsuTabBarOn(); // _tabBarTick が変わるたびに描き直されて読み直す
   React.useEffect(() => { try { document.documentElement.classList.toggle('tsu-tabbar-on', !!_tabBarOn); } catch {} return () => { try { document.documentElement.classList.remove('tsu-tabbar-on'); } catch {} }; }, [_tabBarOn, _tabBarTick]);
+  // ★ trial540: スマホで下のバーを使い提供記録を開いているときは、上の見出し(日付の行)を出さない(日付は操作の段にある)。帯は画面の上端から
+  React.useEffect(() => { const on = !!_tabBarOn && currentView === 'record'; try { document.documentElement.classList.toggle('tsu-nohdr', on); } catch {} return () => { try { document.documentElement.classList.remove('tsu-nohdr'); } catch {} }; }, [_tabBarOn, _tabBarTick, currentView]);
   const [_phoneMenuOpen, _setPhoneMenuOpen] = useState(false);
   React.useEffect(() => { if (!_tabBarOn) _setPhoneMenuOpen(false); }, [_tabBarOn]);
   // 「今日の記録」の印: 今日来る予定(基本利用日)で、まだ提供記録が1件も無い方の数。休業日・定休日は0。午前/午後は今の時刻で切り替え(trial539)
@@ -28255,7 +28262,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       } : {}),
     }}>
       {!isFullscreen ? (
-      <TsuPhoneFold storageKey="record" below={_rvMarks.length > 0 ? (
+      <TsuPhoneFold storageKey="record" sheet below={_rvMarks.length > 0 ? (
         // ★ 2026-10-28 夜(ユーザー指示「スマホの印の帯を上へ」): 左下に浮かべるとカードの一言・マイクに重なっていた → 上の帯のすぐ下に重ねて細い1行(印があるときだけ・表は動かない)
         <div data-testid="rv-marks-bar-phone" className="no-print flex items-center gap-2 px-2 py-1 bg-yellow-50 border-b border-yellow-300 shadow-md text-[14px] font-bold text-yellow-900">
           <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>

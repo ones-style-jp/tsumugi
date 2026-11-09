@@ -685,3 +685,22 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
   html:not(.tsu-tabbar-on) .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-foot { bottom: 0; }
   .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-foot > button { min-height: 40px; }
 }
+
+/* ★ 2026-11-10 trial540(ユーザー「上部に固定されているものが占める領域が大きすぎる」): スマホ×下のバー×提供記録は
+   ①見出し(日付の行)を消して帯を上端から ②「操作」の中身は下から出る小窓(下のバーの上) ③「全画面」はスマホでは出さない */
+@media (max-width: 767px) {
+  html.tsu-tabbar-on { --tsu-tabbar-h: calc(60px + env(safe-area-inset-bottom, 0px)); }
+  html.tsu-nohdr #appMainArea > header.tsu-app-header { display: none !important; }
+  html.tsu-nohdr #appMainArea { padding-top: 0 !important; }
+  html.tsu-nohdr { --tsu-pin-top: 0px; }
+  html.tsu-nohdr #tsuContentScroller .sticky.top-0[data-tsu-doc]:not(th):not(thead):not(tr) { top: 0 !important; }
+  html.tsu-nohdr #tsuContentScroller [style*="position: sticky"][style*="top: 0px"][data-tsu-doc]:not(th):not(thead):not(tr) { top: 0 !important; }
+  html.tsu-tabbar-on [data-testid="rec-act-fullscreen"] { display: none !important; }
+  html.tsu-tabbar-on [data-testid="rec-actions"] { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  .tsu-fold-sheet-back { position: fixed; inset: 0; z-index: 44; background: rgba(15, 23, 42, 0.35); }
+  .tsu-fold-sheet { position: fixed; left: 0; right: 0; bottom: var(--tsu-tabbar-h, 0px); z-index: 46; background: #fff; border-radius: 18px 18px 0 0;
+    box-shadow: 0 -8px 30px rgba(15, 23, 42, 0.18); padding: 4px 12px 14px; max-height: calc(100dvh - 120px); overflow-y: auto; animation: tsu-menu-up .2s ease-out; }
+  .tsu-fold-sheet-head { display: flex; align-items: center; justify-content: space-between; min-height: 44px; margin: 0 0 4px; font-size: 15px; font-weight: 700; color: #1e293b; }
+  .tsu-fold-sheet-head > button { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; background: none; color: #475569; margin-right: -8px; }
+  @media (prefers-reduced-motion: reduce) { .tsu-fold-sheet { animation: none; } }
+}
