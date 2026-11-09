@@ -101,3 +101,35 @@ select id as 控えID, taken_at at time zone 'Asia/Tokyo' as 時刻, version,
   (select max((p->>'id')::int) from jsonb_array_elements(coalesce(data->'patients','[]'::jsonb)) p) as 最大ID,
   data->>'patientIdSeq' as 連番
 from app_state_snapshots where key = 'store_minamimizumoto' and taken_at > now() - interval '36 hours' order by taken_at;
+
+-- ===== 11/9 23時 追加 =====
+-- 9) の結果: 15:05〜15:25 の控え(18225/18258/18268)に 51名(最大ID 81・連番 81)、15:55(18332)で 50名・連番 79 に戻った。
+-- 原因(コード): 保存の合成が「端末にいない利用者は復活させない」だったため、まだ取り込んでいない端末の保存で番号81が落ちた(試験版 trial534・安定版 1109c で修正)。
+
+-- 10) 【復旧】番号81の方を 15:25 の控え(18268)から足し戻す(今いる方は触らない・時刻を今に刻む・連番は 81 以上に)
+--     実行前に 4) で番号81の墓石が無いことを確認(あれば下の2本目も)
+update app_state a
+set data = jsonb_set(
+      jsonb_set(a.data, '{patients}',
+        a.data->'patients' || (
+          select coalesce(jsonb_agg(p || jsonb_build_object('_savedAt', (extract(epoch from now())*1000)::bigint, '_updatedAt', (extract(epoch from now())*1000)::bigint)), '[]'::jsonb)
+          from app_state_snapshots s, jsonb_array_elements(s.data->'patients') p
+          where s.id = 18268
+            and not exists (select 1 from jsonb_array_elements(a.data->'patients') c where c->>'id' = p->>'id')
+        )),
+      '{patientIdSeq}', to_jsonb(greatest(coalesce((a.data->>'patientIdSeq')::int, 0), 81))),
+    version = coalesce(a.version,0) + 1
+where a.key = 'store_minamimizumoto';
+-- (番号81の墓石があるときだけ) update app_state a set data = a.data #- '{deletedIds,patients,81}', version = coalesce(a.version,0)+1 where a.key='store_minamimizumoto';
+-- 確認
+select jsonb_array_length(data->'patients') as 利用者数, data->>'patientIdSeq' as 連番,
+  (select count(*) from jsonb_array_elements(data->'patients') p where p->>'id' = '81') as 番号81
+from app_state where key = 'store_minamimizumoto';
+
+-- 11) テスト店舗(store_test)が 22:30〜22:45 に空(利用者0・メンバー0)になっていた。同じ時間に Claude が2台のつもりの検査を流していたので、その控えと端末の記録
+select id, version, taken_at at time zone 'Asia/Tokyo' as 時刻, jsonb_array_length(coalesce(data->'patients','[]'::jsonb)) as 利用者数, jsonb_array_length(coalesce(data->'storeMembers','[]'::jsonb)) as メンバー数
+from app_state_snapshots where key = 'store_test' and taken_at > now() - interval '12 hours' order by taken_at;
+select d.value->>'name' as 端末名, d.value->>'ver' as 版, l->>'t' as 端末時刻, (l->>'n')::int as 連番, l->>'ev' as 事象, left(l->>'d', 200) as 内容
+from app_state a, jsonb_each(a.data) d, jsonb_array_elements(coalesce(d.value->'logs','[]'::jsonb)) l
+where a.key = 'diag_store_test' and d.key not like '\_\_%' and (d.value->>'at')::bigint > (extract(epoch from now() - interval '6 hours') * 1000)::bigint
+order by 端末名, 連番;
