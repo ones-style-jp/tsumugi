@@ -76,3 +76,28 @@ order by 端末名, (l->>'n')::int;
 -- where a.key = 'store_minamimizumoto';
 -- ※ 墓石(deletedIds.patients)にその ID が残っていると端末側で再び消えるので、4) に出た ID は同時に外す:
 -- update app_state a set data = a.data #- '{deletedIds,patients,<利用者ID>}', version = coalesce(a.version,0)+1 where a.key='store_minamimizumoto';
+
+-- ===== 11/9 夜 追加(5 の結果を見て) =====
+-- 7) 今日動いた端末の記録を「全部の事象」で(手で押した保存 manual:true・失敗・押し止めがあるか)。端末ごとに最後の60件
+select d.value->>'name' as 端末名, d.value->>'ver' as 版, l->>'t' as 端末時刻, (l->>'n')::int as 連番, l->>'ev' as 事象, left(l->>'d', 200) as 内容
+from app_state a, jsonb_each(a.data) d, jsonb_array_elements(coalesce(d.value->'logs','[]'::jsonb)) l
+where a.key = 'diag_store_minamimizumoto' and d.key not like '\_\_%'
+  and (d.value->>'at')::bigint > (extract(epoch from (date_trunc('day', now() at time zone 'Asia/Tokyo') at time zone 'Asia/Tokyo')) * 1000)::bigint
+order by 端末名, 連番;
+
+-- 8) 今のクラウドにいる方のうち、今日 変更・登録があった方(ID・状態・利用開始日・最終更新。名前は出さない)
+select p->>'id' as 利用者ID, p->>'status' as 状態, p->>'startDate' as 利用開始日,
+  to_timestamp(nullif(p->>'_updatedAt','')::bigint / 1000) at time zone 'Asia/Tokyo' as 最終更新,
+  to_timestamp(nullif(p->>'_savedAt','')::bigint / 1000) at time zone 'Asia/Tokyo' as 保存時刻
+from app_state a, jsonb_array_elements(a.data->'patients') p
+where a.key = 'store_minamimizumoto'
+  and (nullif(p->>'_updatedAt','')::bigint > (extract(epoch from now() - interval '36 hours') * 1000)::bigint
+       or nullif(p->>'_savedAt','')::bigint > (extract(epoch from now() - interval '36 hours') * 1000)::bigint)
+order by (p->>'id')::int;
+
+-- 9) 控えの中で「今日いちばん大きい利用者ID」と、控えごとの最大ID(新しく登録した方の番号が一度でもクラウドに届いたか)
+select id as 控えID, taken_at at time zone 'Asia/Tokyo' as 時刻, version,
+  jsonb_array_length(coalesce(data->'patients','[]'::jsonb)) as 利用者数,
+  (select max((p->>'id')::int) from jsonb_array_elements(coalesce(data->'patients','[]'::jsonb)) p) as 最大ID,
+  data->>'patientIdSeq' as 連番
+from app_state_snapshots where key = 'store_minamimizumoto' and taken_at > now() - interval '36 hours' order by taken_at;
