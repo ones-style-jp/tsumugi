@@ -401,3 +401,30 @@ describe('クラウドへ書く直前の関所(pushEmptyGuard・2026-11-02 水�
     expect(pushEmptyGuard('store_a', { _sbStoreId: 'store_a', patients: cloud.patients.slice(0, 5) }, { patients: cloud.patients.slice(0, 9) })).toBeNull(); // 10名未満は急減の判定をしない
   });
 });
+
+import { tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './logic.js';
+describe('名前の空白を半角1つにそろえる(2026-11-09 trial532)', () => {
+  it('全角・連続・前後の空白を半角1つに。空白のない名前はそのまま', () => {
+    expect(tsuNameSpace('見本　太郎')).toBe('見本 太郎');
+    expect(tsuNameSpace('  見本 　 太郎 ')).toBe('見本 太郎');
+    expect(tsuNameSpace('見本太郎')).toBe('見本太郎');
+    expect(tsuNameSpace(null)).toBe('');
+  });
+  it('姓と名に分ける(全角でも半角でも)', () => {
+    expect(tsuSplitName('見本　太郎')).toEqual({ last: '見本', first: '太郎' });
+    expect(tsuSplitName('見本 太郎')).toEqual({ last: '見本', first: '太郎' });
+    expect(tsuSplitName('見本太郎')).toEqual({ last: '見本太郎', first: '' });
+  });
+  it('利用者の名前の項目と緊急連絡先の名前を直す。直す所がなければ同じ参照・fixed に名前は入れない', () => {
+    const pats = [{ id: 1, name: '見本　太郎', kana: 'みほん たろう', familyName: '見本　花子', cmName: '鈴木　一郎', emergencyContacts: [{ name: '見本　次郎', phone: '0' }] }, { id: 2, name: '例示 一郎', emergencyContacts: [] }];
+    const r = healNameSpaces(pats);
+    expect(r.patients[0].name).toBe('見本 太郎'); expect(r.patients[0].kana).toBe('みほん たろう'); expect(r.patients[0].familyName).toBe('見本 花子'); expect(r.patients[0].cmName).toBe('鈴木 一郎');
+    expect(r.patients[0].emergencyContacts[0].name).toBe('見本 次郎'); expect(r.patients[0].emergencyContacts[0].phone).toBe('0');
+    expect(r.patients[1]).toBe(pats[1]); expect(r.fixed.length).toBe(4); expect(JSON.stringify(r.fixed)).not.toMatch(/見本|鈴木/);
+    expect(healNameSpaces([{ id: 3, name: '例示 二郎' }]).fixed.length).toBe(0);
+  });
+  it('ケアマネ担当者マスタの名前も直し、前の鍵を返す', () => {
+    const r = healCareManagerNames([{ office: 'A', name: '鈴木　一郎' }, { office: 'B', name: '佐藤 花子' }]);
+    expect(r.managers[0].name).toBe('鈴木 一郎'); expect(r.fixed).toEqual([{ office: 'A', oldKey: 'cm|A|鈴木　一郎' }]);
+  });
+});

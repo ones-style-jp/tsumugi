@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
 import { PATIENT_TEXT_FL } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL)
 import {
   isSupabaseEnabled,
@@ -23827,10 +23827,15 @@ export default function App() {
     // ★ 2026-10-30(柴又店: 休止の終了日を過ぎたのに状態が休止中のまま): 最新の休止の終了日が昨日以前なら状態を「利用中」に(再開の操作と同じ・statusUpdatedAt を刻む)
     const h2 = healPausedStatus(h.patients, tsuTodayIso());
     const h3 = healInsuranceNo(h2.patients); // ★ 2026-10-30(ユーザー指示): 被保険者番号を10桁に(前に0・LIFE と同じ)
-    if (!h.fixed.length && !h2.fixed.length && !h3.fixed.length) return;
-    try { console.warn('[利用者の修復]', [...h.fixed.map(f => `${f.id}:${f.field} ${f.from}→${f.to}`), ...h2.fixed.map(f => `${f.id}:休止→利用中(終了 ${f.toDate})`)].join(' / ')); } catch {}
-    const _msg = [h.fixed.length ? `日付の書き方 ${h.fixed.length}か所` : '', h2.fixed.length ? `休止の終了日を過ぎた方を利用中に ${h2.fixed.length}名` : '', h3.fixed.length ? `被保険者番号を10桁に ${h3.fixed.length}名` : ''].filter(Boolean).join('・');
-    handleSaveToCloud({ ...appData, patients: h3.patients }, { manual: true, message: `✓ 利用者の情報をそろえました（${_msg}）` });
+    // ★ 2026-11-09 trial532(ユーザー指示「姓と名の間は全部半角で統一」): 利用者名・フリガナ・代表家族・緊急連絡先・担当ケアマネの名前の空白を半角1つに。
+    //   ケアマネ担当者マスタの名前も同時に直す(利用者の cmName と事業所+名前で照合しているので片方だけ直すと番号が引けなくなる)。前の名前の鍵は墓石(和集合マージで戻らないように)
+    const h4 = healNameSpaces(h3.patients);
+    const _ss0 = (appData && appData.systemSettings) || {}; const h5 = healCareManagerNames(_ss0.careManagers);
+    if (!h.fixed.length && !h2.fixed.length && !h3.fixed.length && !h4.fixed.length && !h5.fixed.length) return;
+    try { console.warn('[利用者の修復]', [...h.fixed.map(f => `${f.id}:${f.field} ${f.from}→${f.to}`), ...h2.fixed.map(f => `${f.id}:休止→利用中(終了 ${f.toDate})`), ...h4.fixed.map(f => `${f.id}:${f.field} 空白`)].join(' / ')); } catch {}
+    const _msg = [h.fixed.length ? `日付の書き方 ${h.fixed.length}か所` : '', h2.fixed.length ? `休止の終了日を過ぎた方を利用中に ${h2.fixed.length}名` : '', h3.fixed.length ? `被保険者番号を10桁に ${h3.fixed.length}名` : '', (h4.fixed.length + h5.fixed.length) ? `名前の姓と名の間を半角に ${h4.fixed.length + h5.fixed.length}か所` : ''].filter(Boolean).join('・');
+    const _ssNext = h5.fixed.length ? { ..._ss0, careManagers: h5.managers, cmTombstones: { ...(_ss0.cmTombstones || {}), ...Object.fromEntries(h5.fixed.map(f => [f.oldKey, syncNow()])) }, _updatedAt: syncNow() } : null;
+    handleSaveToCloud({ ...appData, patients: h4.patients, ...(_ssNext ? { systemSettings: _ssNext } : {}) }, { manual: true, message: `✓ 利用者の情報をそろえました（${_msg}）` });
   } catch (e) { try { console.warn('[利用者の修復] 失敗', e); } catch {} } }, [appData && appData.patients, staffSession]);
   // ★ 2026-11-01(ユーザー了承・10/30 柴又店の件の続き「日誌や分析が休止中に保存された記録をそのまま読む」): 休止の期間が終わった方の、
   //   今日以降の『状態=休止』の記録(休止中に自動保存された残骸)を開いたときに出席へ戻す。判定は logic.js の healStalePauseRecords
@@ -40466,9 +40471,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const used = new Set([tp.mobile, tp.fixed].map(_digits).filter(Boolean)); const nk = _contactNameKey({ name: tp.key });
       return (getAllContacts(pt) || []).find(c => c && ((c.name || '').trim() || (c.phoneMobile || c.phone || '').trim()) && !(nk && _contactNameKey(c) === nk) && ![c.phoneMobile, c.phone].map(_digits).filter(Boolean).some(x => used.has(x))) || null;
     } catch { return null; } };
-    const ROWS_MAX = 40, ONE_PAGE_MAX = 45, ROWS_MIN = 30, BODY_H = 1030, headH = 20; // BODY_H=本文(283mm)の高さの目安(px)
+    // ★ 2026-11-09 trial532(ユーザー指示「40行を35行にして行を高く、緊急連絡先の名前を大きく。下の注記は『個人情報を含むので取り扱い・保管に注意』の1行だけにして、その分も使う」)
+    const ROWS_MAX = 35, ONE_PAGE_MAX = 40, ROWS_MIN = 30, BODY_H = 1030, headH = 20; // BODY_H=本文(283mm)の高さの目安(px)
     const n = pts.length; const rowsPer = n <= ONE_PAGE_MAX ? Math.max(ROWS_MIN, n) : ROWS_MAX;
-    const tblH = BODY_H - 26 - 18 - 4;
+    const tblH = BODY_H - 26 - 13 - 4;
     const maxNameEm = Math.max(4, ...pts.map(pt => _emW2(pt.name)));
     const pairs = new Map(pts.map(pt => [pt.id, telPair(pt)]));
     const telEm = Math.min(14, Math.max(7.2, ...pts.map(pt => { const tp = pairs.get(pt.id); return Math.max(_emW2(tp.mobile), _emW2(tp.fixed)); })));
@@ -40476,7 +40482,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // 文字: 1行の高さに収まる大きさ・11〜16px。住所の欄が狭くなりすぎないように
     let fz = Math.max(11, Math.min(16, Math.floor(((tblH - headH) / rowsPer - 6) / 1.3)));
     while (fz > 11 && colW(fz).addr < 230) fz--;
-    const w = colW(fz); const fT = Math.max(9, fz - 1); const fA0 = Math.max(9, fz - 2); const fS = Math.max(8, fT - 4); // fS=相手の名前・続柄の小さい文字
+    const w = colW(fz); const fT = Math.max(9, fz - 1); const fA0 = Math.max(9, fz - 2); const fS = Math.max(9, fT - 2); // fS=相手の名前・続柄の文字(★ 2026-11-09 trial532: 行が高くなった分、前より2px大きく)
     const tbl = (list) => {
       const rows = list.map(pt => ({ pt, ini: _kanaIni(pt) }));
       while (rows.length < rowsPer) rows.push(null);
@@ -40511,7 +40517,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       pages.push(`<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="text-align:center;font-size:14px;font-weight:bold;letter-spacing:6px;margin-bottom:2mm;flex:none;">利用者連絡先一覧（${_mon.getMonth()+1}/${_mon.getDate()}週・五十音順）${nPages > 1 ? `<span style="letter-spacing:1px;font-weight:normal;font-size:11px;">　${pg+1}/${nPages}枚</span>` : ''}</div>
       ${pts.length ? `<div style="flex:none;">${tbl(chunk)}</div>` : '<div style="font-size:11px;color:#94a3b8;">利用中・休止中の利用者がいません</div>'}
-      <div style="font-size:9px;color:#64748b;margin-top:1mm;flex:none;">※ 携帯・固定＝送迎時にかける相手の番号（ご家族などのときは名前を添えています）。緊急連絡先＝それとは別の方。この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
+      <div style="font-size:9px;color:#64748b;margin-top:1mm;flex:none;white-space:nowrap;overflow:hidden;">※ この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
     </div>`);
     }
     return pages;
@@ -45695,7 +45701,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         // ★ 2026-10-30(扇橋店: 取り込んだ生年月日・利用開始日が「S15.5.15」「45444(Excel の通し番号)」のような文字のまま入り、提供記録入力に出ない・年齢が出ない):
         //   日付はどの書き方でも読む(lib/logic.js dateIsoAny・和暦/区切りなし/通し番号/月日年)。読めない文字は入れずに、取り込み完了の知らせに出す(前は文字のまま入れていた)
         const normDate = (s) => dateIsoAny(s);
-        const splitName = (full) => { const a=String(full||'').trim().split(/[\s　]+/).filter(Boolean); return { last:a[0]||'', first:a.slice(1).join(' ')||'' }; };
+        const splitName = (full) => tsuSplitName(full); // ★ 2026-11-09 trial532: 全角・半角どちらの空白でも姓と名に分ける(lib/logic.js)。つなぐときは半角1つ
         // ★ 取り込み値の正規化 (カイポケ等の表記ゆれをアプリの選択肢に合わせる)
         const _toHalf = (s) => String(s||'').replace(/[０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[Ａ-Ｚａ-ｚ]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
         const normGender = (s) => { const t=String(s||'').trim(); if(!t) return ''; if(/^(男性|男|m|male)$/i.test(t)) return '男性'; if(/^(女性|女|f|female)$/i.test(t)) return '女性'; return t; };
@@ -45712,6 +45718,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               id:          findCol(header,['利用者id','利用者番号'],['緊急','連絡先']),
               name:        findCol(header,['氏名','利用者名','お名前','名前'],['カナ','かな','緊急','連絡先','事業所','医']),
               kana:        findCol(header,['フリガナ','ふりがな','カナ','かな'],['緊急','連絡先','事業所']),
+              // ★ 2026-11-09 trial532(ユーザー要望「CSV でも姓と名を分けて」): 「姓」「名」(フリガナは「セイ」「メイ」)の列があればそちらを使う(見出しは完全一致)。無ければ氏名の列を空白で分ける
+              lastName:    header.findIndex(h => /^(姓|氏|名字|苗字|利用者姓|姓漢字)$/.test(norm(h))),
+              firstName:   header.findIndex(h => /^(名|利用者名名|名漢字)$/.test(norm(h))),
+              kanaLastC:   header.findIndex(h => /^(セイ|せい|姓カナ|姓かな|姓フリガナ|姓ふりがな|フリガナ姓|ふりがな姓|カナ姓)$/.test(norm(h))),
+              kanaFirstC:  header.findIndex(h => /^(メイ|めい|名カナ|名かな|名フリガナ|名ふりがな|フリガナ名|ふりがな名|カナ名)$/.test(norm(h))),
               gender:      findCol(header,['性別']),
               birthDate:   findCol(header,['生年月日','誕生']),
               zipCode:     findCol(header,['郵便','〒'],['緊急','連絡先']),
@@ -45781,6 +45792,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             const normTel = (v) => { let t = _toHalf(String(v||'')).trim().replace(/[\s　]/g, '').replace(/[－‐–—ー]/g, '-').replace(/[()（）]/g, ''); const dg = t.replace(/-/g, ''); if (/^\d{9,10}$/.test(dg) && !dg.startsWith('0')) t = '0' + t; return t; };
             const normLevel = (v) => _toHalf(String(v||'')).trim().replace(/\s/g, '').replace(/^(J|A|B|C)([12])$/i, (m, a, b) => a.toUpperCase() + b).replace(/^(Ⅱ|II)([ab])$/i, (m, a, b) => 'Ⅱ' + b.toLowerCase()).replace(/^(Ⅲ|III)([ab])$/i, (m, a, b) => 'Ⅲ' + b.toLowerCase()).replace(/^(Ⅳ|IV)$/i, 'Ⅳ').replace(/^(Ⅰ|I)$/, 'Ⅰ').replace(/^M$/i, 'M');
             const val = (row,i) => (i>=0 ? String(row[i]||'').trim() : '');
+            // ★ 2026-11-09 trial532: 行の氏名・フリガナ(姓・名の列があれば半角1つでつなぐ。氏名の列なら全角・半角の空白を半角1つに)
+            const nameOfRow = (row) => { const ln = val(row,col.lastName), fn = val(row,col.firstName); return tsuNameSpace((ln || fn) ? `${ln} ${fn}` : val(row,col.name)); };
+            const kanaOfRow = (row) => { const kl = val(row,col.kanaLastC), kf = val(row,col.kanaFirstC); return tsuNameSpace((kl || kf) ? `${kl} ${kf}` : val(row,col.kana)); };
+            // ★ 2026-11-09 trial532(ユーザー要望「古い CSV を読み込んでも、こちらで直した内容は上書きされないように」): 「CSV より後にこちらで直した項目は残す」を選んだとき、
+            //   項目の更新時刻(_fieldTs・無い項目はその方の _updatedAt)が CSV のファイルの日付より新しく、今の値が空でなく CSV と違う項目には CSV の値を入れない。ファイルを選んだときだけ(貼り付けは日付が分からない)
+            const _keepNewer = csvModal.keepMode === 'keepNewer' && Number(csvModal.fileTime) > 0; const _fileT = Number(csvModal.fileTime) || 0; let keptN = 0; const keptWho = new Set();
             const existing = [...(appData.patients||[])];
             const existingIds = new Set(existing.map(p=>p.id));
             // ★ 採番は「これまでの最大ID」を上限にした連番 (patientIdSeq)。 削除しても番号は戻さず増やし続けるため、
@@ -45797,7 +45814,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               const _seen = new Set();
               for (let r=1;r<rows.length;r++){
                 const row = rows[r]; if(!row.some(c=>(c||'').trim())) continue;
-                const nm = val(row,col.name);
+                const nm = nameOfRow(row);
                 const _idE = parseInt(val(row,col.id));
                 if (!isNaN(_idE) && existingIds.has(_idE)) continue; // ID指定は常に更新
                 if (!nm) continue;
@@ -45835,7 +45852,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             for (let r=1;r<rows.length;r++){
               const _sc = schedFromRow(rows[r] || []);
               const row = rows[r]; if(!row.some(c=>(c||'').trim())) continue;
-              const name = val(row,col.name), kana = val(row,col.kana);
+              const name = nameOfRow(row), kana = kanaOfRow(row); // ★ 2026-11-09 trial532: 姓と名の間は半角1つ
               // ★ 氏名が空の行はスキップ (既存IDの更新行を除く)。 名前の無い空の利用者が量産されるのを防ぐ
               const _idEarly = parseInt(val(row,col.id));
               const _isExistingIdRow = !isNaN(_idEarly) && existingIds.has(_idEarly);
@@ -45880,12 +45897,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               set('careLevelTo', dateOf(col.careLevelTo, '認定有効期間（終了）'));
               set('costBurden', normBurden(val(row,col.costBurden)));
               set('cmOffice', val(row,col.cmOffice));
-              set('cmName', val(row,col.cmName));
+              set('cmName', tsuNameSpace(val(row,col.cmName))); // ★ 2026-11-09 trial532: 姓と名の間は半角1つ
               set('cmPhone', normTel(val(row,col.cmPhone)));
               set('cmFax', normTel(val(row,col.cmFax)));
               const _cmOfficePhone = normTel(val(row,col.cmOfficePhone));
               if (_cmOfficePhone) rec.cmOfficePhone = _cmOfficePhone;
-              const emName=val(row,col.emName), emRel=val(row,col.emRelation), emPhone=normTel(val(row,col.emPhone)), doctor=val(row,col.doctor);
+              const emName=tsuNameSpace(val(row,col.emName)), emRel=val(row,col.emRelation), emPhone=normTel(val(row,col.emPhone)), doctor=val(row,col.doctor); // ★ 2026-11-09 trial532: 緊急連絡先の名前も半角1つ
               const emMobile=normTel(val(row,col.emMobile)), emEmail=val(row,col.emEmail);
               // ★ 2026-10-12: フェイスシートの項目(空欄は上書きしない)。1つでも入れば更新日=今日・最終更新=CSV取込
               const fsPatch = {};
@@ -45913,7 +45930,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               if (_sc.err) schedErr.push(`${name || ('ID:' + idNum)}（${_sc.err}）`);
               if (target) {
                 const idx = existing.findIndex(p=>p.id===target.id);
-                const _np = applyEx({ ...existing[idx], ...rec }, emName, emRel, emPhone, doctor, emMobile, emEmail, fsPatch);
+                // ★ 2026-11-09 trial532: 「CSV より後にこちらで直した項目は残す」(上の _keepNewer)。緊急連絡先・フェイスシートも同じ考え(直した後なら、値のある項目は触らない)
+                let _emKeep = false, _fsKeep = false;
+                if (_keepNewer) { const ex = existing[idx]; const fts = ex._fieldTs || {}; const pT = Number(ex._updatedAt) || 0;
+                  Object.keys(rec).forEach(k => { if (k === '_roomIn') return; const t = Number(fts[k]) || pT; if (t > _fileT && String(ex[k] ?? '').trim() !== '' && String(ex[k]) !== String(rec[k])) { delete rec[k]; keptN++; keptWho.add(ex.name || `ID:${ex.id}`); } });
+                  const fmT = Number(fts.familyName) || pT; if (fmT > _fileT && String(ex.familyName || '').trim() && (emName || emRel || emPhone || emMobile || emEmail)) { _emKeep = true; keptN++; keptWho.add(ex.name || `ID:${ex.id}`); }
+                  const fsO = (ex.personalFile || {}).faceSheet || {}; const fsT = Date.parse(fsO.updatedAt) || Number(fsO.updatedAt) || 0; if (fsT > _fileT) _fsKeep = true; }
+                const _fsP = _fsKeep ? Object.fromEntries(Object.entries(fsPatch).filter(([k]) => String((((existing[idx].personalFile||{}).faceSheet||{})[k]) ?? '').trim() === '')) : fsPatch;
+                const _np = applyEx({ ...existing[idx], ...rec }, _emKeep ? '' : emName, _emKeep ? '' : emRel, _emKeep ? '' : emPhone, doctor, _emKeep ? '' : emMobile, _emKeep ? '' : emEmail, _fsP);
                 if (rec._roomIn) _np.addressBuilding = tsuBldRoom(tsuBldRoom(existing[idx].addressBuilding, existing[idx].addressRoom), rec._roomIn); delete _np._roomIn; // ★ 2026-10-29
                 // ★ 2026-10-28: すでにいる方の基本利用曜日は、曜日が空・変更履歴なし・記録なし(=まだ利用していない)ときだけ入れる。利用している方は画面で(適用日と履歴が要る)
                 if (_sc.s && !_sc.err && (_np.scheduleAmPm || []).join('|') !== _sc.s.join('|')) {
@@ -45957,7 +45981,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             setCsvModal({isOpen:false, mode:null, importText:'', error:''});
             const _lst = (a) => a.slice(0, 5).join('、') + (a.length > 5 ? ` ほか${a.length - 5}名` : '');
             const _schedMsg = [dateErr.length ? `日付が読めず入れていません（「1940/5/15」「昭和15年5月15日」のように書いてください）: ${_lst(dateErr)}` : '', schedSet ? `基本利用曜日: ${schedSet}名に入れました` : '', schedKept.length ? `基本利用曜日は、すでに利用している方は変えていません（利用者マスタの画面で変更してください）: ${_lst(schedKept)}` : '', schedErr.length ? `基本利用曜日が読めず入れていません（「基本利用曜日（午前）」「基本利用曜日（午後）」の列に「月、水」のように書いてください）: ${_lst(schedErr)}` : ''].filter(Boolean).join('\n');
-            alert(`取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件${skipped?` / スキップ ${skipped} 件`:''}${_schedMsg ? '\n' + _schedMsg : ''}\n（空欄の項目は既存データを上書きしません／氏名が空の行・スキップ指定は取り込みません／ケアマネ事業所・担当者はマスタにも自動登録しました）`);
+            const _keptMsg = _keepNewer ? (keptN ? `こちらで直した項目を残しました: ${keptN}か所（${_lst([...keptWho])}）` : 'こちらで直した項目で CSV と違うものはありませんでした') : ''; // ★ 2026-11-09 trial532
+            alert(`取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件${skipped?` / スキップ ${skipped} 件`:''}${_keptMsg ? '\n' + _keptMsg : ''}${_schedMsg ? '\n' + _schedMsg : ''}\n（空欄の項目は既存データを上書きしません／氏名が空の行・スキップ指定は取り込みません／ケアマネ事業所・担当者はマスタにも自動登録しました）`);
           } catch (e) {
             setCsvModal(prev=>({...prev, error: e.message || String(e)}));
           }
@@ -46005,7 +46030,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                             try { text = new TextDecoder('shift-jis').decode(buf); } catch {}
                           }
                           if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // BOM除去
-                          setCsvModal(prev => ({...prev, importText: text, error: ''}));
+                          setCsvModal(prev => ({...prev, importText: text, error: '', fileTime: Number(f.lastModified) || 0, fileName: f.name || ''})); // ★ 2026-11-09 trial532: ファイルの日付(「こちらで直した項目は残す」の判定に使う)
                         };
                         reader.readAsArrayBuffer(f);
                         e.target.value = '';
@@ -46034,6 +46059,18 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         <span className="text-slate-700"><b>両方残す（新規追加）</b> … 同じ氏名でも別の利用者として追加</span>
                       </label>
                       <div className="tsu-hint-row mt-1"><TsuHint>※ 氏名が重複する人がいた場合は、次の画面で<b>1人ずつ</b>「更新／新規追加／スキップ」を選べます（上はその初期値）。</TsuHint></div>
+                    </div>
+                    {/* ★ 2026-11-09 trial532(ユーザー要望「古い CSV を読み込んだとき、こちらで変えた内容が上書きされないように。全部上書きか、残すかを選べるように」) */}
+                    <div className="text-[12px] bg-slate-50 border border-slate-200 rounded-lg p-2.5" data-testid="csv-keep-block">
+                      <div className="font-bold text-slate-700 mb-1.5">すでにいる方の、こちらで直した項目の扱い</div>
+                      <label className="flex items-start gap-2 cursor-pointer mb-1">
+                        <input type="radio" name="csvKeepMode" data-testid="csv-keep-overwrite" checked={(csvModal.keepMode||'overwrite')==='overwrite'} onChange={()=>setCsvModal({...csvModal,keepMode:'overwrite'})} className="mt-0.5"/>
+                        <span className="text-slate-700"><b>CSV の内容で上書き</b> … 今まで通り（CSV の空欄は元のまま）</span>
+                      </label>
+                      <label className={`flex items-start gap-2 ${csvModal.fileTime ? 'cursor-pointer' : 'opacity-60'}`}>
+                        <input type="radio" name="csvKeepMode" data-testid="csv-keep-newer" disabled={!csvModal.fileTime} checked={csvModal.keepMode==='keepNewer'} onChange={()=>setCsvModal({...csvModal,keepMode:'keepNewer'})} className="mt-0.5"/>
+                        <span className="text-slate-700"><b>CSV より後にこちらで直した項目は残す</b> … {csvModal.fileTime ? <>ファイルの日付（{new Date(csvModal.fileTime).toLocaleString('ja-JP', { year:'numeric', month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' })}）より後に、こちらで変えた方の項目は上書きしません（空の項目には CSV の値が入ります）</> : <>ファイルを選んだときに選べます（貼り付けた文字は日付が分かりません）</>}</span>
+                      </label>
                     </div>
                     {csvModal.error && <div className="text-xs font-bold text-red-600">エラー: {csvModal.error}</div>}
                     <button data-testid="csv-import-go" disabled={!csvModal.importText.trim()} onClick={()=>doImport()} className="w-full py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40">取り込みを実行</button>
@@ -48241,7 +48278,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
       const _offTombs = _renamedOff ? _cmTombsWith(_cmTombKeyOffice(orig.name), ...cmPersons.filter(c=>c.office===orig.name).map(c=>_cmTombKeyPerson(orig.name, c.name))) : (appData.systemSettings?.cmTombstones||{});
       onSave({ ...appData, patients:newPatients, systemSettings:{ ...appData.systemSettings, cmTombstones:_offTombs, cmOffices:newOffices, careManagers:newPersons } }, { manual:true, message:'✓ ケアマネ事業所を更新しました' });
     } else {
-      const newName = (form.name||'').trim();
+      const newName = tsuNameSpace(form.name); // ★ 2026-11-09 trial532: 姓と名の間は半角1つ
       if (!form.office || !newName) { alert('事業所と担当者名を入力してください'); return; }
       const dir = formatJpPhone(form.phone);
       const offFax = cmOffices.find(o=>o.name===form.office)?.fax || orig.fax || '';
