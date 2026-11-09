@@ -38598,7 +38598,7 @@ function TsuDriverList({ value, names, onPick, onOther, testid }) {
   const isOther = !!v && !list.includes(v);
   const row = (key, label, on, onClick, extra) => (
     <button key={key} type="button" role="option" aria-selected={on} data-testid={`${testid}-opt`} data-name={label} onClick={onClick}
-      className={`w-full flex items-center gap-2 px-3 min-h-[44px] text-left text-[15px] font-bold hover:bg-emerald-50 active:bg-emerald-100 ${on ? 'text-emerald-800 bg-emerald-50/60' : 'text-slate-800'}`}>
+      className={`w-full flex items-center gap-2 px-3 min-h-[44px] text-left text-[15px] border-b border-slate-100 last:border-b-0 hover:bg-slate-100 active:bg-slate-200 ${on ? 'font-extrabold text-emerald-800' : 'font-bold text-slate-800'}`}>{/* ★ 2026-11-09 1109b: 今の運転者は緑の塗りでなく太字＋チェック(下の利用者の行の緑と見分けるため) */}
       <span aria-hidden="true" className={`w-4 shrink-0 text-center text-[14px] ${on ? 'text-emerald-700' : 'text-transparent'}`}>✓</span>
       <span className="flex-1 min-w-0 break-all leading-tight">{label}</span>{extra}
     </button>);
@@ -41205,7 +41205,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                               {/* ★ 2026-11-04 trial512(ユーザー「ナビを車の名前のメニューへ・運転者は文字で」): 見出しは 車名＋運転者(文字)。押すと小さなメニュー(運転者を選ぶ・ナビ) */}
                               {(() => { const _drv = (pl.driver||{})[c.id] || ''; const _mo = !!(carMenu && carMenu.iso === iso && carMenu.sl === sl && carMenu.cid === c.id); return (
                               <div className="relative flex items-center gap-1.5">
-                                <button type="button" data-testid={`tp-carhead-${iso}-${sl}-${c.id}`} aria-expanded={_mo} onClick={() => setCarMenu(_mo ? null : { iso, sl, cid: c.id })} title="押すと運転者の変更" className="flex-1 min-w-0 flex items-center gap-1.5 text-left">
+                                <button type="button" data-testid={`tp-carhead-${iso}-${sl}-${c.id}`} aria-expanded={_mo} onClick={(e) => { if (_mo) { setCarMenu(null); return; } const rc = e.currentTarget.getBoundingClientRect(); setCarMenu({ iso, sl, cid: c.id, rect: { top: rc.bottom + 4, left: rc.left, width: Math.max(220, rc.width + 48) } }); }} title="押すと運転者の変更" className="flex-1 min-w-0 flex items-center gap-1.5 text-left">
                                   <span className="font-bold text-[15px] text-slate-800 truncate shrink-0 max-w-[45%]">{c.name}</span>
                                   {(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap)) && <span className="text-[10px] font-extrabold text-white bg-red-600 rounded px-1.5 py-0.5 shrink-0">定員超過</span>}
                                   <span data-testid={`tp-driver-txt-${iso}-${sl}-${c.id}`} className={`truncate text-[12px] font-bold ${_drv ? 'text-slate-700' : 'text-amber-700'}`}>{_drv ? <><span className="text-[10px] font-normal text-slate-500 mr-1">運転</span>{_drv}</> : '運転者: 未選択'}</span>
@@ -41213,13 +41213,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 </button>
                                 {/* ★ 2026-11-05 trial522(ユーザー要望「車の名前の横にナビのマーク。押したら経路案内。名前を押したメニューのナビは無くしてよい」) */}
                                 {!!(pl.cars?.[c.id]||[]).length && <button type="button" data-testid={`tp-navi-${iso}-${sl}-${c.id}`} onClick={() => { setCarMenu(null); openNavi(iso, sl, c.id); }} title="この車の乗車順でGoogleマップの経路案内" aria-label="ナビ（この車の乗車順で経路案内）" className="shrink-0 inline-flex items-center gap-0.5 h-7 px-1.5 rounded-lg border border-blue-300 bg-white hover:bg-blue-50 text-blue-700 text-[11px] font-bold"><Navigation className="w-3.5 h-3.5" aria-hidden="true"/>ナビ</button>}
-                                {_mo && (<>
-                                  <div className="fixed inset-0 z-[79]" onClick={() => setCarMenu(null)} aria-hidden="true"/>
+                                {_mo && ReactDOM.createPortal((<>
                                   {/* ★ 2026-11-09 trial531(ユーザー「押したらすぐプルダウン候補が出るように」): 小窓の中の選ぶ欄(もう1回押す)をやめ、候補の名前をそのまま並べる。押した名前で決まる */}
-                                  <div data-testid={`tp-carmenu-${iso}-${sl}-${c.id}`} className="absolute left-0 right-0 top-8 z-[80] bg-white border border-slate-300 rounded-xl shadow-xl py-1 max-h-[60vh] overflow-y-auto">
+                                  {/* ★ 2026-11-09 1109b(ユーザー「候補がスクロールできず選べない。下の利用者の行と色が被って見づらい」): 車の枠(overflow hidden)の中に描いていたので下が切れていた → body に固定位置で描く(押した所の下・画面の下端まで・中で縦に動く)。後ろを少し暗くして候補を浮かせる */}
+                                  <div className="fixed inset-0 z-[10040] bg-slate-900/25" onClick={() => setCarMenu(null)} aria-hidden="true"/>
+                                  <div data-testid={`tp-carmenu-${iso}-${sl}-${c.id}`} className="fixed z-[10050] bg-white border border-slate-300 rounded-xl shadow-2xl py-1 overflow-y-auto overscroll-contain" style={{ top: carMenu.rect ? Math.min(carMenu.rect.top, Math.max(8, window.innerHeight - 220)) : 80, left: carMenu.rect ? Math.max(8, Math.min(carMenu.rect.left, window.innerWidth - (carMenu.rect.width || 260) - 8)) : 8, width: carMenu.rect ? Math.min(carMenu.rect.width || 260, window.innerWidth - 16) : 260, maxHeight: Math.max(160, window.innerHeight - (carMenu.rect ? Math.min(carMenu.rect.top, Math.max(8, window.innerHeight - 220)) : 80) - 12) }}>
                                     <TsuDriverList value={_drv} names={_driverNamesFor(iso, sl)} testid={`tp-driver-${c.id}`} onPick={nm => { setDriver(iso, sl, c.id, nm); setCarMenu(null); }} onOther={() => { setCarMenu(null); setDrvOther({ iso, sl, cid: c.id, cur: _drv }); }} />
                                   </div>
-                                </>)}
+                                </>), document.body)}
                               </div>); })()}
                             </div>
                             <div className="flex items-center justify-between px-2 py-0.5 text-[10px] text-slate-400 font-bold border-b border-slate-100"><span className="pl-6">氏名</span><span className="w-16 text-center shrink-0">時間</span></div>
