@@ -623,7 +623,7 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
   .tsu-phone-menu-group .tiles > button { position: relative; min-height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
     padding: 8px 4px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; color: #334155; font-size: 11px; font-weight: 700; line-height: 1.15;
     -webkit-tap-highlight-color: transparent; }
-  .tsu-phone-menu-group .tiles > button .ico { color: #3c8d47; display: flex; }
+  .tsu-phone-menu-group .tiles > button .ico { color: #3c8d47; display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 11px; background: #eef6ea; } /* ホームの札(DashTile)と同じ見た目(trial537) */
   .tsu-phone-menu-group .tiles > button .lbl { text-align: center; word-break: keep-all; overflow-wrap: anywhere; }
   .tsu-phone-menu-group .tiles > button.on { border-color: #3c8d47; background: #f1f8ee; color: #2f7a3d; }
   .tsu-phone-menu-group .tiles > button:active { background: #f1f5f9; }

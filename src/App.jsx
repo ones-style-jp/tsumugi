@@ -13132,11 +13132,13 @@ const ABS_CAT_KEYWORDS = {
 //   作り直す → タップ中のボタンが破棄されてクリック不発・添付サムネイルが読込やり直しでチカチカしていた。
 const DashCard = ({children, style}) => <div style={{background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',padding:16,...style}}>{children}</div>;
 // ★ DashTileはコンパクト化(2026-08-21): ホーム全体が1画面に収まりやすいサイズへ縮小
-const DashTile = ({icon, label, sub, color, view, navigateTo}) => (
-  <button onClick={()=>{ tsuUseCount('home', view); navigateTo(view); }} data-testid={`dash-tile-${view}`} style={{background:'white',border:'1px solid #e2e8f0',borderRadius:12,padding:'8px 6px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:4,textAlign:'center',transition:'all .12s'}}
-    onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,0.1)';e.currentTarget.style.transform='translateY(-2px)';}}
+// ★ 2026-11-10 trial537(ユーザー「ホームの札とメニューの色合いは合わせた方がいい」): 札ごとの色(青・紫・桃など)をやめ、メニュー(TsuPhoneMenu)と同じ
+//   白い札＋薄い緑の四角に緑の絵、に統一(color は受け取るが使わない。店の色方針=緑とオレンジ)
+const DashTile = ({icon, label, sub, color, view, navigateTo}) => ( // eslint-disable-line no-unused-vars
+  <button onClick={()=>{ tsuUseCount('home', view); navigateTo(view); }} data-testid={`dash-tile-${view}`} className="tsu-tile" style={{background:'white',border:'1px solid #e2e8f0',borderRadius:14,padding:'10px 6px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,textAlign:'center',transition:'all .12s'}}
+    onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,0.08)';e.currentTarget.style.transform='translateY(-2px)';}}
     onMouseLeave={e=>{e.currentTarget.style.boxShadow='none';e.currentTarget.style.transform='none';}}>
-    <div style={{width:34,height:34,borderRadius:10,background:color,display:'flex',alignItems:'center',justifyContent:'center',color:'white'}}>{icon}</div>
+    <div style={{width:38,height:38,borderRadius:11,background:'#eef6ea',display:'flex',alignItems:'center',justifyContent:'center',color:'#3c8d47'}}>{icon}</div>
     <div style={{fontSize:11.5,fontWeight:'bold',color:'#1e293b',lineHeight:1.3}}>{label}</div>
     {sub && <div style={{fontSize:9,color:'#64748b'}}>{sub}</div>}
   </button>
