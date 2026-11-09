@@ -1311,14 +1311,9 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
     //   どの呼び出し元(保存・更新ボタンの直前・再送・pull の保持)からでも必ずここを通るので、起動直後の空の状態が全店のデータを消すことは二度と起きない
     { const _g = pushEmptyGuard(storeId, localData, cloud, opts); if (_g) { _blocked = _g; return null; } }
     // クラウドが空(=新規店舗) ならそのまま(初回作成)
-    if (!cloud || Object.keys(cloud).length === 0) {
-      const _seed = sanitizeForSync(localData);
-      if (_seed && _seed.deletedIds) {
-        _seed.deletedIds = scrubAmnestyTombstones(storeId, validateTombStore(storeId, _seed.deletedIds));
-        _seed.deletedIds = { ..._seed.deletedIds, _store: storeId }; // ★ 店舗タグ刻印
-      }
-      return _seed;
-    }
+    // ★ 2026-11-09 1109d(テスト店舗が空になった): 行が無い/空に見えるのは「新規店舗」とは限らない(権限・証の期限切れで読めないだけのことがある)。
+    //   新規店舗の最初の行は pull 側(checkAndPull の BLANK 初期化・サーバーで行の有無を確かめてから)が作るので、ふつうの保存ではここで作らない(書かずに次の機会へ)
+    if (!cloud || Object.keys(cloud).length === 0) { _blocked = { reason: 'cloud-missing', lp: Array.isArray(localData && localData.patients) ? localData.patients.length : 0, cp: 0 }; return null; }
     // 記録系の配列は id 単位でマージ (どちらの端末の記録も残す)。
     // ※ patients/systemSettings は _savedAt が無く、 record 保存時に誤って古い内容で
     //   上書きする恐れがあるためマージ対象に含めない (= 従来どおり編集端末の値を採用)。
@@ -2051,6 +2046,12 @@ async function staffApi(payload) {
   return j;
 }
 const _isNoServer = (e) => !!(e && e.noServer) && !!supabase;
+// ★ 2026-11-09 1109d: 店舗のデータの行が本当に無いか(新規店舗か)をサーバーで確かめる(権限で読めないだけのときに BLANK で上書きしないため)。確かめられなければ throw
+export async function supabaseStoreStateExists(storeId) {
+  const j = await staffApi({ action: 'state_exists', token: _staffToken(), store_id: storeId });
+  if (!j || typeof j.exists !== 'boolean') throw new Error('行の有無を確かめられませんでした');
+  return j.exists;
+}
 
 // ★ 2026-10-19 段階4(従業員ごとのログイン): 招待・本人登録・PIN・退職・ログイン記録(すべてサーバー /api/staff-auth)
 const _devName = () => { try { return localStorage.getItem('tsumugiDeviceName') || ''; } catch { return ''; } };

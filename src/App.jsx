@@ -82,6 +82,7 @@ import {
 } from './lib/syncOps';
 import {
   supabaseLoadStateForStore,
+  supabaseStoreStateExists,
   supabaseLoadStateMetaForStore,
   supabaseStaffLogin,
   supabaseHqPasskeyRegister, supabaseHqPasskeyLogin, supabaseHqPasskeyList, supabaseHqPasskeyDelete, tsuPasskeyAvailable, tsuPasskeyAutofillAvailable, // ★ 2026-10-23 本部のパスキー ★ 2026-11-01 自動入力
@@ -19491,6 +19492,7 @@ const groupStaffByRole = (members) => {
 };
 // ★ 2026-10-19 段階4: 従業員の本人登録(招待 URL ?staffinvite=1234-5678 から)。ID・パスワードを決めてそのままログイン
 // ★ 2026-11-01(10/23 ユーザー決定): PIN は本人が決めず、つむぎが乱数4桁を作って登録のあとに一度だけ表示(控えてもらう)。忘れたら管理者が作り直す
+let _tsuRowHiddenWarnedAt = 0; // ★ 2026-11-09 1109d: 「店舗のデータを読み込めません」の知らせを1分に1回に
 function tsuBuildStaffSession(staff) {
   return { staffId: staff.id, username: staff.username, role: staff.role, storeId: staff.store_id || null, storeName: staff.stores?.name || '', storeShortName: staff.stores?.short_name || '',
     displayName: staff.display_name || staff.username, token: staff._token || '', kind: staff.kind || 'store', memberId: staff.member_id || null, hasPin: !!staff.has_pin };
@@ -22243,6 +22245,16 @@ export default function App() {
         const row = await supabaseLoadStateForStore(newStoreId);
         // ★ 新規店舗 (app_state 行が存在しない or data 空): BLANK で初期化 (店舗情報を facilityInfo へ転記)
         if (!row || !row.data || Object.keys(row.data).length === 0) {
+          // ★ 2026-11-09 1109d(テスト店舗が空になった事故): 行が読めない=新規店舗とは限らない(権限・証の期限切れで RLS に弾かれると maybeSingle は error なしで null を返す)。
+          //   サーバー(service_role)で「行が本当に無いか」を確かめ、確かめられない／行があるときは BLANK で上書きせず、読み込み前のまま次の機会を待つ(保存は関所 not-loaded で止まる)
+          let _trulyNew = false;
+          try { _trulyNew = !(await supabaseStoreStateExists(newStoreId)); } catch (e) { _trulyNew = false; try { console.warn('[pull] 行の有無を確かめられず', e && e.message); } catch {} }
+          if (!_trulyNew) {
+            try { syncLog('pull-row-hidden', { store: newStoreId }); } catch {}
+            if (Date.now() - _tsuRowHiddenWarnedAt > 60000) { _tsuRowHiddenWarnedAt = Date.now(); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '店舗のデータを読み込めません（通信か権限）。しばらく待つか、いちどログアウトして入り直してください。データは消していません' } })); } catch {} }
+            storeTransitionRef.current = false;
+            return;
+          }
           let storeRecord = null;
           try {
             const list = await supabaseListStores();

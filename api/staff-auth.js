@@ -438,6 +438,15 @@ export default async function handler(req, res) {
       return res.status(200).json({ sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, configured: !!JWT_SECRET, reason: mc.ok ? undefined : mc.reason });
     }
 
+    // ★ 2026-11-09 1109d(テスト店舗が空になった): 店舗のデータの行(app_state)が本当に無いか(=新規店舗)を、権限(RLS)に左右されないサーバー側で確かめる。
+    //   端末は pull で行が読めないとき「行が無い=新規店舗」と誤認して空(BLANK)で上書きしていた。行の有無だけ返す(中身は返さない)
+    if (action === 'state_exists') {
+      const key = String(body.store_id || t.store_id || ''); if (!key) return res.status(400).json({ error: 'store_id が要ります' });
+      if (!isHq && String(t.store_id) !== key) return res.status(403).json({ error: '別の店舗の行は確かめられません' });
+      const rows = await sb(`app_state?select=key&key=eq.${encodeURIComponent(key)}&limit=1`);
+      return res.status(200).json({ exists: Array.isArray(rows) && rows.length > 0 });
+    }
+
     // ★ 2026-10-19 段階4 ----------------------------------------------------------
     const canManageStore = (sid) => isHq || (t.role === 'manager' && t.store_id && String(t.store_id) === String(sid));
     if (action === 'renew') {

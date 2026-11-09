@@ -352,11 +352,13 @@ export const backfillFaceSheetLevels = (patients, patientId, levels) => {
 export function pushEmptyGuard(storeId, local, cloud, opts = {}) {
   if (opts && opts.allowEmpty) return null;
   const cp = cloud && Array.isArray(cloud.patients) ? cloud.patients.length : 0;
-  if (cp === 0) return null;
   const lp = local && Array.isArray(local.patients) ? local.patients.length : 0;
-  if (lp === 0) return { reason: 'local-empty', lp, cp };
+  // ★ 2026-11-09 1109d(テスト店舗が空になった): 「読み込み前」「別の店舗」の状態は、クラウドが空に見えても書かない。
+  //   権限(RLS)や証の期限切れでクラウドの行が読めないと「行が無い=新規店舗」に見え、その端末の状態で上書きしていた
   if (!local || !local._sbStoreId) return { reason: 'not-loaded', lp, cp };
   if (String(local._sbStoreId) !== String(storeId)) return { reason: 'store-mismatch', lp, cp };
+  if (cp === 0) return null;
+  if (lp === 0) return { reason: 'local-empty', lp, cp };
   if (cp >= 10 && lp < cp * 0.5) return { reason: 'mass-drop', lp, cp };
   return null;
 }
