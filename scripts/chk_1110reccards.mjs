@@ -73,6 +73,25 @@ ok((await page.locator('.tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row)').count
 const jumpBtn = page.locator('button:visible', { hasText: /^利用者$/ }).first();
 if (await jumpBtn.count()) { await jumpBtn.click(); await page.waitForTimeout(500); const it = page.getByTestId('rec-jump-item'); if (await it.count()) { await it.nth(1).click(); await page.waitForTimeout(900); ok((await page.locator('.tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row)').count()) === 1, '利用者の一覧から選ぶとその人が広がる'); } }
 await page.screenshot({ path: `${OUT}/after.png` });
+// ★ trial541: 「操作」の中で一覧の出し方を選ぶ(押した人だけ広げる／全員広げたまま・この端末に覚える)
+await page.getByTestId('fold-btn-record').click(); await page.waitForTimeout(400);
+ok(await page.getByTestId('rec-cardmode-all').isVisible(), '操作の小窓に「全員広げたまま」がある');
+await page.getByTestId('rec-cardmode-all').click(); await page.waitForTimeout(500);
+await page.getByTestId('fold-sheet-close-record').click().catch(() => {}); await page.waitForTimeout(300);
+ok((await page.locator('.tsu-rv-cards > .tsu-rv-row').count()) === 0, '全員広げたまま: たたんだ行がない');
+ok((await page.locator('.tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row)').count()) === n, `全員広げたまま: ${n}人とも広がる`);
+ok((await page.locator('.tsu-rv-cards .tsu-rv-foot').count()) === 0, '全員広げたまま: たたむ／次の方は出ない');
+ok(await page.evaluate(() => localStorage.getItem('tsuRecCardMode') === 'all'), '端末に覚える(tsuRecCardMode=all)');
+await page.screenshot({ path: `${OUT}/allopen.png` });
+await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(1500);
+if (await page.getByText('担当者を選択', { exact: false }).count()) { await page.locator('button', { hasText: /見本|例示|架空/ }).first().click().catch(() => {}); await page.waitForTimeout(900); }
+await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {});
+if (!(await page.locator('.tsu-rv-cards').count())) { await page.getByTestId('tsu-tab-record').click(); await page.waitForTimeout(1500); }
+ok((await page.locator('.tsu-rv-cards > .tsu-rv-row').count()) === 0, '読み直しても全員広げたまま');
+await page.getByTestId('fold-btn-record').click(); await page.waitForTimeout(400);
+await page.getByTestId('rec-cardmode-one').click(); await page.waitForTimeout(500);
+await page.getByTestId('fold-sheet-close-record').click().catch(() => {}); await page.waitForTimeout(300);
+ok((await page.locator('.tsu-rv-cards > .tsu-rv-row').count()) === n, '「押した人だけ広げる」に戻すと行に戻る');
 // 別の画面へ移ると見出しが戻る
 await page.getByTestId('tsu-tab-print').click(); await page.waitForTimeout(1000);
 ok(await page.locator('header.tsu-app-header').isVisible(), '連絡帳では見出しが戻る');

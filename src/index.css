@@ -602,13 +602,9 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
   .tsu-tabbar > button .lbl { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .tsu-tabbar > button.on { color: #2f7a3d; }
   .tsu-tabbar > button:active .ico { transform: scale(0.92); }
-  .tsu-tabbar > button.tsu-tab-center .ico { width: 56px; height: 56px; border-radius: 50%; background: #3c8d47; color: #fff; margin-top: -26px;
-    box-shadow: 0 6px 14px rgba(60,141,71,0.35); border: 3px solid #fff; }
-  .tsu-tabbar > button.tsu-tab-center.on .ico { background: #2f7a3d; }
-  .tsu-tabbar > button.tsu-tab-center .lbl { color: #2f7a3d; }
+  /* ★ trial541: 真ん中(提供記録)を丸く大きくするのはやめた(ユーザー「突出させなくても分かる」)。tsu-tab-center は使っていない */
   .tsu-tab-badge { position: absolute; top: 3px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
     background: #ea7a1f; color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px #fff; }
-  .tsu-tabbar > button.tsu-tab-center .tsu-tab-badge { top: -20px; left: calc(50% + 14px); }
   /* メニュー(下から全画面) */
   .tsu-phone-menu { position: fixed; inset: 0; z-index: 58; background: #f8fafc; display: flex; flex-direction: column;
     animation: tsu-menu-up .22s ease-out; padding-bottom: env(safe-area-inset-bottom, 0px); }
@@ -683,6 +679,8 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
   .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-foot { position: sticky; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); z-index: 5; background: #fff;
     margin: 6px -10px -8px; padding: 6px 10px calc(6px + 2px); border-top: 1px solid #e2e8f0; }
   html:not(.tsu-tabbar-on) .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-foot { bottom: 0; }
+  /* ★ trial541「全員広げたまま」: 全員が広がるので、1人だけを目立たせる緑の上下線と濃い影は付けない */
+  .tsu-rv-cards.tsu-rv-all > [data-rec-card] { box-shadow: 0 1px 3px rgba(15,23,42,0.06) !important; border-top: 2px solid #cbd5e1 !important; border-bottom: 2px solid #cbd5e1 !important; }
   .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-foot > button { min-height: 40px; }
 }
 

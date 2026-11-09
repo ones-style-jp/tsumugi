@@ -22,6 +22,10 @@ const login = async (page) => {
   ok(!(await page.locator('header.tsu-app-header svg.lucide-menu').count()), 'スマホ: 左上の3本線は出ない');
   const bb = await bar.boundingBox(); ok(bb && Math.abs((bb.y + bb.height) - 844) < 2, `下のバーは画面の下に固定 (y+h=${bb && Math.round(bb.y + bb.height)})`);
   ok((await bar.locator('button').count()) === 5, '下のバーは5つ');
+  // ★ trial541: 真ん中は他と同じ形・名前は「提供記録」
+  ok((await bar.locator('button.tsu-tab-center').count()) === 0, '丸く大きい札はない(5つとも同じ形)');
+  ok(/^提供記録$/.test((await page.getByTestId('tsu-tab-record').locator('.lbl').innerText()).trim()), '真ん中の名前は「提供記録」');
+  { const hs = []; for (let i = 0; i < 5; i++) { const bb2 = await bar.locator('button').nth(i).locator('.ico').boundingBox(); hs.push(bb2 ? Math.round(bb2.height) : -1); } ok(hs.every(h => h === hs[0]), `絵の大きさが5つとも同じ (${hs.join(',')})`); }
   const pad = await page.evaluate(() => parseInt(getComputedStyle(document.getElementById('appMainArea')).paddingBottom));
   ok(pad >= 60, `本文の下に余白 ${pad}px`);
   await page.screenshot({ path: `${OUT}/phone_home.png` });

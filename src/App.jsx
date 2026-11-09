@@ -12178,7 +12178,8 @@ function SidebarGroup({ icon, label, activeChild, children }) {
 }
 
 // ★ 2026-11-10 trial536(ユーザー要望「スマホで左上の3本線が右手で操作しづらい。d払い・マクドナルド・Yahoo・乗換案内・Netflix のように下の中央に主要ボタンを」):
-//   スマホ幅(767px まで)は画面の下に5つのバー(ホーム・送迎表／日誌・今日の記録・連絡帳・メニュー)。真ん中の「今日の記録」だけ丸く大きく。
+//   スマホ幅(767px まで)は画面の下に5つのバー(ホーム・送迎表／日誌・提供記録・連絡帳・メニュー)。
+//   ★ trial541(ユーザー「今日の記録だけ突出している・提供記録に名前を変える」): 真ん中も他と同じ形(丸く大きくしない)
 //   「メニュー」は下から全画面で今のサイドバーの項目を全部出す。iPad・PC は左のサイドバーのまま。
 //   この端末だけ切れる(各種設定 → システム → この端末の表示)。切ると左上の3本線に戻る。
 const TSU_TABBAR_KEY = 'tsumugiPhoneTabBar';
@@ -23016,7 +23017,7 @@ export default function App() {
   React.useEffect(() => { const on = !!_tabBarOn && currentView === 'record'; try { document.documentElement.classList.toggle('tsu-nohdr', on); } catch {} return () => { try { document.documentElement.classList.remove('tsu-nohdr'); } catch {} }; }, [_tabBarOn, _tabBarTick, currentView]);
   const [_phoneMenuOpen, _setPhoneMenuOpen] = useState(false);
   React.useEffect(() => { if (!_tabBarOn) _setPhoneMenuOpen(false); }, [_tabBarOn]);
-  // 「今日の記録」の印: 今日来る予定(基本利用日)で、まだ提供記録が1件も無い方の数。休業日・定休日は0。午前/午後は今の時刻で切り替え(trial539)
+  // 下のバー「提供記録」の印: 今日来る予定(基本利用日)で、まだ提供記録が1件も無い方の数。休業日・定休日は0。午前/午後は今の時刻で切り替え(trial539)
   const _recTodayMissing = React.useMemo(() => {
     try {
       const t = new Date(); const iso = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; const dow = t.getDay();
@@ -25949,12 +25950,12 @@ export default function App() {
             item('settings', '各種設定', <Settings size={22} />),
           ].filter(Boolean) },
         ];
-        // 下のバー: ホーム / 送迎表(使わない店は日誌) / 今日の記録(真ん中・大きく) / 連絡帳 / メニュー
+        // 下のバー: ホーム / 送迎表(使わない店は日誌) / 提供記録 / 連絡帳 / メニュー (trial541: 真ん中も同じ形・名前は「提供記録」)
         const second = tsumugiTransportOn(appData) ? item('transport', '送迎表', <Car size={24} />) : item('diary', '日誌', <PenTool size={24} />, { badge: diaryTodayBadge });
         const tabs = [
           item('dashboard', 'ホーム', <CalendarCheck size={24} />, { badge: _homeUnreadCount }),
           second,
-          { ...item('record', '今日の記録', <ClipboardList size={26} />, { badge: _recTodayMissing }), center: true },
+          item('record', '提供記録', <ClipboardList size={24} />, { badge: _recTodayMissing }),
           item('print', '連絡帳', <Printer size={24} />),
           { key: 'menu', label: 'メニュー', icon: <Menu size={24} />, active: _phoneMenuOpen, onClick: () => _setPhoneMenuOpen(v => !v) },
         ];
@@ -27543,6 +27544,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-11-10 trial538(ユーザー「スマホの提供記録入力は1画面に1人しか見えないのは使い勝手が悪そう」): スマホのカードは1人1行にたたみ、
   //   押した人だけ広げる(開くのは1人)。広げた中の運動は「いつも通り」で○を入れてたたむ。「次の方」で順に進む
   const [recOpenId, setRecOpenId] = useState(null);
+  // ★ trial541(ユーザー「常にたたむか常に開いておくかを操作のところで選べれば」): この端末の表示 'one'=押した人だけ広げる(既定) / 'all'=全員広げたまま
+  const [recCardMode, _setRecCardMode] = useState(() => { try { return localStorage.getItem('tsuRecCardMode') === 'all' ? 'all' : 'one'; } catch { return 'one'; } });
+  const setRecCardMode = (m) => { _setRecCardMode(m); try { localStorage.setItem('tsuRecCardMode', m); } catch {} if (m === 'all') setRecOpenId(null); };
   const [recExFold, setRecExFold] = useState({}); // pid -> true(たたむ)/false(開く)。未指定なら運動が全部入っていればたたむ
   const _recKana = (t) => String(t || '').replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60)).replace(/[\s　]/g, '');
   // ★ 2026-10-28(ユーザー要望「スマホの全画面でも利用者を選べるボタンを」): 全画面のときは全画面の帯の下から出す
@@ -28426,6 +28430,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
               <button onClick={()=>handleSaveClick(false)} className={`hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-2 ${_iconBar ? 'sm:px-3' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-transform active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Save, '保存') : '保存'}</button>
             </div>
+            {/* ★ trial541: スマホの一覧の出し方(この端末だけ) */}
+            {filterMode === 'single' && <div data-testid="rec-cardmode" className="w-full sm:hidden flex items-center gap-2 pt-1.5 mt-0.5 border-t border-slate-100">
+              <span className="text-[12px] font-bold text-slate-500 whitespace-nowrap">一覧の出し方</span>
+              <div className="flex rounded-lg overflow-hidden border border-slate-300 ml-auto">
+                {[['one','押した人だけ広げる'],['all','全員広げたまま']].map(([v,l]) => <button key={v} type="button" data-testid={`rec-cardmode-${v}`} onClick={() => setRecCardMode(v)} className={`h-9 px-3 text-[13px] font-bold ${recCardMode === v ? 'bg-slate-700 text-white' : 'bg-white text-slate-600'}`}>{l}</button>)}
+              </div>
+            </div>}
       </div>
       {_vitalPanel}
       </>
@@ -28627,7 +28638,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           </div>
         )}
         {/* ★ スマホ用カード表示 (md未満)。 PC/iPad は下のテーブル。 横長の表をスマホで縦カードに */}
-        <div className={searchActive ? 'hidden' : 'md:hidden p-2 space-y-3 tsu-rv-cards'} onPointerDownCapture={_rvTapRow}>
+        <div className={searchActive ? 'hidden' : `md:hidden p-2 space-y-3 tsu-rv-cards ${recCardMode === 'all' ? 'tsu-rv-all' : ''}`} onPointerDownCapture={_rvTapRow}>
           {displayRecords.length===0 && <div className="text-center text-slate-400 font-bold py-8">対象の利用者がいません</div>}
           {displayRecords.map((p) => {
             const masterData = (appData.patients||[]).find(pt => pt.id === p.patientId || pt.id === p.id || pt.name === p.name) || {};
@@ -28655,7 +28666,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             const _fillUsual = () => { let n = 0; _exMain.forEach(it => { if (_exVal(it) !== '') return; const b = String(_exBaselineOf(p.id, it.id) || '').trim(); if (/^[ー\-－×✕xX]+$/.test(b)) return; if (it.type !== 'toggle' && !/[0-9０-９]/.test(b)) return; updateExercise(p.id, it.id, '○'); n++; }); setRecExFold(f => ({ ...f, [p.id]: true })); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: n ? `運動 ${n}項目に○を入れました` : '○を入れる項目がありません（基準値なし）' } })); } catch {} };
             const _idx = displayRecords.indexOf(p); const _next = displayRecords[_idx + 1] || null;
             // ★ trial538: たたんだ1行(開いていない人)。状態・体温・血圧・運動の入り具合を1行に
-            if (recOpenId !== p.id) {
+            if (recCardMode !== 'all' && recOpenId !== p.id) {
               const _sum = []; if (vT) _sum.push(`${vT}℃`); if (vBuSt || vBdSt) _sum.push(`${vBuSt}${vBdSt ? `/${vBdSt}` : ''}`); if (_exMain.length) _sum.push(`運動 ${_exFilled}/${_exMain.length}`); if (p.tokki) _sum.push('特記');
               const _empty = !isAbsent && !isPause && !vT && !(vBuSt || vBdSt) && _exFilled === 0 && !p.tokki;
               return (
@@ -28842,10 +28853,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="flex-1 min-w-0 h-11 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
                 </div>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX} c={TOKKI_NL_C}/></div>}
                 {/* ★ trial538: たたむ / 次の方へ(次の人を広げてそこまで送る) */}
-                <div className="tsu-rv-foot">
+                {recCardMode !== 'all' && <div className="tsu-rv-foot">
                   <button type="button" data-testid={`rv-fold-${p.id}`} onClick={() => setRecOpenId(null)}><ChevronUp size={16}/> たたむ</button>
                   {_next && <button type="button" data-testid={`rv-next-${p.id}`} className="nx" onClick={() => jumpToRecCard(_next.id)}>次の方（{_next.name}） <ChevronRight size={16}/></button>}
-                </div>
+                </div>}
               </div>
             );
           })}
@@ -50287,7 +50298,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               {/* ★ 2026-11-10 trial536: スマホの下のバー(この端末だけ) */}
               <label className="flex items-start gap-2 cursor-pointer mb-3" data-testid="tabbar-setting">
                 <input type="checkbox" data-testid="tabbar-toggle" defaultChecked={tsuTabBarOn()} onChange={e=>{ try { localStorage.setItem(TSU_TABBAR_KEY, e.target.checked ? '1' : '0'); } catch {} try { window.dispatchEvent(new Event('tsumugi-tabbar-change')); } catch {} }} className="mt-1 accent-blue-600"/>
-                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表・今日の記録・連絡帳・メニューを下に置きます。外すと左上の3本線に戻ります。iPad・パソコンは変わりません。</TsuHint></span>
+                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表・提供記録・連絡帳・メニューを下に置きます。外すと左上の3本線に戻ります。iPad・パソコンは変わりません。</TsuHint></span>
               </label>
               <label className="flex items-start gap-2 cursor-pointer">
                 <input type="checkbox" defaultChecked={isAutoFullscreenOn()} onChange={e=>{ try { localStorage.setItem(AUTO_FS_KEY, e.target.checked ? '1' : '0'); } catch {} }} className="mt-1 accent-blue-600"/>
