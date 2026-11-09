@@ -12172,6 +12172,67 @@ function SidebarGroup({ icon, label, activeChild, children }) {
   );
 }
 
+// ★ 2026-11-10 trial536(ユーザー要望「スマホで左上の3本線が右手で操作しづらい。d払い・マクドナルド・Yahoo・乗換案内・Netflix のように下の中央に主要ボタンを」):
+//   スマホ幅(767px まで)は画面の下に5つのバー(ホーム・送迎表／日誌・今日の記録・連絡帳・メニュー)。真ん中の「今日の記録」だけ丸く大きく。
+//   「メニュー」は下から全画面で今のサイドバーの項目を全部出す。iPad・PC は左のサイドバーのまま。
+//   この端末だけ切れる(各種設定 → システム → この端末の表示)。切ると左上の3本線に戻る。
+const TSU_TABBAR_KEY = 'tsumugiPhoneTabBar';
+const tsuTabBarOn = () => { try { return localStorage.getItem(TSU_TABBAR_KEY) !== '0'; } catch { return true; } };
+// 文字を打っている間(iPhone はキーボードの上に固定の帯が浮いて邪魔)と、重なる小窓(tsu-back-lock)が出ている間は隠す
+function useTsuTabBarHidden() {
+  const [hide, setHide] = React.useState(false);
+  React.useEffect(() => {
+    const typing = () => { const el = document.activeElement; if (!el) return false; const tag = (el.tagName || '').toUpperCase(); if (tag === 'TEXTAREA' || tag === 'SELECT') return true; if (tag === 'INPUT') { const t = String(el.type || 'text').toLowerCase(); return !['checkbox', 'radio', 'button', 'submit', 'range', 'file', 'color'].includes(t); } return !!el.isContentEditable; };
+    let tm = null; const upd = () => { clearTimeout(tm); tm = setTimeout(() => setHide(typing()), 120); };
+    document.addEventListener('focusin', upd); document.addEventListener('focusout', upd);
+    return () => { clearTimeout(tm); document.removeEventListener('focusin', upd); document.removeEventListener('focusout', upd); };
+  }, []);
+  return hide;
+}
+function TsuPhoneTabBar({ items, hidden }) {
+  const typing = useTsuTabBarHidden();
+  return (
+    <nav data-testid="tsu-tabbar" className={`tsu-tabbar no-print ${(hidden || typing) ? 'tsu-tabbar-hide' : ''}`} aria-label="画面の切り替え">
+      {items.map(it => (
+        <button key={it.key} type="button" data-testid={`tsu-tab-${it.key}`} onClick={it.onClick} className={`${it.center ? 'tsu-tab-center' : ''} ${it.active ? 'on' : ''}`} aria-current={it.active ? 'page' : undefined}>
+          <span className="ico">{it.icon}</span>
+          <span className="lbl">{it.label}</span>
+          {it.badge != null && it.badge > 0 && <span className="tsu-tab-badge" data-testid={`tsu-tab-${it.key}-badge`}>{it.badge > 99 ? '99+' : it.badge}</span>}
+        </button>
+      ))}
+    </nav>
+  );
+}
+// 「メニュー」: 下から全画面。グループごとに四角い札を並べる(サイドバーと同じ項目・同じ出し分け)
+function TsuPhoneMenu({ open, onClose, groups, footer }) {
+  React.useEffect(() => { if (!open) return; const h = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
+  if (!open) return null;
+  return ReactDOM.createPortal(
+    <div data-testid="tsu-phone-menu" className="tsu-phone-menu no-print" role="dialog" aria-modal="true" aria-label="メニュー">
+      <div className="tsu-phone-menu-head">
+        <button type="button" data-testid="tsu-phone-menu-close" onClick={onClose} aria-label="閉じる"><X size={22} /></button>
+        <div className="ttl">メニュー</div>
+      </div>
+      <div className="tsu-phone-menu-body">
+        {groups.filter(g => g.items.length).map(g => (
+          <section key={g.key} className="tsu-phone-menu-group">
+            <div className="gl">{g.label}</div>
+            <div className="tiles">
+              {g.items.map(it => (
+                <button key={it.key} type="button" data-testid={`tsu-menu-${it.key}`} onClick={() => { onClose(); it.onClick(); }} className={it.active ? 'on' : ''}>
+                  <span className="ico">{it.icon}</span>
+                  <span className="lbl">{it.label}</span>
+                  {it.badge != null && it.badge > 0 && <span className="tsu-tab-badge">{it.badge > 99 ? '99+' : it.badge}</span>}
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+        {footer}
+      </div>
+    </div>, document.body);
+}
+
 // === 新規アカウント登録完了画面 (URL ?signup=... でアクセス) ===
 function SignupCompleteView({ context, appData, onSave }) {
   const [form, setForm] = useState({
@@ -22938,6 +22999,25 @@ export default function App() {
   const [meetingFloat, setMeetingFloat] = useState(null);
   const meetingFloatRef = React.useRef(null); meetingFloatRef.current = meetingFloat;
   const [appUpdating, setAppUpdating] = useState(false); // ★ 「今すぐ更新」実行中の表示
+  // ★ 2026-11-10 trial536: スマホの下のバー(この端末の設定で切れる)。設定の切り替えは 'tsumugi-tabbar-change' で受ける
+  const _phoneW = useTsuIsPhone();
+  const [_tabBarTick, _setTabBarTick] = useState(0);
+  React.useEffect(() => { const h = () => _setTabBarTick(t => t + 1); window.addEventListener('tsumugi-tabbar-change', h); return () => window.removeEventListener('tsumugi-tabbar-change', h); }, []);
+  const _tabBarOn = _phoneW && tsuTabBarOn(); // _tabBarTick が変わるたびに描き直されて読み直す
+  React.useEffect(() => { try { document.documentElement.classList.toggle('tsu-tabbar-on', !!_tabBarOn); } catch {} return () => { try { document.documentElement.classList.remove('tsu-tabbar-on'); } catch {} }; }, [_tabBarOn, _tabBarTick]);
+  const [_phoneMenuOpen, _setPhoneMenuOpen] = useState(false);
+  React.useEffect(() => { if (!_tabBarOn) _setPhoneMenuOpen(false); }, [_tabBarOn]);
+  // 「今日の記録」の印: 今日来る予定(基本利用日)で、まだ提供記録が1件も無い方の数。休業日・定休日は0
+  const _recTodayMissing = React.useMemo(() => {
+    try {
+      const t = new Date(); const iso = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; const dow = t.getDay();
+      const closed = ((appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow)) || ((appData.holidays||[]).some(h => (h && (h.date||h)) === iso && (!h.ampm || h.ampm === '1日')));
+      if (closed) return 0;
+      const dateJp = `${t.getMonth()+1}月${t.getDate()}日`;
+      const done = new Set((appData.ticketRecords||[]).filter(r => r && r.date === dateJp && String(r.year ?? t.getFullYear()) === String(t.getFullYear())).map(r => String(r.patientId)));
+      return (appData.patients||[]).filter(p => isPatientListable(p) && p.status === '利用中' && !done.has(String(p.id)) && ((getScheduleOnDate(p, iso) || {})[dow] || '')).length;
+    } catch { return 0; }
+  }, [appData.patients, appData.ticketRecords, appData.holidays, appData.systemSettings?.facilityInfo?.closedDays]);
   // ★ サイドバー「日誌」バッジ(2026-08-31 店舗要望): 今日のAM/PMが未完了(未入力or未確認あり)なら1を表示。休業日・定休日は出さない
   const diaryTodayBadge = React.useMemo(() => {
     try {
@@ -25653,7 +25733,8 @@ export default function App() {
       <div id="appMainArea" className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative min-w-0">
           <header key={`hdr${_hdrKey}`} className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0">
             <div className="flex items-center min-w-0 flex-1">
-              <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>
+              {/* ★ 2026-11-10 trial536: スマホで下のバーを使っている間は左上の3本線を出さない(メニューは下の「メニュー」から) */}
+              {!_tabBarOn && <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>}
               <h1 className="text-base md:text-lg font-bold text-slate-700 truncate whitespace-nowrap">
                 {currentView === 'dashboard' ? 'ホーム' :
                  currentView === 'record' ? <span data-testid="hdr-record-title">{/* ★ 2026-10-28(ユーザー要望「スマホは『2026年10月…』と切れる。画面を見ればサービス提供記録と分かるので日付だけで」) */}<span className="hidden sm:inline">サービス提供記録 入力　</span>{formatDateDisplay(selectedDate)}</span> :
@@ -25819,6 +25900,68 @@ export default function App() {
              <div className="flex h-full items-center justify-center text-slate-400 font-bold">開発中</div>}
             </KeikakuFrame>
           </div></div></main>
+      {/* ★ 2026-11-10 trial536: スマホの下のバー + 「メニュー」(下から全画面)。項目と出し分けは左のサイドバーと同じ */}
+      {_tabBarOn && (() => {
+        const go = (v, ...a) => { try { tsuUseCount('tab', v); } catch {} _setPhoneMenuOpen(false); setIsSidebarOpen(false); navigateTo(v, ...a); };
+        const item = (key, label, icon, opts = {}) => ({ key, label, icon, onClick: () => go(opts.to || key), active: (opts.views || [key]).includes(currentView), badge: opts.badge || null });
+        const ss = appData.systemSettings || {};
+        const fitnessOn = !(ss.fitnessCycle?.disabled || ss.fitnessCycle?.unit === '実施しない');
+        const groups = [
+          { key: 'daily', label: '毎日', items: [
+            item('dashboard', 'ホーム', <CalendarCheck size={22} />, { badge: _homeUnreadCount }),
+            tsumugiSideShown(appData, 'schedule') && item('schedule', 'カレンダー', <CalendarRange size={22} />),
+            item('record', '提供記録', <ClipboardList size={22} />, { badge: _recTodayMissing }),
+            item('print', '連絡帳', <Printer size={22} />),
+            item('diary', '日誌', <PenTool size={22} />, { badge: diaryTodayBadge }),
+            tsumugiTransportOn(appData) && item('transport', '送迎表', <Car size={22} />),
+            fitnessOn && item('fitness', '体力測定', <Activity size={22} />),
+          ].filter(Boolean) },
+          { key: 'contact', label: '連絡', items: [
+            tsumugiSideShown(appData, 'absence_fax') && item('absence_fax', '休み連絡', <FileText size={22} />),
+            tsumugiSideShown(appData, 'general_fax') && item('general_fax', '各種連絡', <FileText size={22} />),
+            tsumugiSideShown(appData, 'family_admin') && item('family_admin', 'お知らせ・閲覧', <QrCode size={22} />),
+            tsumugiSideShown(appData, 'emergency') && item('emergency', '災害時', <AlertTriangle size={22} />),
+          ].filter(Boolean) },
+          { key: 'plan', label: '計画書・実績', items: [
+            hasAddon(appData, 'tsusho_keikaku') && item('keikaku_yotei', '通所介護計画書', <FileText size={22} />, { views: ['keikaku_yotei', 'tsusho_keikaku'], badge: _dueCounts.tsusho }),
+            (hasAddon(appData, 'kinou_keikaku') || hasAnyLifeAddon(appData)) && item('kinou_yotei', '機能訓練・LIFE', <Activity size={22} />, { views: ['kinou_yotei', 'kinou_keikaku', 'seikatsu_kinou', 'kyomi_kanshin', 'life_hub', 'life_submit', 'kinou_patient'], badge: _dueCounts.kinou }),
+            tsumugiSideShown(appData, 'monitoring') && item('monitoring', 'モニタリング', <ClipboardList size={22} />),
+            tsumugiSideShown(appData, 'roster') && item('roster', '勤務表', <Users size={22} />),
+            tsumugiSideShown(appData, 'jisseki') && item('jisseki', '利用者実績', <ClipboardList size={22} />),
+            tsumugiSideShown(appData, 'class_roster') && item('class_roster', 'クラス在籍表', <Users size={22} />),
+          ].filter(Boolean) },
+          { key: 'manage', label: '管理', items: [
+            item('master', '利用者', <Users size={22} />, { views: ['master', 'ticket'] }),
+            item('cmmaster', 'ケアマネ', <Briefcase size={22} />),
+            tsumugiSideShown(appData, 'dash_personal') && item('dash_personal', '分析（個人）', <BarChart3 size={22} />),
+            tsumugiSideShown(appData, 'dash_operation') && item('dash_operation', '分析（稼働）', <TrendingUp size={22} />),
+            item('settings', '各種設定', <Settings size={22} />),
+          ].filter(Boolean) },
+        ];
+        // 下のバー: ホーム / 送迎表(使わない店は日誌) / 今日の記録(真ん中・大きく) / 連絡帳 / メニュー
+        const second = tsumugiTransportOn(appData) ? item('transport', '送迎表', <Car size={24} />) : item('diary', '日誌', <PenTool size={24} />, { badge: diaryTodayBadge });
+        const tabs = [
+          item('dashboard', 'ホーム', <CalendarCheck size={24} />, { badge: _homeUnreadCount }),
+          second,
+          { ...item('record', '今日の記録', <ClipboardList size={26} />, { badge: _recTodayMissing }), center: true },
+          item('print', '連絡帳', <Printer size={24} />),
+          { key: 'menu', label: 'メニュー', icon: <Menu size={24} />, active: _phoneMenuOpen, onClick: () => _setPhoneMenuOpen(v => !v) },
+        ];
+        const footer = (
+          <div className="tsu-phone-menu-foot">
+            {activeRecorder && isMemberAdmin(activeRecorder, appData.systemSettings) && (
+              <button type="button" onClick={() => { _setPhoneMenuOpen(false); setBugReport({ desc: '', sending: false, sent: false, err: '' }); }}>不具合を運営に報告</button>
+            )}
+            <button type="button" onClick={() => { _setPhoneMenuOpen(false); setStaffPolicyView('office'); }}>利用規約・同意ポリシー</button>
+            <button type="button" data-testid="tsu-phone-menu-sidebar" onClick={() => { _setPhoneMenuOpen(false); setIsSidebarOpen(true); }}>元のメニュー（左のサイドバー）を開く</button>
+            <div className="ver">アプリ版: {__builtUpdateNotes?.version || '-'}</div>
+          </div>
+        );
+        return (<>
+          <TsuPhoneTabBar items={tabs} hidden={isSidebarOpen} />
+          <TsuPhoneMenu open={_phoneMenuOpen} onClose={() => _setPhoneMenuOpen(false)} groups={groups} footer={footer} />
+        </>);
+      })()}
       {/* ★ サイドバーのスタッフ追加モーダル */}
       {staffAddModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">{/* ★ 外側タップでは閉じない 2026-09-27 */}
@@ -47398,7 +47541,7 @@ const TSU_SETTINGS_INDEX = [
   ['fitness','体力測定','体力測定 周期 項目 備考 定型文 実施しない'],
   ['keikaku','要支援の計画書の名前','要支援 総合事業 個別サービス計画書 通所型サービス計画 名前'],
   ['addon','アドオン（オプション機能）','アドオン オプション 計画書 加算 LIFE 興味関心 生活機能'],
-  ['system','この端末の表示','表示 全画面 文字 大きさ 自動 この端末'],
+  ['system','この端末の表示','表示 全画面 文字 大きさ 自動 この端末 下のバー メニュー スマホ 3本線'],
   ['system','この端末の名前・最終更新','端末名 端末の名前 最終更新 同期 iPad パソコン'],
   ['system','この端末の通知','通知 プッシュ お知らせ 担当者会議 予定 ホーム画面 テスト通知'],
   ['system','予定のお知らせ（店舗の設定）','通知 予定 前日 30分前 ラベル 担当者会議 契約 見学 夜'],
@@ -50085,6 +50228,11 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                   ))}
                 </div>
               </div>
+              {/* ★ 2026-11-10 trial536: スマホの下のバー(この端末だけ) */}
+              <label className="flex items-start gap-2 cursor-pointer mb-3" data-testid="tabbar-setting">
+                <input type="checkbox" data-testid="tabbar-toggle" defaultChecked={tsuTabBarOn()} onChange={e=>{ try { localStorage.setItem(TSU_TABBAR_KEY, e.target.checked ? '1' : '0'); } catch {} try { window.dispatchEvent(new Event('tsumugi-tabbar-change')); } catch {} }} className="mt-1 accent-blue-600"/>
+                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表・今日の記録・連絡帳・メニューを下に置きます。外すと左上の3本線に戻ります。iPad・パソコンは変わりません。</TsuHint></span>
+              </label>
               <label className="flex items-start gap-2 cursor-pointer">
                 <input type="checkbox" defaultChecked={isAutoFullscreenOn()} onChange={e=>{ try { localStorage.setItem(AUTO_FS_KEY, e.target.checked ? '1' : '0'); } catch {} }} className="mt-1 accent-blue-600"/>
                 <span className="text-sm text-slate-700"><b>ログイン後に担当者を選んだら自動で全画面にする（この端末だけ・パソコン向け）</b> <TsuHint className="ml-1">タブ・URL欄を隠して広く使えます（Escで戻ります）。iPad・iPhoneは「ホーム画面に追加」から開くと全画面になります。</TsuHint></span>
