@@ -12060,15 +12060,16 @@ function TsuPhonePin({ children, testId, z = 30, on = true }) {
   if (!isPhone || !on) return children;
   return (<>
     <div aria-hidden="true" data-pin-spacer="1" style={{ height: h }} />
-    <div ref={ref} data-testid={testId} className="tsu-pin" style={{ position: 'fixed', top: 47, left: 0, right: 0, zIndex: z }}>{children}</div>
+    <div ref={ref} data-testid={testId} className="tsu-pin" style={{ position: 'fixed', top: 'var(--tsu-pin-top, 47px)', left: 0, right: 0, zIndex: z }}>{children}</div>{/* ★ trial540: 見出しを消す画面(html.tsu-nohdr)は 0 */}
   </>);
 }
-function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true, below = null }) {
+function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true, below = null, sheet = false }) {
+  // ★ 2026-11-10 trial540(ユーザー「上部に固定されているものが大きすぎる」): sheet=true なら「操作」の中身を下に押し広げず、下から出る小窓(下のバーの上)に出す。開閉は覚えない
   const isPhone = useTsuIsPhone();
-  const [open, setOpen] = React.useState(() => { try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
+  const [open, setOpen] = React.useState(() => { if (sheet) return false; try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
   const foldRef = React.useRef(null); // ★ 2026-10-08: フックは必ず早期 return より前(向きを変えてスマホ幅⇔それ以外が切り替わると「フックの数が違う」エラーで画面が落ちていた)
   if (!isPhone) return children;
-  const tog = () => { setOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} return nv; }); };
+  const tog = () => { setOpen(v => { const nv = !v; if (!sheet) { try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} } return nv; }); };
   const _inner = (
     <div ref={foldRef} data-testid={`fold-${storageKey}`} className={`bg-white border-b border-slate-200 shadow-sm ${className}`}>
       <div className="flex items-center gap-1.5 px-2 py-1.5" style={{minHeight:48}}>
@@ -12079,7 +12080,11 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
         </button>
       </div>
       {/* 閉じているときも中身は消さずに高さ0で隠す(中にある確認の小窓=画面全体に出る窓 が開けなくならないように) */}
-      <div data-testid={`fold-body-${storageKey}`} data-open={open ? '1' : '0'} aria-hidden={!open} className={open ? 'border-t border-slate-200' : ''} style={open ? undefined : { height: 0, overflow: 'hidden' }}>{children}</div>
+      {sheet && open && <div data-testid={`fold-sheet-back-${storageKey}`} className="tsu-fold-sheet-back" onClick={tog} aria-hidden="true" />}
+      <div data-testid={`fold-body-${storageKey}`} data-open={open ? '1' : '0'} aria-hidden={!open} className={open ? (sheet ? 'tsu-fold-sheet' : 'border-t border-slate-200') : ''} style={open ? undefined : { height: 0, overflow: 'hidden' }}>
+        {sheet && open && <div className="tsu-fold-sheet-head"><span>操作</span><button type="button" data-testid={`fold-sheet-close-${storageKey}`} onClick={tog} aria-label="閉じる"><X size={20} /></button></div>}
+        {children}
+      </div>
       {/* ★ 2026-10-28: 帯のすぐ下に重ねて出す行(提供記録の「印」など)。帯の高さは変えない(下の表・カードの位置が動かない) */}
       {below ? <div className="relative" style={{ height: 0 }}><div className="absolute left-0 right-0 top-0">{below}</div></div> : null}
     </div>
@@ -12170,6 +12175,68 @@ function SidebarGroup({ icon, label, activeChild, children }) {
       {open && <div className="mt-1 ml-4 pl-2 border-l border-slate-700 space-y-1">{children}</div>}
     </div>
   );
+}
+
+// ★ 2026-11-10 trial536(ユーザー要望「スマホで左上の3本線が右手で操作しづらい。d払い・マクドナルド・Yahoo・乗換案内・Netflix のように下の中央に主要ボタンを」):
+//   スマホ幅(767px まで)は画面の下に5つのバー(ホーム・送迎表／日誌・提供記録・連絡帳・メニュー)。
+//   ★ trial541(ユーザー「今日の記録だけ突出している・提供記録に名前を変える」): 真ん中も他と同じ形(丸く大きくしない)
+//   「メニュー」は下から全画面で今のサイドバーの項目を全部出す。iPad・PC は左のサイドバーのまま。
+//   この端末だけ切れる(各種設定 → システム → この端末の表示)。切ると左上の3本線に戻る。
+const TSU_TABBAR_KEY = 'tsumugiPhoneTabBar';
+const tsuTabBarOn = () => { try { return localStorage.getItem(TSU_TABBAR_KEY) !== '0'; } catch { return true; } };
+// 文字を打っている間(iPhone はキーボードの上に固定の帯が浮いて邪魔)と、重なる小窓(tsu-back-lock)が出ている間は隠す
+function useTsuTabBarHidden() {
+  const [hide, setHide] = React.useState(false);
+  React.useEffect(() => {
+    const typing = () => { const el = document.activeElement; if (!el) return false; const tag = (el.tagName || '').toUpperCase(); if (tag === 'TEXTAREA' || tag === 'SELECT') return true; if (tag === 'INPUT') { const t = String(el.type || 'text').toLowerCase(); return !['checkbox', 'radio', 'button', 'submit', 'range', 'file', 'color'].includes(t); } return !!el.isContentEditable; };
+    let tm = null; const upd = () => { clearTimeout(tm); tm = setTimeout(() => setHide(typing()), 120); };
+    document.addEventListener('focusin', upd); document.addEventListener('focusout', upd);
+    return () => { clearTimeout(tm); document.removeEventListener('focusin', upd); document.removeEventListener('focusout', upd); };
+  }, []);
+  return hide;
+}
+function TsuPhoneTabBar({ items, hidden }) {
+  const typing = useTsuTabBarHidden();
+  return (
+    <nav data-testid="tsu-tabbar" className={`tsu-tabbar no-print ${(hidden || typing) ? 'tsu-tabbar-hide' : ''}`} aria-label="画面の切り替え">
+      {items.map(it => (
+        <button key={it.key} type="button" data-testid={`tsu-tab-${it.key}`} onClick={it.onClick} className={`${it.center ? 'tsu-tab-center' : ''} ${it.active ? 'on' : ''}`} aria-current={it.active ? 'page' : undefined}>
+          <span className="ico">{it.icon}</span>
+          <span className="lbl">{it.label}</span>
+          {it.badge != null && it.badge > 0 && <span className="tsu-tab-badge" data-testid={`tsu-tab-${it.key}-badge`}>{it.badge > 99 ? '99+' : it.badge}</span>}
+        </button>
+      ))}
+    </nav>
+  );
+}
+// 「メニュー」: 下から全画面。グループごとに四角い札を並べる(サイドバーと同じ項目・同じ出し分け)
+function TsuPhoneMenu({ open, onClose, groups, footer }) {
+  React.useEffect(() => { if (!open) return; const h = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
+  if (!open) return null;
+  return ReactDOM.createPortal(
+    <div data-testid="tsu-phone-menu" className="tsu-phone-menu no-print" role="dialog" aria-modal="true" aria-label="メニュー">
+      <div className="tsu-phone-menu-head">
+        <button type="button" data-testid="tsu-phone-menu-close" onClick={onClose} aria-label="閉じる"><X size={22} /></button>
+        <div className="ttl">メニュー</div>
+      </div>
+      <div className="tsu-phone-menu-body">
+        {groups.filter(g => g.items.length).map(g => (
+          <section key={g.key} className="tsu-phone-menu-group">
+            <div className="gl">{g.label}</div>
+            <div className="tiles">
+              {g.items.map(it => (
+                <button key={it.key} type="button" data-testid={`tsu-menu-${it.key}`} onClick={() => { onClose(); it.onClick(); }} className={it.active ? 'on' : ''}>
+                  <span className="ico">{it.icon}</span>
+                  <span className="lbl">{it.label}</span>
+                  {it.badge != null && it.badge > 0 && <span className="tsu-tab-badge">{it.badge > 99 ? '99+' : it.badge}</span>}
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+        {footer}
+      </div>
+    </div>, document.body);
 }
 
 // === 新規アカウント登録完了画面 (URL ?signup=... でアクセス) ===
@@ -13071,11 +13138,13 @@ const ABS_CAT_KEYWORDS = {
 //   作り直す → タップ中のボタンが破棄されてクリック不発・添付サムネイルが読込やり直しでチカチカしていた。
 const DashCard = ({children, style}) => <div style={{background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',padding:16,...style}}>{children}</div>;
 // ★ DashTileはコンパクト化(2026-08-21): ホーム全体が1画面に収まりやすいサイズへ縮小
-const DashTile = ({icon, label, sub, color, view, navigateTo}) => (
-  <button onClick={()=>{ tsuUseCount('home', view); navigateTo(view); }} data-testid={`dash-tile-${view}`} style={{background:'white',border:'1px solid #e2e8f0',borderRadius:12,padding:'8px 6px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:4,textAlign:'center',transition:'all .12s'}}
-    onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,0.1)';e.currentTarget.style.transform='translateY(-2px)';}}
+// ★ 2026-11-10 trial537(ユーザー「ホームの札とメニューの色合いは合わせた方がいい」): 札ごとの色(青・紫・桃など)をやめ、メニュー(TsuPhoneMenu)と同じ
+//   白い札＋薄い緑の四角に緑の絵、に統一(color は受け取るが使わない。店の色方針=緑とオレンジ)
+const DashTile = ({icon, label, sub, color, view, navigateTo}) => ( // eslint-disable-line no-unused-vars
+  <button onClick={()=>{ tsuUseCount('home', view); navigateTo(view); }} data-testid={`dash-tile-${view}`} className="tsu-tile" style={{background:'white',border:'1px solid #e2e8f0',borderRadius:14,padding:'10px 6px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,textAlign:'center',transition:'all .12s'}}
+    onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,0.08)';e.currentTarget.style.transform='translateY(-2px)';}}
     onMouseLeave={e=>{e.currentTarget.style.boxShadow='none';e.currentTarget.style.transform='none';}}>
-    <div style={{width:34,height:34,borderRadius:10,background:color,display:'flex',alignItems:'center',justifyContent:'center',color:'white'}}>{icon}</div>
+    <div style={{width:38,height:38,borderRadius:11,background:'#eef6ea',display:'flex',alignItems:'center',justifyContent:'center',color:'#3c8d47'}}>{icon}</div>
     <div style={{fontSize:11.5,fontWeight:'bold',color:'#1e293b',lineHeight:1.3}}>{label}</div>
     {sub && <div style={{fontSize:9,color:'#64748b'}}>{sub}</div>}
   </button>
@@ -22938,6 +23007,29 @@ export default function App() {
   const [meetingFloat, setMeetingFloat] = useState(null);
   const meetingFloatRef = React.useRef(null); meetingFloatRef.current = meetingFloat;
   const [appUpdating, setAppUpdating] = useState(false); // ★ 「今すぐ更新」実行中の表示
+  // ★ 2026-11-10 trial536: スマホの下のバー(この端末の設定で切れる)。設定の切り替えは 'tsumugi-tabbar-change' で受ける
+  const _phoneW = useTsuIsPhone();
+  const [_tabBarTick, _setTabBarTick] = useState(0);
+  React.useEffect(() => { const h = () => _setTabBarTick(t => t + 1); window.addEventListener('tsumugi-tabbar-change', h); const iv = setInterval(h, 5 * 60 * 1000); /* ★ trial539: 午前→午後の切り替わり(12:30)で印を数え直す */ return () => { window.removeEventListener('tsumugi-tabbar-change', h); clearInterval(iv); }; }, []);
+  const _tabBarOn = _phoneW && tsuTabBarOn(); // _tabBarTick が変わるたびに描き直されて読み直す
+  React.useEffect(() => { try { document.documentElement.classList.toggle('tsu-tabbar-on', !!_tabBarOn); } catch {} return () => { try { document.documentElement.classList.remove('tsu-tabbar-on'); } catch {} }; }, [_tabBarOn, _tabBarTick]);
+  // ★ trial540: スマホで下のバーを使い提供記録を開いているときは、上の見出し(日付の行)を出さない(日付は操作の段にある)。帯は画面の上端から
+  React.useEffect(() => { const on = !!_tabBarOn && currentView === 'record'; try { document.documentElement.classList.toggle('tsu-nohdr', on); } catch {} return () => { try { document.documentElement.classList.remove('tsu-nohdr'); } catch {} }; }, [_tabBarOn, _tabBarTick, currentView]);
+  const [_phoneMenuOpen, _setPhoneMenuOpen] = useState(false);
+  React.useEffect(() => { if (!_tabBarOn) _setPhoneMenuOpen(false); }, [_tabBarOn]);
+  // 下のバー「提供記録」の印: 今日来る予定(基本利用日)で、まだ提供記録が1件も無い方の数。休業日・定休日は0。午前/午後は今の時刻で切り替え(trial539)
+  const _recTodayMissing = React.useMemo(() => {
+    try {
+      const t = new Date(); const iso = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; const dow = t.getDay();
+      const closed = ((appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow)) || ((appData.holidays||[]).some(h => (h && (h.date||h)) === iso && (!h.ampm || h.ampm === '1日')));
+      if (closed) return 0;
+      const dateJp = `${t.getMonth()+1}月${t.getDate()}日`;
+      const done = new Set((appData.ticketRecords||[]).filter(r => r && r.date === dateJp && String(r.year ?? t.getFullYear()) === String(t.getFullYear())).map(r => String(r.patientId)));
+      // ★ trial539(ユーザー「今日の記録のバッジも午前と午後で分けたほうがいい」): 今の時間帯(12:30 までは午前・それ以降は午後)に来る方だけ数える(1日の方は両方)
+      const cur = (t.getHours() * 60 + t.getMinutes()) < 12 * 60 + 30 ? 'AM' : 'PM';
+      return (appData.patients||[]).filter(p => { if (!isPatientListable(p) || p.status !== '利用中' || done.has(String(p.id))) return false; const sl = (getScheduleOnDate(p, iso) || {})[dow] || ''; return sl === cur || sl === '1日'; }).length;
+    } catch { return 0; }
+  }, [appData.patients, appData.ticketRecords, appData.holidays, appData.systemSettings?.facilityInfo?.closedDays, _tabBarTick]);
   // ★ サイドバー「日誌」バッジ(2026-08-31 店舗要望): 今日のAM/PMが未完了(未入力or未確認あり)なら1を表示。休業日・定休日は出さない
   const diaryTodayBadge = React.useMemo(() => {
     try {
@@ -25648,7 +25740,8 @@ export default function App() {
       <div id="appMainArea" className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative min-w-0">
           <header key={`hdr${_hdrKey}`} className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0">
             <div className="flex items-center min-w-0 flex-1">
-              <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>
+              {/* ★ 2026-11-10 trial536: スマホで下のバーを使っている間は左上の3本線を出さない(メニューは下の「メニュー」から) */}
+              {!_tabBarOn && <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>}
               <h1 className="text-base md:text-lg font-bold text-slate-700 truncate whitespace-nowrap">
                 {currentView === 'dashboard' ? 'ホーム' :
                  currentView === 'record' ? <span data-testid="hdr-record-title">{/* ★ 2026-10-28(ユーザー要望「スマホは『2026年10月…』と切れる。画面を見ればサービス提供記録と分かるので日付だけで」) */}<span className="hidden sm:inline">サービス提供記録 入力　</span>{formatDateDisplay(selectedDate)}</span> :
@@ -25814,6 +25907,68 @@ export default function App() {
              <div className="flex h-full items-center justify-center text-slate-400 font-bold">開発中</div>}
             </KeikakuFrame>
           </div></div></main>
+      {/* ★ 2026-11-10 trial536: スマホの下のバー + 「メニュー」(下から全画面)。項目と出し分けは左のサイドバーと同じ */}
+      {_tabBarOn && (() => {
+        const go = (v, ...a) => { try { tsuUseCount('tab', v); } catch {} _setPhoneMenuOpen(false); setIsSidebarOpen(false); navigateTo(v, ...a); };
+        const item = (key, label, icon, opts = {}) => ({ key, label, icon, onClick: () => go(opts.to || key), active: (opts.views || [key]).includes(currentView), badge: opts.badge || null });
+        const ss = appData.systemSettings || {};
+        const fitnessOn = !(ss.fitnessCycle?.disabled || ss.fitnessCycle?.unit === '実施しない');
+        const groups = [
+          { key: 'daily', label: '毎日', items: [
+            item('dashboard', 'ホーム', <CalendarCheck size={22} />, { badge: _homeUnreadCount }),
+            tsumugiSideShown(appData, 'schedule') && item('schedule', 'カレンダー', <CalendarRange size={22} />),
+            item('record', '提供記録', <ClipboardList size={22} />, { badge: _recTodayMissing }),
+            item('print', '連絡帳', <Printer size={22} />),
+            item('diary', '日誌', <PenTool size={22} />, { badge: diaryTodayBadge }),
+            tsumugiTransportOn(appData) && item('transport', '送迎表', <Car size={22} />),
+            fitnessOn && item('fitness', '体力測定', <Activity size={22} />),
+          ].filter(Boolean) },
+          { key: 'contact', label: '連絡', items: [
+            tsumugiSideShown(appData, 'absence_fax') && item('absence_fax', '休み連絡', <FileText size={22} />),
+            tsumugiSideShown(appData, 'general_fax') && item('general_fax', '各種連絡', <FileText size={22} />),
+            tsumugiSideShown(appData, 'family_admin') && item('family_admin', 'お知らせ・閲覧', <QrCode size={22} />),
+            tsumugiSideShown(appData, 'emergency') && item('emergency', '災害時', <AlertTriangle size={22} />),
+          ].filter(Boolean) },
+          { key: 'plan', label: '計画書・実績', items: [
+            hasAddon(appData, 'tsusho_keikaku') && item('keikaku_yotei', '通所介護計画書', <FileText size={22} />, { views: ['keikaku_yotei', 'tsusho_keikaku'], badge: _dueCounts.tsusho }),
+            (hasAddon(appData, 'kinou_keikaku') || hasAnyLifeAddon(appData)) && item('kinou_yotei', '機能訓練・LIFE', <Activity size={22} />, { views: ['kinou_yotei', 'kinou_keikaku', 'seikatsu_kinou', 'kyomi_kanshin', 'life_hub', 'life_submit', 'kinou_patient'], badge: _dueCounts.kinou }),
+            tsumugiSideShown(appData, 'monitoring') && item('monitoring', 'モニタリング', <ClipboardList size={22} />),
+            tsumugiSideShown(appData, 'roster') && item('roster', '勤務表', <Users size={22} />),
+            tsumugiSideShown(appData, 'jisseki') && item('jisseki', '利用者実績', <ClipboardList size={22} />),
+            tsumugiSideShown(appData, 'class_roster') && item('class_roster', 'クラス在籍表', <Users size={22} />),
+          ].filter(Boolean) },
+          { key: 'manage', label: '管理', items: [
+            item('master', '利用者', <Users size={22} />, { views: ['master', 'ticket'] }),
+            item('cmmaster', 'ケアマネ', <Briefcase size={22} />),
+            tsumugiSideShown(appData, 'dash_personal') && item('dash_personal', '分析（個人）', <BarChart3 size={22} />),
+            tsumugiSideShown(appData, 'dash_operation') && item('dash_operation', '分析（稼働）', <TrendingUp size={22} />),
+            item('settings', '各種設定', <Settings size={22} />),
+          ].filter(Boolean) },
+        ];
+        // 下のバー: ホーム / 送迎表(使わない店は日誌) / 提供記録 / 連絡帳 / メニュー (trial541: 真ん中も同じ形・名前は「提供記録」)
+        const second = tsumugiTransportOn(appData) ? item('transport', '送迎表', <Car size={24} />) : item('diary', '日誌', <PenTool size={24} />, { badge: diaryTodayBadge });
+        const tabs = [
+          item('dashboard', 'ホーム', <CalendarCheck size={24} />, { badge: _homeUnreadCount }),
+          second,
+          item('record', '提供記録', <ClipboardList size={24} />, { badge: _recTodayMissing }),
+          item('print', '連絡帳', <Printer size={24} />),
+          { key: 'menu', label: 'メニュー', icon: <Menu size={24} />, active: _phoneMenuOpen, onClick: () => _setPhoneMenuOpen(v => !v) },
+        ];
+        const footer = (
+          <div className="tsu-phone-menu-foot">
+            {activeRecorder && isMemberAdmin(activeRecorder, appData.systemSettings) && (
+              <button type="button" onClick={() => { _setPhoneMenuOpen(false); setBugReport({ desc: '', sending: false, sent: false, err: '' }); }}>不具合を運営に報告</button>
+            )}
+            <button type="button" onClick={() => { _setPhoneMenuOpen(false); setStaffPolicyView('office'); }}>利用規約・同意ポリシー</button>
+            <button type="button" data-testid="tsu-phone-menu-sidebar" onClick={() => { _setPhoneMenuOpen(false); setIsSidebarOpen(true); }}>元のメニュー（左のサイドバー）を開く</button>
+            <div className="ver">アプリ版: {__builtUpdateNotes?.version || '-'}</div>
+          </div>
+        );
+        return (<>
+          <TsuPhoneTabBar items={tabs} hidden={isSidebarOpen} />
+          <TsuPhoneMenu open={_phoneMenuOpen} onClose={() => _setPhoneMenuOpen(false)} groups={groups} footer={footer} />
+        </>);
+      })()}
       {/* ★ サイドバーのスタッフ追加モーダル */}
       {staffAddModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">{/* ★ 外側タップでは閉じない 2026-09-27 */}
@@ -27381,11 +27536,19 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-10-27(ユーザー報告「縦表示で利用者をタップしてサイドバーを開くとバグった感じ」・決定「サイドバーを押したら一覧は閉じる」): 一覧(z 9000)がサイドバーの上に残っていた
   React.useEffect(() => { if (isSidebarOpen) setRecJump(null); }, [isSidebarOpen]);
   const [recFlash, setRecFlash] = useState(null);
+  // ★ 2026-11-10 trial538(ユーザー「スマホの提供記録入力は1画面に1人しか見えないのは使い勝手が悪そう」): スマホのカードは1人1行にたたみ、
+  //   押した人だけ広げる(開くのは1人)。広げた中の運動は「いつも通り」で○を入れてたたむ。「次の方」で順に進む
+  const [recOpenId, setRecOpenId] = useState(null);
+  // ★ trial541(ユーザー「常にたたむか常に開いておくかを操作のところで選べれば」): この端末の表示 'one'=押した人だけ広げる(既定) / 'all'=全員広げたまま
+  const [recCardMode, _setRecCardMode] = useState(() => { try { return localStorage.getItem('tsuRecCardMode') === 'all' ? 'all' : 'one'; } catch { return 'one'; } });
+  const setRecCardMode = (m) => { _setRecCardMode(m); try { localStorage.setItem('tsuRecCardMode', m); } catch {} if (m === 'all') setRecOpenId(null); };
+  const [recExFold, setRecExFold] = useState({}); // pid -> true(たたむ)/false(開く)。未指定なら運動が全部入っていればたたむ
   const _recKana = (t) => String(t || '').replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60)).replace(/[\s　]/g, '');
   // ★ 2026-10-28(ユーザー要望「スマホの全画面でも利用者を選べるボタンを」): 全画面のときは全画面の帯の下から出す
   const openRecJump = () => { const pin = document.querySelector(isFullscreen ? '[data-testid="rec-fs-bar"]' : '.tsu-pin'); const top = pin ? Math.round(pin.getBoundingClientRect().bottom) : 96; setRecJump(v => v ? null : { top, q: '' }); };
   const jumpToRecCard = (id) => {
     setRecJump(null);
+    setRecOpenId(id); // ★ trial538: スマホはその人のカードを広げる
     setTimeout(() => {
       tsuBackLockRescan(); // ★ 2026-10-28: 一覧が閉じたら背面止めをすぐ外してから動かす
       const el = document.querySelector(`[data-rec-card="${id}"]`); if (!el) return;
@@ -28098,7 +28261,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       } : {}),
     }}>
       {!isFullscreen ? (
-      <TsuPhoneFold storageKey="record" below={_rvMarks.length > 0 ? (
+      <TsuPhoneFold storageKey="record" sheet below={_rvMarks.length > 0 ? (
         // ★ 2026-10-28 夜(ユーザー指示「スマホの印の帯を上へ」): 左下に浮かべるとカードの一言・マイクに重なっていた → 上の帯のすぐ下に重ねて細い1行(印があるときだけ・表は動かない)
         <div data-testid="rv-marks-bar-phone" className="no-print flex items-center gap-2 px-2 py-1 bg-yellow-50 border-b border-yellow-300 shadow-md text-[14px] font-bold text-yellow-900">
           <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>
@@ -28262,6 +28425,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
               <button onClick={()=>handleSaveClick(false)} className={`hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-2 ${_iconBar ? 'sm:px-3' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-transform active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Save, '保存') : '保存'}</button>
             </div>
+            {/* ★ trial541: スマホの一覧の出し方(この端末だけ) */}
+            {filterMode === 'single' && <div data-testid="rec-cardmode" className="w-full sm:hidden flex items-center gap-2 pt-1.5 mt-0.5 border-t border-slate-100">
+              <span className="text-[12px] font-bold text-slate-500 whitespace-nowrap">一覧の出し方</span>
+              <div className="flex rounded-lg overflow-hidden border border-slate-300 ml-auto">
+                {[['one','押した人だけ広げる'],['all','全員広げたまま']].map(([v,l]) => <button key={v} type="button" data-testid={`rec-cardmode-${v}`} onClick={() => setRecCardMode(v)} className={`h-9 px-3 text-[13px] font-bold ${recCardMode === v ? 'bg-slate-700 text-white' : 'bg-white text-slate-600'}`}>{l}</button>)}
+              </div>
+            </div>}
       </div>
       {_vitalPanel}
       </>
@@ -28463,7 +28633,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           </div>
         )}
         {/* ★ スマホ用カード表示 (md未満)。 PC/iPad は下のテーブル。 横長の表をスマホで縦カードに */}
-        <div className={searchActive ? 'hidden' : 'md:hidden p-2 space-y-3 tsu-rv-cards'} onPointerDownCapture={_rvTapRow}>
+        <div className={searchActive ? 'hidden' : `md:hidden p-2 space-y-3 tsu-rv-cards ${recCardMode === 'all' ? 'tsu-rv-all' : ''}`} onPointerDownCapture={_rvTapRow}>
           {displayRecords.length===0 && <div className="text-center text-slate-400 font-bold py-8">対象の利用者がいません</div>}
           {displayRecords.map((p) => {
             const masterData = (appData.patients||[]).find(pt => pt.id === p.patientId || pt.id === p.id || pt.name === p.name) || {};
@@ -28482,13 +28652,35 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             const vT = p[`temp_${tf}`]||'';
             const vBuSt=p[`bpUpSt_${tf}`]||'', vBdSt=p[`bpDnSt_${tf}`]||'';
             const vBuEn=p[`bpUpEn_${tf}`]||'', vBdEn=p[`bpDnEn_${tf}`]||'';
+            // ★ trial538: 運動の入力状況(個別運動以外)。「いつも通り」= 基準値がある項目に○(一括○と同じ決め方)
+            const _exMain = exItems.filter(it => it.type !== 'individual');
+            const _exVal = (it) => { const v = p.exercises?.[it.id]; return String((typeof v === 'object' ? (v && v.value) : v) ?? '').trim(); };
+            const _exFilled = _exMain.filter(it => _exVal(it) !== '').length;
+            const _exAllFilled = _exMain.length > 0 && _exFilled === _exMain.length;
+            const _exFolded = recExFold[p.id] != null ? recExFold[p.id] : _exAllFilled;
+            const _fillUsual = () => { let n = 0; _exMain.forEach(it => { if (_exVal(it) !== '') return; const b = String(_exBaselineOf(p.id, it.id) || '').trim(); if (/^[ー\-－×✕xX]+$/.test(b)) return; if (it.type !== 'toggle' && !/[0-9０-９]/.test(b)) return; updateExercise(p.id, it.id, '○'); n++; }); setRecExFold(f => ({ ...f, [p.id]: true })); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: n ? `運動 ${n}項目に○を入れました` : '○を入れる項目がありません（基準値なし）' } })); } catch {} };
+            const _idx = displayRecords.indexOf(p); const _next = displayRecords[_idx + 1] || null;
+            // ★ trial538: たたんだ1行(開いていない人)。状態・体温・血圧・運動の入り具合を1行に
+            if (recCardMode !== 'all' && recOpenId !== p.id) {
+              const _sum = []; if (vT) _sum.push(`${vT}℃`); if (vBuSt || vBdSt) _sum.push(`${vBuSt}${vBdSt ? `/${vBdSt}` : ''}`); if (_exMain.length) _sum.push(`運動 ${_exFilled}/${_exMain.length}`); if (p.tokki) _sum.push('特記');
+              const _empty = !isAbsent && !isPause && !vT && !(vBuSt || vBdSt) && _exFilled === 0 && !p.tokki;
+              return (
+                <button type="button" key={`m-${p.id}`} data-rec-card={p.id} data-testid={`rv-crow-${p.id}`} data-rv-mark={_rvMarks.includes(p.id) ? '1' : undefined} onClick={() => setRecOpenId(p.id)}
+                  className={`tsu-rv-row ${isAbsent || isPause ? 'is-off' : ''} ${recFlash === p.id ? 'ring-4 ring-amber-400' : ''}`}>
+                  <span className={`st ${config.lightColor} ${config.textColor}`}>{p.status || '出席'}</span>
+                  <span className="nm">{p.name}</span>
+                  <span className={`sm ${_empty ? 'is-empty' : ''}`}>{isAbsent || isPause ? (p.tokki || '') : (_empty ? '未入力' : _sum.join('・'))}</span>
+                  <ChevronDown size={18} className="shrink-0 text-slate-400" />
+                </button>
+              );
+            }
             return (
               <div key={`m-${p.id}`} data-rec-card={p.id} data-rv-mark={_rvMarks.includes(p.id) ? '1' : undefined} className={`bg-white rounded-xl border-2 shadow-sm p-3 transition-shadow ${isAbsent||isPause?'border-slate-200 opacity-70':'border-slate-300'} ${recFlash===p.id?'ring-4 ring-amber-400':''}`}>
                 <div className="flex items-center justify-between gap-2 mb-2.5">
                   <button {..._rvLpHandlers(p.id)} onClick={_rvLpClick(()=>setPatientInfoModal(masterData))} data-testid={`rv-cname-${p.id}`} style={{WebkitUserSelect:'none',userSelect:'none',WebkitTouchCallout:'none'}} className="font-bold text-base text-slate-800 flex items-center gap-1 min-w-0"><span className="truncate">{p.name}</span><span className="text-[10px] text-blue-500 shrink-0">ⓘ</span></button>
                   <button type="button" onClick={()=>setZoomPid(p.id)} title="この方だけを大きな文字で入力します" className="shrink-0 text-teal-600 hover:text-teal-800 bg-teal-50 border border-teal-200 rounded-md p-1.5" style={{lineHeight:0}}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.6" y1="15.6" x2="21" y2="21"/><line x1="10.5" y1="8" x2="10.5" y2="13"/><line x1="8" y1="10.5" x2="13" y2="10.5"/></svg></button>
                   {isReadOnly||isPause ? <span className={`px-3 py-1.5 rounded-lg text-sm font-bold ${config.lightColor} ${config.textColor}`}>{p.status||'出席'}</span>
-                    : <select value={p.status||'出席'} onChange={e=>handleStatusChange(p.id,e.target.value)} className={`px-2 py-1.5 rounded-lg text-sm font-bold border-0 shadow-sm outline-none ${config.lightColor} ${config.textColor} ring-1 ring-inset ${config.ring}`}>{(()=>{
+                    : <select value={p.status||'出席'} onChange={e=>handleStatusChange(p.id,e.target.value)} className={`px-2 py-1.5 rounded-lg text-sm font-bold border-0 shadow-sm outline-none ${config.lightColor} ${config.textColor} ring-1 ring-inset ${config.ring}`} style={{maxWidth:'7.5rem'}}>{(()=>{
                         if (p.status==='振替') return (<><option value="振替">振替</option><option value="取り消し">取り消し</option></>);
                         const _dowSel = new Date(selectedDate).getDay();
                         const _baseSel = getScheduleOnDate(p, selectedDate)?.[_dowSel] || '';
@@ -28504,14 +28696,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         </>);
                       })()}</select>}
                 </div>
-                {_kibunOn && <div className={`grid ${_kibunBoth ? 'grid-cols-2' : 'grid-cols-1'} gap-2 mb-2`}>
+                {_kibunOn && <div className={`grid ${_kibunBoth ? 'grid-cols-2' : 'grid-cols-1'} gap-2 mb-2 tsu-rv-kibun`}>
                   {_kibunTimings.map(t=>{ const mo=KIBUN_MOODS.find(m=>m.key===p[t==='arrival'?'kibunArrival':'kibunDeparture']); return (
                     <button key={t} disabled={dis} onClick={()=>openKibunModal(p.id,t)} className={`rounded-lg py-2 flex items-center justify-center gap-2 disabled:opacity-40 ${mo?mo.color+' font-bold':'bg-slate-100 text-slate-400'}`}>
                       <span className="text-xs font-bold text-slate-700">{t==='arrival'?'通所':'帰宅'}</span><span className="text-2xl leading-none">{mo?mo.emoji:'＋'}</span>
                     </button>
                   );})}
                 </div>}
-                <div className="grid grid-cols-3 gap-2 mb-2">
+                <div className="grid grid-cols-3 gap-2 mb-2 tsu-rv-vit">{/* ★ trial539: スマホは1行に(CSS) */}
                   {(() => { const vPlSt=p[`plSt_${tf}`]||'', vPlEn=p[`plEn_${tf}`]||''; return [
                     ['体温',`temp_${tf}`,vT,getTempColorClass(vT),vT?`${vT}℃`:'＋'],
                     // ★ 血圧の自動スラッシュ表示をやめる(2026-08-10): 上だけ入力の段階では「126」とだけ表示し、
@@ -28548,7 +28740,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 </div>
                 {/* ★ 再測定(2026-09-29): 開始時・終了時それぞれ。今の値は n回目 として残り、入力欄は再測定の値に */}
                 {_reOn && !dis && (
-                  <div className="flex gap-1.5 mb-2">
+                  <div className="flex gap-1.5 mb-2 tsu-rv-re">
                     {['St', ...(_showEn ? ['En'] : [])].map(ph => { const cnt = bpReList(p, tf).filter(e => e.phase === ph).length; return (
                       <div key={ph} className="flex flex-col items-start">
                         <button type="button" data-testid={`bp-re-${ph}-${p.id}`} onClick={()=>applyBpRemeasure(p.id, ph)} className={`text-[11px] font-bold rounded-lg px-2 py-1 border ${cnt ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-slate-300 text-slate-600'}`}>{ph === 'St' ? '開始時' : '終了時'}を再測定{cnt ? `（${cnt}回）` : ''}</button>
@@ -28557,7 +28749,17 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     ); })}
                   </div>
                 )}
-                {!isAbsent && <div className="grid grid-cols-3 gap-1.5">
+                {/* ★ trial538: 運動の見出し行。入り具合・「いつも通り」(基準値のある項目に○)・たたむ/開く */}
+                {!isAbsent && _exMain.length > 0 && (
+                  <div className="tsu-rv-exbar" data-testid={`rv-exbar-${p.id}`}>
+                    <button type="button" onClick={() => setRecExFold(f => ({ ...f, [p.id]: !_exFolded }))} className="tsu-rv-exbar-t" aria-expanded={!_exFolded}>
+                      <span>運動</span><span className={`cnt ${_exAllFilled ? 'ok' : ''}`}>{_exFilled}/{_exMain.length}</span>{_exFolded ? <ChevronDown size={16}/> : <ChevronUp size={16}/>}
+                    </button>
+                    {!dis && !_exAllFilled && <button type="button" data-testid={`rv-usual-${p.id}`} onClick={_fillUsual} className="tsu-rv-usual">いつも通り（○を入れる）</button>}
+                    {_exFolded && _exAllFilled && <span className="text-[12px] text-slate-500">入力済み</span>}
+                  </div>
+                )}
+                {!isAbsent && !_exFolded && <div className="grid grid-cols-3 gap-1.5 tsu-rv-ex" data-testid={`rv-exgrid-${p.id}`}>
                   {exItems.map(item=>{
                     // ★ 2026-10-07(店舗報告「スマホ縦で個別運動を入力しても反映されない」): 個別運動は {itemId,value} の形で保存されるのに、
                     //   このカードは通常の運動と同じ扱い(値がオブジェクトなら空表示)で、種目も選べず、入れた値が表示されなかった。
@@ -28625,7 +28827,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       })()}
                     </button>
                     );})}
-                  {/* ★ 2026-10-22(ユーザー指示「スマホの縦画面でも介護整体が抜けている」): 一覧と同じ吹き出しで担当を選ぶ・実施にする */}
+                </div>}
+                {/* ★ 2026-10-22(ユーザー指示「スマホの縦画面でも介護整体が抜けている」): 一覧と同じ吹き出しで担当を選ぶ・実施にする
+                    ★ trial538: 運動をたたんでも見えるよう、運動の枠の外(別の段)に */}
+                {!isAbsent && <div className="grid grid-cols-3 gap-1.5 mt-1.5 tsu-rv-ex">
                   {(() => { const _mmOpen = massageMenu && massageMenu.recId === p.id; return (
                     <button key="__massage" type="button" disabled={dis} data-testid={`m-massage-${p.id}`}
                       onClick={(e)=>{ e.stopPropagation(); if (_mmOpen) { setMassageMenu(null); return; } const r0=e.currentTarget.getBoundingClientRect(); setMassageMenu({ pid: p.patientId || p.id, recId:p.id, cx:Math.min(Math.max(r0.left+r0.width/2, 100), (window.innerWidth||400) - 100), cy:r0.top, cyB:r0.bottom, view: p.massage ? 'main' : 'pick' }); }}
@@ -28642,6 +28847,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   {!isReadOnly && !isAbsent && !isPause && !appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-ctokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-11 h-11" size={20}/>}
                   <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="flex-1 min-w-0 h-11 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
                 </div>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX} c={TOKKI_NL_C}/></div>}
+                {/* ★ trial538: たたむ / 次の方へ(次の人を広げてそこまで送る) */}
+                {recCardMode !== 'all' && <div className="tsu-rv-foot">
+                  <button type="button" data-testid={`rv-fold-${p.id}`} onClick={() => setRecOpenId(null)}><ChevronUp size={16}/> たたむ</button>
+                  {_next && <button type="button" data-testid={`rv-next-${p.id}`} className="nx" onClick={() => jumpToRecCard(_next.id)}>次の方（{_next.name}） <ChevronRight size={16}/></button>}
+                </div>}
               </div>
             );
           })}
@@ -47361,7 +47571,7 @@ const TSU_SETTINGS_INDEX = [
   ['fitness','体力測定','体力測定 周期 項目 備考 定型文 実施しない'],
   ['keikaku','要支援の計画書の名前','要支援 総合事業 個別サービス計画書 通所型サービス計画 名前'],
   ['addon','アドオン（オプション機能）','アドオン オプション 計画書 加算 LIFE 興味関心 生活機能'],
-  ['system','この端末の表示','表示 全画面 文字 大きさ 自動 この端末'],
+  ['system','この端末の表示','表示 全画面 文字 大きさ 自動 この端末 下のバー メニュー スマホ 3本線'],
   ['system','この端末の名前・最終更新','端末名 端末の名前 最終更新 同期 iPad パソコン'],
   ['system','この端末の通知','通知 プッシュ お知らせ 担当者会議 予定 ホーム画面 テスト通知'],
   ['system','予定のお知らせ（店舗の設定）','通知 予定 前日 30分前 ラベル 担当者会議 契約 見学 夜'],
@@ -50048,6 +50258,11 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                   ))}
                 </div>
               </div>
+              {/* ★ 2026-11-10 trial536: スマホの下のバー(この端末だけ) */}
+              <label className="flex items-start gap-2 cursor-pointer mb-3" data-testid="tabbar-setting">
+                <input type="checkbox" data-testid="tabbar-toggle" defaultChecked={tsuTabBarOn()} onChange={e=>{ try { localStorage.setItem(TSU_TABBAR_KEY, e.target.checked ? '1' : '0'); } catch {} try { window.dispatchEvent(new Event('tsumugi-tabbar-change')); } catch {} }} className="mt-1 accent-blue-600"/>
+                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表・提供記録・連絡帳・メニューを下に置きます。外すと左上の3本線に戻ります。iPad・パソコンは変わりません。</TsuHint></span>
+              </label>
               <label className="flex items-start gap-2 cursor-pointer">
                 <input type="checkbox" defaultChecked={isAutoFullscreenOn()} onChange={e=>{ try { localStorage.setItem(AUTO_FS_KEY, e.target.checked ? '1' : '0'); } catch {} }} className="mt-1 accent-blue-600"/>
                 <span className="text-sm text-slate-700"><b>ログイン後に担当者を選んだら自動で全画面にする（この端末だけ・パソコン向け）</b> <TsuHint className="ml-1">タブ・URL欄を隠して広く使えます（Escで戻ります）。iPad・iPhoneは「ホーム画面に追加」から開くと全画面になります。</TsuHint></span>
