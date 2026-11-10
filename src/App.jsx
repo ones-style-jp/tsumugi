@@ -19931,7 +19931,7 @@ const HQ_GUIDES = [
       '提出年月を選び、「提出ダッシュボード」で「提出可」の人数を確かめる。エラー・未評価の方がいたら、行を押して直す（店舗に直してもらってもよい）。',
       '「算定中の様式をまとめて保存」を押す。様式ごと（事業所番号が2つある店舗は事業所番号ごと）にファイルが保存される。',
       '電子証明書を入れたパソコンで新LIFEにログインする。ファイル名の最後に事業所番号が付いているときは、その番号のアカウントで取り込む。',
-      '新LIFEの「外部データ取込」から、保存したファイルを選んで取り込む。',
+      '新LIFEの「外部データ取込」から、保存したファイルを選んで取り込む。1回の取込に同じ様式のファイルは1つしか入れられない（「同種別のファイルを複数取り込むことはできません」のエラー）。複数の方を出すときは「算定中の様式をまとめて保存」か提出ダッシュボードの「選んだ人だけまとめて保存」で様式ごとに1ファイルにする。1人ずつ出したファイルは、人ごとに回を分けて取り込む。',
       '取込結果にエラーが無ければ完了。エラーがあれば内容を控え、つむぎで直してからもう一度保存・取込する（同じ方・同じ月の分は上書きされる）。',
     ]},
     { h:'電子証明書が選べないとき（Windows）', ordered:true, items:[
@@ -57480,13 +57480,13 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             const oks = items.filter(x => x.ok);
             const run = () => {
               if (!oks.length) { alert('この利用者に提出できる様式がありません（未作成・対象外・エラーのため）。'); return; }
-              const msg = `この利用者の算定中の様式をまとめて保存します。\n` + items.map(x => `・${x.f.label}：${x.ok ? `出す（評価 ${x.dateLabel}）` : (!x.latest ? '出さない（未作成）' : x.vr.skip ? '出さない（対象外: 初月・6か月後ではない）' : `出さない（エラー${x.vr.errors.length}件）`)}`).join('\n') + '\n\nブラウザに「複数のファイルのダウンロード」の確認が出たら「許可」を押してください。';
+              const msg = `この利用者の算定中の様式をまとめて保存します。\n` + items.map(x => `・${x.f.label}：${x.ok ? `出す（評価 ${x.dateLabel}）` : (!x.latest ? '出さない（未作成）' : x.vr.skip ? '出さない（対象外: 初月・6か月後ではない）' : `出さない（エラー${x.vr.errors.length}件）`)}`).join('\n') + '\n\n※ 新LIFEは1回の取込に同じ様式のファイルを1つしか受け付けません。ほかの方の分と一緒に取り込むときは、提出ダッシュボードの「選んだ人だけまとめて保存」で1ファイルにするか、人ごとに回を分けてください。\nブラウザに「複数のファイルのダウンロード」の確認が出たら「許可」を押してください。';
               if (!window.confirm(msg)) return;
               oks.forEach((x, i) => setTimeout(() => lifeDownloadCsv(`${x.f.id}_${x.ym}.csv`, lifeToCsvText(x.f.cols, [x.row], x.f.dataType)), i * 900));
             };
             return (
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap" data-testid="life-person-bundle">
-                <div className="text-sm text-slate-700"><b>この利用者の様式をまとめて保存</b>　出せるもの {oks.length}／{items.length} 様式 <TsuHint className="ml-1">未作成・対象外・エラーの様式は自動で外します。様式ごとに1ファイルずつ保存されます（下の各カードで1つずつ出すのと同じ中身）。</TsuHint></div>
+                <div className="text-sm text-slate-700"><b>この利用者の様式をまとめて保存</b>　出せるもの {oks.length}／{items.length} 様式 <TsuHint className="ml-1">未作成・対象外・エラーの様式は自動で外します。様式ごとに1ファイルずつ保存されます（下の各カードで1つずつ出すのと同じ中身）。新LIFEは1回の取込に同じ様式のファイルを1つしか受け付けないので、複数の方を出すときは提出ダッシュボードでチェックして「選んだ人だけまとめて保存」（様式ごとに1ファイル）を使うか、人ごとに回を分けて取り込んでください。</TsuHint></div>
                 <button type="button" data-testid="life-person-bundle-btn" onClick={run} disabled={!oks.length} className={`px-4 py-2 rounded-lg text-sm font-bold shadow active:scale-95 ${oks.length ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>まとめて保存（{oks.length}様式）</button>
               </div>
             );
