@@ -49,6 +49,10 @@ const openId = () => page.evaluate(() => { const el = document.querySelector('[d
 ok((await openId()) === id0, `1人目を広げた(${id0})`);
 await swipeOn('[data-rv-open]', -180); await page.waitForTimeout(1000);
 ok((await openId()) === id1 && /提供記録/.test(await page.locator('h1').innerText()), `広げた枠の上で左へ → 次の方(${id1})・画面は提供記録のまま`);
+// ★ trial549: 次の方の枠は帯のすぐ下に即座に出る(ガタつきなし)。前の人のたたんだ行は帯の上に隠れている
+const posInfo = await page.evaluate(() => { const pin = document.querySelector('.tsu-pin').getBoundingClientRect(); const el = document.querySelector('[data-rv-open]').getBoundingClientRect(); return { pinB: Math.round(pin.bottom), top: Math.round(el.top) }; });
+ok(posInfo.top >= posInfo.pinB && posInfo.top <= posInfo.pinB + 16, `次の方の枠が帯のすぐ下に出る(帯の下端 ${posInfo.pinB}px・枠の上端 ${posInfo.top}px)`);
+ok(!(await page.locator('[data-rv-open].ring-4').count()), 'オレンジの枠(点滅)は出ない');
 await swipeOn('[data-rv-open]', 180); await page.waitForTimeout(1000);
 ok((await openId()) === id0, '広げた枠の上で右へ → 前の方に戻る');
 await page.screenshot({ path: `${OUT}/rec_person.png` });

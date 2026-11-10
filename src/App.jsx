@@ -27669,9 +27669,25 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _recKana = (t) => String(t || '').replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60)).replace(/[\s　]/g, '');
   // ★ 2026-10-28(ユーザー要望「スマホの全画面でも利用者を選べるボタンを」): 全画面のときは全画面の帯の下から出す
   const openRecJump = () => { const pin = document.querySelector(isFullscreen ? '[data-testid="rec-fs-bar"]' : '.tsu-pin'); const top = pin ? Math.round(pin.getBoundingClientRect().bottom) : 96; setRecJump(v => v ? null : { top, q: '' }); };
-  const jumpToRecCard = (id) => {
+  // ★ trial549(ユーザー「左右にスライドすると画面がガタッと下がってから上がる・前の人が一瞬上に出てずれる・切り替えたらすぐ次の人を」):
+  //   横スワイプ／「次の方」は instant=true。描く前(useLayoutEffect)に、前の人がたたまれた分だけ即座にスクロールして、次の方の枠を同じ位置(帯の下)に出す。
+  //   なめらかスクロール(1.8秒のオレンジの枠も)は使わない。利用者一覧から選ぶときは従来どおり(離れた位置へ滑って移動)
+  const _rvScrollPendRef = React.useRef(null);
+  React.useLayoutEffect(() => {
+    const id = _rvScrollPendRef.current; if (!id || recOpenId !== id) return; _rvScrollPendRef.current = null;
+    try {
+      tsuBackLockRescan();
+      const el = document.querySelector(`[data-rec-card="${id}"]`); if (!el) return;
+      const pin = document.querySelector(isFullscreen ? '[data-testid="rec-fs-bar"]' : '.tsu-pin'); const off = (pin ? pin.getBoundingClientRect().bottom : 96) + 8;
+      let sc = el.parentElement; while (sc && sc !== document.body && sc !== document.documentElement) { const st = getComputedStyle(sc); if (/(auto|scroll)/.test(st.overflowY) && sc.scrollHeight > sc.clientHeight + 1) break; sc = sc.parentElement; }
+      const dy = el.getBoundingClientRect().top - off;
+      if (sc && sc !== document.body && sc !== document.documentElement) sc.scrollTop += dy; else window.scrollBy(0, dy);
+    } catch {}
+  }, [recOpenId]);
+  const jumpToRecCard = (id, opts) => {
     setRecJump(null);
     setRecOpenId(id); // ★ trial538: スマホはその人のカードを広げる
+    if (opts && opts.instant) { _rvScrollPendRef.current = id; return; }
     setTimeout(() => {
       tsuBackLockRescan(); // ★ 2026-10-28: 一覧が閉じたら背面止めをすぐ外してから動かす
       const el = document.querySelector(`[data-rec-card="${id}"]`); if (!el) return;
@@ -28270,7 +28286,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const _in = displayRecords.filter(p => p[_kinouGField] === kinouGroupSel), _out = displayRecords.filter(p => p[_kinouGField] !== kinouGroupSel);
     displayRecords = [..._in, ..._out];
   }
-  _rvSwipeRef.current = (dir) => { if (recCardMode === 'all' || !recOpenId) return false; const i = displayRecords.findIndex(r => r.id === recOpenId); if (i < 0) return false; const nx = displayRecords[i + (dir === 'left' ? 1 : -1)]; if (nx) jumpToRecCard(nx.id); return true; }; // ★ trial548
+  _rvSwipeRef.current = (dir) => { if (recCardMode === 'all' || !recOpenId) return false; const i = displayRecords.findIndex(r => r.id === recOpenId); if (i < 0) return false; const nx = displayRecords[i + (dir === 'left' ? 1 : -1)]; if (nx) jumpToRecCard(nx.id, { instant: true }); return true; }; // ★ trial548・549 instant
   const _kinouEff = (() => { const cnt = {}; _kinouRows.forEach(p => { if (_kinouAbs(p)) return; const v = p[_kinouField]; if (v) cnt[v] = (cnt[v] || 0) + 1; }); const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0]; return top || _kinouList[0] || ''; })();
   const applyKinouAll = (name) => { _kinouRows.forEach(p => { if (_kinouAbs(p)) return; updateRecord(p.id, _kinouField, name); }); };
 
@@ -28974,7 +28990,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 {/* ★ trial538: たたむ / 次の方へ(次の人を広げてそこまで送る) */}
                 {recCardMode !== 'all' && <div className="tsu-rv-foot">
                   <button type="button" data-testid={`rv-fold-${p.id}`} onClick={() => setRecOpenId(null)}><ChevronUp size={16}/> たたむ</button>
-                  {_next && <button type="button" data-testid={`rv-next-${p.id}`} className="nx" onClick={() => jumpToRecCard(_next.id)}>次の方（{_next.name}） <ChevronRight size={16}/></button>}
+                  {_next && <button type="button" data-testid={`rv-next-${p.id}`} className="nx" onClick={() => jumpToRecCard(_next.id, { instant: true })}>次の方（{_next.name}） <ChevronRight size={16}/></button>}
                 </div>}
               </div>
             );
