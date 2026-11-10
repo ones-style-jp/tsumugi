@@ -381,7 +381,7 @@ describe('計画書の自立度をフェイスシートへ反映する(backfillF
   });
 });
 
-import { pushEmptyGuard } from './logic';
+import { pushEmptyGuard, pushShrinkGuard } from './logic';
 describe('クラウドへ書く直前の関所(pushEmptyGuard・2026-11-02 水元店の事故)', () => {
   const cloud = { patients: Array.from({ length: 75 }, (_, i) => ({ id: i + 1 })) };
   it('起動直後の空の状態(利用者0・_sbStoreId なし)は書かない', () => {
@@ -404,5 +404,27 @@ describe('クラウドへ書く直前の関所(pushEmptyGuard・2026-11-02 水�
     expect(pushEmptyGuard('store_a', { _sbStoreId: 'store_b', patients: [{ id: 1 }] }, null).reason).toBe('store-mismatch');
     expect(pushEmptyGuard('store_a', { _sbStoreId: 'store_a', patients: [] }, cloud, { allowEmpty: true })).toBeNull();
     expect(pushEmptyGuard('store_a', { _sbStoreId: 'store_a', patients: cloud.patients.slice(0, 5) }, { patients: cloud.patients.slice(0, 9) })).toBeNull(); // 10名未満は急減の判定をしない
+  });
+});
+
+// ★ trial545: 保存の合成でクラウドより減るとき(墓石なし)は止める
+describe('pushShrinkGuard', () => {
+  const C = { patients: [{ id: 1 }, { id: 2 }, { id: 81 }], dailyLogs: [{ id: 'a' }, { id: 'b' }] };
+  it('減っていなければ null', () => {
+    expect(pushShrinkGuard({ patients: [{ id: 1 }, { id: 2 }, { id: 81 }], dailyLogs: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }, C, {}, ['patients', 'dailyLogs'])).toBeNull();
+  });
+  it('クラウドの利用者が合成後に無い → shrink(どの id か)', () => {
+    const g = pushShrinkGuard({ patients: [{ id: 1 }, { id: 2 }], dailyLogs: C.dailyLogs }, C, {}, ['patients', 'dailyLogs']);
+    expect(g && g.reason).toBe('shrink'); expect(g.key).toBe('patients'); expect(g.ids).toEqual([81]);
+  });
+  it('墓石にある id は減ってよい(削除)', () => {
+    expect(pushShrinkGuard({ patients: [{ id: 1 }, { id: 2 }], dailyLogs: C.dailyLogs }, C, { patients: { '81': 1 } }, ['patients', 'dailyLogs'])).toBeNull();
+  });
+  it('記録系も同じ・id の無い行は数えない', () => {
+    const g = pushShrinkGuard({ patients: C.patients, dailyLogs: [{ id: 'a' }, { x: 1 }] }, C, {}, ['patients', 'dailyLogs']);
+    expect(g && g.key).toBe('dailyLogs'); expect(g.ids).toEqual(['b']);
+  });
+  it('クラウドが空の配列なら見ない', () => {
+    expect(pushShrinkGuard({ patients: [] }, { patients: [] }, {}, ['patients'])).toBeNull();
   });
 });

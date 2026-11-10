@@ -34,8 +34,46 @@ const login = async (page) => {
   ok(/記録|月/.test(await page.locator('h1').innerText()), '真ん中→提供記録');
   const on = await page.getByTestId('tsu-tab-record').getAttribute('class'); ok(/\bon\b/.test(on || ''), '今の画面のタブに印');
   await page.screenshot({ path: `${OUT}/phone_record.png` });
+  // ★ trial546: 提供記録⇄連絡帳の2つの見出し(上)・横スワイプ・左端スワイプで縦のメニュー・4つ目は自由枠(長押し)
+  const swipe = (x1, y1, x2, y2) => page.evaluate(([x1, y1, x2, y2]) => { const el = document.elementFromPoint(x1, y1) || document.body; const mk = (type, x, y) => { const t = new Touch({ identifier: 1, target: el, clientX: x, clientY: y, pageX: x, pageY: y }); return new TouchEvent(type, { touches: type === 'touchend' ? [] : [t], changedTouches: [t], bubbles: true, cancelable: true }); }; el.dispatchEvent(mk('touchstart', x1, y1)); el.dispatchEvent(mk('touchend', x2, y2)); }, [x1, y1, x2, y2]);
+  const pair = page.getByTestId('tsu-pair');
+  ok(await pair.isVisible(), '提供記録の上に「提供記録｜連絡帳」の見出し');
+  const pb = await pair.boundingBox(); ok(pb && pb.y <= 1 && Math.round(pb.height) === 40, `見出しは画面の上端・高さ ${pb && Math.round(pb.height)}px`);
+  ok(/\bon\b/.test((await page.getByTestId('tsu-pair-record').getAttribute('class')) || ''), '今いる「提供記録」に印(緑の下線)');
+  const pinY = await page.locator('.tsu-pin').first().boundingBox(); ok(pinY && Math.round(pinY.y) === 40, `日付の帯は見出しのすぐ下 (y=${pinY && Math.round(pinY.y)})`);
+  await page.getByTestId('tsu-pair-print').click(); await page.waitForTimeout(1200);
+  ok(/連絡帳/.test(await page.locator('h1').innerText()), '見出しの「連絡帳」を押すと連絡帳へ');
+  ok(await pair.isVisible() && /\bon\b/.test((await page.getByTestId('tsu-pair-print').getAttribute('class')) || ''), '連絡帳でも見出しが出て印が移る');
+  ok(!(await page.locator('header.tsu-app-header').isVisible()), '連絡帳でも日付の見出し(ヘッダー)は出ない');
+  await page.screenshot({ path: `${OUT}/phone_pair_print.png` });
+  await swipe(200, 500, 330, 505); await page.waitForTimeout(1200);
+  ok(/記録|月/.test(await page.locator('h1').innerText()), '連絡帳で右へスワイプ → 提供記録');
+  await swipe(300, 500, 150, 520); await page.waitForTimeout(1200);
+  ok(/連絡帳/.test(await page.locator('h1').innerText()), '提供記録で左へスワイプ → 連絡帳');
+  await swipe(300, 500, 230, 700); await page.waitForTimeout(800);
+  ok(/連絡帳/.test(await page.locator('h1').innerText()), '縦の動きが大きいスワイプでは切り替わらない');
+  // 左端から右へ → 縦のメニュー(サイドバー)
+  await swipe(8, 500, 150, 505); await page.waitForTimeout(800);
+  ok(/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), '左端から右へスワイプで縦のメニューが開く(下のバーは隠れる)');
+  await page.screenshot({ path: `${OUT}/phone_edge_sidebar.png` });
+  await page.keyboard.press('Escape'); await page.waitForTimeout(400);
+  if (/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || '')) { await page.mouse.click(380, 500); await page.waitForTimeout(500); }
+  ok(!/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), 'メニューを閉じると下のバーが戻る');
+  // 4つ目(自由枠): 長押しで選ぶ
+  const slot = page.locator('.tsu-tabbar > button[data-custom]'); ok((await slot.count()) === 1 && /日誌|カレンダー/.test(await slot.innerText()), '4つ目は自由枠(はじめは日誌・送迎表を使わない店はカレンダー) trial548');
+  await slot.dispatchEvent('pointerdown'); await page.waitForTimeout(750); await slot.dispatchEvent('pointerup'); await page.waitForTimeout(400);
+  ok(await page.getByTestId('tsu-tabpick').isVisible(), '長押しで選ぶ小窓が出る');
+  await page.screenshot({ path: `${OUT}/phone_tabpick.png` });
+  await page.getByTestId('tsu-tabpick-master').click(); await page.waitForTimeout(500);
+  ok(/利用者/.test(await slot.innerText()), '選ぶと4つ目の札が変わる(利用者)');
+  ok(await page.evaluate(() => localStorage.getItem('tsumugiPhoneTabCustom') === 'master'), '端末に覚える');
+  await slot.click(); await page.waitForTimeout(1200); ok(/利用者/.test(await page.locator('h1').innerText()), '押すとその画面へ');
+  await slot.dispatchEvent('pointerdown'); await page.waitForTimeout(750); await slot.dispatchEvent('pointerup'); await page.waitForTimeout(400);
+  await page.getByTestId('tsu-tabpick-print').click(); await page.waitForTimeout(400); ok(/連絡帳/.test(await slot.innerText()), '連絡帳も選べる');
+  await page.evaluate(() => document.activeElement && document.activeElement.blur()); await page.waitForTimeout(400); // 利用者マスタの検索欄に焦点が残ると下のバーは隠れる(入力中)
   // 連絡帳
-  await page.getByTestId('tsu-tab-print').click(); await page.waitForTimeout(1200);
+  console.log('dbg bar class:', await bar.getAttribute('class'), 'active:', await page.evaluate(() => document.activeElement && document.activeElement.tagName + '.' + (document.activeElement.className || '').toString().slice(0, 40)), 'atPoint:', await page.evaluate(() => { const b = document.querySelector('[data-testid="tsu-tab-print"]'); const r = b.getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e ? e.tagName + '.' + String(e.className).slice(0, 60) + ' z=' + getComputedStyle(e).zIndex : 'none'; }), 'barBox:', JSON.stringify(await bar.boundingBox()));
+  await page.getByTestId('tsu-tab-print').click({ timeout: 5000 }).catch(async () => { await page.screenshot({ path: `${OUT}/dbg_fail.png` }); throw new Error('tsu-tab-print click failed'); }); await page.waitForTimeout(1200);
   ok(/連絡帳/.test(await page.locator('h1').innerText()), '連絡帳へ');
   // メニュー
   await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(500);
