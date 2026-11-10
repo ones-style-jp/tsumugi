@@ -32,6 +32,10 @@ if (okRows) {
   const msg = dialogs[dialogs.length - 1] || ''; console.log('確認:', msg.replace(/\n/g, ' | ').slice(0, 300));
   ok(/選んだ 1名/.test(msg) && /提出可 1名/.test(msg), '確認の文に「選んだ 1名」と様式ごとの人数');
   ok(downloads.length >= 1 && downloads.every(f => /\.csv$/.test(f)), `CSV が保存される(${downloads.join(', ')})`);
+  // ★ trial552: チェック中は「まとめてCSV出力」もその人だけ・一覧のそばのボタン
+  ok(/チェックした 1名 をこの様式でCSV出力/.test(await page.getByTestId('life-export-form').innerText()), 'チェック中は様式の「まとめてCSV出力」の名前が「チェックした 1名 を…」になる');
+  { const n0 = downloads.length; dialogs.length = 0; await page.getByTestId('life-export-form').click(); await page.waitForTimeout(1500); ok(/チェックした 1名のうち提出可能 1名分/.test(dialogs[0] || ''), `様式の出力もチェックした人だけ(${(dialogs[0] || '').slice(0, 60)})`); ok(downloads.length === n0 + 1, '1ファイル保存'); }
+  ok(await page.getByTestId('life-export-selected2').isVisible(), '一覧のそばにも「チェックした N名 の算定中の様式をまとめて保存」がある');
   // 全員を選ぶ
   await page.getByTestId('life-sel-all').check(); await page.waitForTimeout(300);
   ok(new RegExp(`選んだ ${okRows}名`).test(await btn.innerText()), `見出しのチェックで提出可の${okRows}名が全員選ばれる`);

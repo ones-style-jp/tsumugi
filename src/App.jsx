@@ -56501,12 +56501,15 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const _groupByOffice = (rows) => { const m = new Map(); rows.forEach(r => { const k = String(r.care_facility_id||''); if (!m.has(k)) m.set(k, []); m.get(k).push(r); }); return [...m.entries()]; };
   const _dlByOffice = (base, cols, rows, dataType) => { const gs = _groupByOffice(rows); gs.forEach(([ofc, rs], i) => { const name = gs.length > 1 ? `${base}_${ofc||'事業所番号なし'}.csv` : `${base}.csv`; setTimeout(() => lifeDownloadCsv(name, lifeToCsvText(cols, rs, dataType)), i * 900); }); return gs; };
   const _officeNote = (rows) => { const gs = _groupByOffice(rows); return gs.length > 1 ? `\n\n事業所番号が${gs.length}種類あるため、ファイルを分けて出力します（それぞれの新LIFEアカウントで取り込んでください）:\n` + gs.map(([o, rs]) => `・${o||'事業所番号なし'}：${rs.length}名`).join('\n') : ''; };
+  // ★ trial552(ユーザー「チェックを付けてまとめてCSV出力を押すと全員になる」): チェックした人がいれば、この様式もその人だけ
   const exportAllForm = () => {
     if (!dashForm) return;
-    const ok = dashRows.filter(d=>d.status==='ok');
-    const excluded = dashRows.filter(d=>d.status!=='ok');
-    if (!ok.length) { alert('提出できる利用者がいません（未評価またはエラーのため）。'); return; }
-    const msg = `【${dashForm.label}】提出可能 ${ok.length}名分をまとめてCSVに出力します。` + _officeNote(ok.map(d=>d.row))
+    const sel = dashSel.size ? dashSel : null;
+    const rowsIn = sel ? dashRows.filter(d => sel.has(d.p.id)) : dashRows;
+    const ok = rowsIn.filter(d=>d.status==='ok');
+    const excluded = rowsIn.filter(d=>d.status!=='ok');
+    if (!ok.length) { alert((sel ? 'チェックした方に' : '') + '提出できる利用者がいません（未評価またはエラーのため）。'); return; }
+    const msg = `【${dashForm.label}】${sel ? `チェックした ${sel.size}名のうち提出可能 ${ok.length}名分` : `提出可能 ${ok.length}名分`}をまとめてCSVに出力します。` + _officeNote(ok.map(d=>d.row))
       + (excluded.length ? `\n\n除外 ${excluded.length}名（この出力には含めません）:\n` + excluded.map(d=>`・${d.p.name}（${d.status==='none'?'未評価':d.status==='skip'?'初月・6か月後ではない':`エラー${d.vr.errors.length}件`}）`).join('\n') : '');
     if (!window.confirm(msg)) return;
     _dlByOffice(`${dashForm.id}_${submitYm.replace('-','')}`, dashForm.cols, ok.map(d=>d.row), dashForm.dataType);
@@ -57218,7 +57221,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                 <div className="flex items-center gap-2 flex-wrap">
                   <label className="text-xs font-bold text-slate-500">提出年月</label>
                   <input type="month" value={submitYm} onChange={e=>setSubmitYm(e.target.value)} className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
-                  <button type="button" onClick={exportAllForm} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">まとめてCSV出力</button>
+                  <button type="button" data-testid="life-export-form" onClick={exportAllForm} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">{dashSel.size ? `チェックした ${dashSel.size}名 をこの様式でCSV出力` : 'まとめてCSV出力'}</button>
+                  {dashSel.size > 0 && <button type="button" data-testid="life-export-selected2" onClick={() => exportAllForms(dashSel)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">チェックした {dashSel.size}名 の算定中の様式をまとめて保存</button>}{/* ★ trial552: 上の流れカードだけでなく一覧のそばにも */}
                 </div>
               </div>
               {(() => { const ok=dashRows.filter(d=>d.status==='ok').length, er=dashRows.filter(d=>d.status==='error').length, no=dashRows.filter(d=>d.status==='none').length, sk=dashRows.filter(d=>d.status==='skip').length; return (
