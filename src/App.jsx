@@ -13042,6 +13042,10 @@ const tsuStaffActiveOn = (st, iso) => { if (!st) return false; const d = iso || 
 const tsuStaffRoleOn = (st, iso) => { const h = Array.isArray(st && st._roles) ? st._roles.filter(x => x && x.until && (!iso || x.until >= iso)).sort((a, b) => String(a.until).localeCompare(String(b.until))) : []; return h.length ? { role: h[0].role || '', role2: h[0].role2 || '' } : { role: (st && st.role) || '', role2: (st && st.role2) || '' }; };
 const tsuStaffAsOf = (arr, iso) => (arr || []).filter(st => st && tsuStaffActiveOn(st, iso)).map(st => { const r = tsuStaffRoleOn(st, iso); return (r.role === (st.role || '') && r.role2 === (st.role2 || '')) ? st : { ...st, role: r.role, role2: r.role2 }; });
 const diarySubKey = (id, role) => `${id}@sub:${role}`;
+// ★ 2026-11-10 trial554(ユーザー「CSV取込の評価者が『LIFE移行取込』になっている。設定の看護師か機能訓練指導員が入るように。できなければ空白。既存も全部直して」):
+//   LIFE系の記録(ADL評価・生活機能チェック)の既定の評価者 = その日の名簿の 機能訓練指導員 → 看護師 → 空
+const LIFE_IMPORT_EVALUATOR_OLD = 'LIFE移行取込';
+const tsuLifeDefaultEvaluator = (appData, iso) => { try { const staff = tsuStaffAsOf((appData && appData.diarySettings && appData.diarySettings.staff) || [], iso).filter(st => st && String(st.name || '').trim() && !st._tempHelp); for (const role of ['機能訓練指導員', '看護師']) { const st = staff.find(x => x.role === role || x.role2 === role); if (st) return String(st.name).trim(); } } catch {} return ''; };
 const diarySubExplicit = (log, iso) => !!(log && (log.staffSubV || Object.keys(log.staff || {}).some(k => k.includes('@sub:')))) || !(iso && iso < DIARY_SUB_CUTOFF);
 const diarySubOn = (log, id, role, iso) => { const sel = (log && log.staff) || {}; if (sel[diarySubKey(id, role)]) return true; return !diarySubExplicit(log, iso) && !!sel[id]; };
 const diaryStaffMissing = (log, iso, appData) => {
@@ -56183,7 +56187,7 @@ const buildIdua2024Row = (patient, rec, sci, settings, targetYm) => {
   //   (999=未コード化→正式は0000999 等290件)ためCSV出力時にゼロ埋めする(2026-08-12)。
   row.disease_name_code = L.diseaseCode ? String(L.diseaseCode).padStart(7,'0') : '';
   // ★ 2026-10-14: 取込(まるっとLIFE)の年/月/日は日が無いことがある(年月のみ)。life.dates にそのまま保持し、画面の日付が空ならそれを出す
-  const _dt = (k, raw) => { const d = (L.dates && L.dates[k]) || null; const sp = lifeSplitYmd(raw); if (sp.y || !d) return sp; const y = lifeYmPart(d.y, 'y'), m = y ? lifeYmPart(d.m, 'm') : '', dd = (y && m) ? lifeYmPart(d.d, 'd') : ''; return { y, m, d: dd }; }; // ★ trial553: 取込の年月日は整える(整わなければ空)
+  const _dt = (k, raw) => { const d = (L.dates && L.dates[k]) || null; const sp = lifeSplitYmd(raw); if (sp.y || !d) return sp; const y = lifeYmPart(d.y, 'y'), m = lifeYmPart(d.m, 'm'), dd = lifeYmPart(d.d, 'd'); return (y && m && dd) ? { y, m, d: dd } : { y: '', m: '', d: '' }; }; // ★ trial553/554: 取込の年月日は整え、年・月・日がそろったときだけ出す(新LIFEは年月だけ(日なし)を「形式が不正」で落とした・入退院日は任意項目)
   const on = _dt('onset', r.hasshoDate); row.onset_date_year=on.y; row.onset_date_month=on.m; row.onset_date_day=on.d;
   const ad = _dt('adm', r.nyuinDate); row.latest_admission_date_year=ad.y; row.latest_admission_date_month=ad.m; row.latest_admission_date_day=ad.d;
   const di = _dt('dis', r.taiinDate); row.latest_discharge_date_year=di.y; row.latest_discharge_date_month=di.m; row.latest_discharge_date_day=di.d;
@@ -56237,7 +56241,8 @@ const validateIdua2024 = (patient, rec, sci, row, today) => {
   if (!hasLong) warns.push('長期目標のICFコードが未選択');
   if (!row.function_training_content_01) warns.push('訓練プログラム①のコードが未設定（内容から自動推定できませんでした）');
   // ★ trial553: 発症・入院・退院の年月日は LIFE の形(yyyy / mm / dd)でなければ取込で様式ごと落ちる
-  [['onset','発症'],['latest_admission','直近の入院'],['latest_discharge','直近の退院']].forEach(([k,lb]) => { const y=row[`${k}_date_year`], m=row[`${k}_date_month`], d=row[`${k}_date_day`]; if (y && !/^\d{4}$/.test(y)) errors.push(`${lb}年の形式が不正（${y}）`); if (m && !/^(0[1-9]|1[0-2])$/.test(m)) errors.push(`${lb}月の形式が不正（${m}）`); if (d && !/^(0[1-9]|[12]\d|3[01])$/.test(d)) errors.push(`${lb}日の形式が不正（${d}）`); if ((m || d) && !y) errors.push(`${lb}の年が無いのに月日があります`); });
+  [['onset','発症'],['latest_admission','直近の入院'],['latest_discharge','直近の退院']].forEach(([k,lb]) => { const y=row[`${k}_date_year`], m=row[`${k}_date_month`], d=row[`${k}_date_day`]; if (y && !/^\d{4}$/.test(y)) errors.push(`${lb}年の形式が不正（${y}）`); if (m && !/^(0[1-9]|1[0-2])$/.test(m)) errors.push(`${lb}月の形式が不正（${m}）`); if (d && !/^(0[1-9]|[12]\d|3[01])$/.test(d)) errors.push(`${lb}日の形式が不正（${d}）`); if ((y || m || d) && !(y && m && d)) errors.push(`${lb}の年月日がそろっていません（新LIFEは年・月・日がそろっていないと取り込めません。分からなければ空欄に）`); });
+  try { const L = rec && rec.life; [['adm','直近の入院'],['dis','直近の退院'],['onset','発症']].forEach(([k,lb]) => { const d = L && L.dates && L.dates[k]; if (!d) return; const has = [d.y, d.m, d.d].some(v => String(v == null ? '' : v).trim()); const outY = row[`${k === 'adm' ? 'latest_admission' : k === 'dis' ? 'latest_discharge' : 'onset'}_date_year`]; if (has && !outY) warns.push(`${lb}の年月日は取込の値（年月だけ等）がそろっていないため出しません。出すなら計画書で年月日を入れてください`); }); } catch {}
   const anyPersonnel = ['01','02','03','04'].some(p=>row[`function_training_personnel_${p}`]);
   if (!anyPersonnel) warns.push('実施者の職種コードが未設定（職種コードは要確認・後日確定）');
   if (!row.insurer_no) warns.push('保険者番号(6桁)が未設定（参考元は空欄運用可・要確認）');
@@ -56476,6 +56481,17 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const savePInsurer = () => { onSave({ ...appData, patients:(appData.patients||[]).map(p=>p.id===pid?{...p, insurerNo:pInsurer}:p) }, { manual:true, message:'✓ 保険者番号を保存しました' }); };
   // ★ 提出ダッシュボード/まとめ出力(様式横断: TIFI2024/AINT2024)。 提出年月はファイル名の整理用(既定=今月)
   const [submitYm, setSubmitYm] = React.useState(today.slice(0,7));
+  // ★ trial554: 以前の取込で評価者が「LIFE移行取込」になっている記録を、既定の評価者(機能訓練指導員→看護師→空)に直す(この店舗の分・開いたとき1回)
+  const _healEvalRef = React.useRef(false);
+  React.useEffect(() => {
+    if (_healEvalRef.current) return; _healEvalRef.current = true;
+    try {
+      const ev = tsuLifeDefaultEvaluator(appData); const now = syncNow(); let n = 0;
+      const adl = (appData.adlRecords || []).map(r => (r && r.evaluator === LIFE_IMPORT_EVALUATOR_OLD) ? (n++, { ...r, evaluator: ev, _savedAt: now }) : r);
+      const sk = (appData.seikatsuKinouRecords || []).map(r => (r && r.recorder === LIFE_IMPORT_EVALUATOR_OLD) ? (n++, { ...r, recorder: ev, _savedAt: now }) : r);
+      if (n) onSave({ ...appData, adlRecords: adl, seikatsuKinouRecords: sk }, { autoSave: true, message: `✓ 取込した記録 ${n}件の評価者を「${ev || '（空欄）'}」に直しました` });
+    } catch {}
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [dashSel, setDashSel] = React.useState(() => new Set()); // ★ trial550: 提出ダッシュボードでチェックした利用者(選んだ人だけまとめて保存)
   const _toggleDashSel = (id) => setDashSel(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const enabledForms = Object.keys(LIFE_FORMS).filter(id=>addons[LIFE_FORMS[id].addon]).map(id=>({ id, ...LIFE_FORMS[id] }));
@@ -56642,7 +56658,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
           .forEach(([col,barKey,jp])=>{ const v=_biLabel(barKey, g[`${col}_status`]); if (v) adl[jp]=v; _kfl(col, jp); });
         [['cooking','調理'],['washing','洗濯'],['cleaning','掃除']].forEach(([col,jp])=>{ const v=_lvl4[g[`${col}_status`]]; if (v) iadl[jp]=v; _kfl(col, jp); });
         [['roll_over','寝返り'],['get_up','起き上がり'],['sitting','座位保持'],['rising_from_chair','立ち上がり'],['standup','立位保持']].forEach(([col,jp])=>{ const v=_lvl4[g[`${col}_status`]]; if (v) kikyo[jp]=v; _kfl(col, jp); });
-        sk = { recordDate: _wareki(ed), recorder:'LIFE移行取込', recorderJob: _jobName(g.job_category), adl, kikyo, iadl, shinshin:{}, ninchi:'', kadai:'', bikou:'', kadaiFlag };
+        sk = { recordDate: _wareki(ed), recorder: tsuLifeDefaultEvaluator(appData), recorderJob: _jobName(g.job_category), adl, kikyo, iadl, shinshin:{}, ninchi:'', kadai:'', bikou:'', kadaiFlag };
       }
       if (form==='IDUA2024') {
         const _ymd3 = (y,m,d) => (y&&m&&d) ? _wareki(`${y}${String(m).padStart(2,'0')}${String(d).padStart(2,'0')}`) : '';
@@ -56705,7 +56721,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
       else { ex.items = { ...x.items, ...ex.items }; ex.biCode = { ...(x.biCode||{}), ...(ex.biCode||{}) }; ex.science = ex.science || x.science; ex.adlMonth = ex.adlMonth || x.adlMonth; }
     });
     const now = syncNow();
-    const recs = [...map.values()].map((x,i) => ({ id:`adl_${x.patientId}_${Date.now()}_${i}`, patientId:x.patientId, evalDate:x.evalDate, evaluator:'LIFE移行取込', items:x.items, note:'',
+    const recs = [...map.values()].map((x,i) => ({ id:`adl_${x.patientId}_${Date.now()}_${i}`, patientId:x.patientId, evalDate:x.evalDate, evaluator: tsuLifeDefaultEvaluator(appData), items:x.items, note:'',
       ...(x.science ? { science: x.science } : {}), ...(x.adlMonth ? { adlMonth: x.adlMonth } : {}), ...(x.biCode && Object.keys(x.biCode).length ? { biCode: x.biCode } : {}), _savedAt: now }));
     // ★ 2026-10-14(A案): 生活機能チェック(3-2)・個別機能訓練計画書(3-3)の記録、利用者の自立度・保険者番号(空欄のみ)
     const skRecs = sel.filter(x => x.form==='FUNC2024' && x.sk).map((x,i) => ({ id:`sk_${x.patientId}_${Date.now()}_${i}`, patientId:x.patientId, createdAt: Date.now(), ...x.sk, _savedAt: now }));

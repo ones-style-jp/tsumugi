@@ -16,8 +16,10 @@ await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('daycareAp
   d.systemSettings.addons = { ...(d.systemSettings.addons || {}), kasan_kagaku: true, kasan_adl: true, kasan_kinou2: true };
   const ps = (d.patients || []).filter(p => !p.endDate).slice(0, 2); const items = {}; ['eat','transfer','groom','toilet','bath','walk','stairs','dress','stool','urine'].forEach(k => items[k] = 5);
   ps.forEach((p, i) => { p.insuranceNo = String(1000000001 + i); p.careLevel = p.careLevel || '要介護1'; p.birthDate = p.birthDate || '1940-01-01'; p.gender = p.gender || '女'; p.personalFile = { ...(p.personalFile || {}), faceSheet: { ...((p.personalFile || {}).faceSheet || {}), adlLevel: 'A1', dementiaLevel: 'Ⅰ' } }; });
-  d.kinouKeikakuRecords = [{ id: 'chk-kk-0', patientId: ps[0].id, createdDate: '令和8年10月1日', nyuinDate: '', taiinDate: '', hasshoDate: '', life: { dates: { adm: { y: '2024.0', m: '3.0', d: '' }, dis: { y: '令和6', m: '４', d: '' }, onset: { y: 'abc', m: '13', d: '' } } } }];
-  d.adlRecords = ps.map((p, i) => ({ id: `chk-adl-${i}`, patientId: p.id, evalDate: '2026-10-15', evaluator: '検査', items, total: 50, adlMonth: i === 0 ? 'first' : '', science: { height: '150', weight: '45', denture: 0, choke: 0, stains_on_teeth: 0, condition_of_gums: 0, demScale: [0,0,0,0,0,0,0], vitality: [1,1,1,1,1] } }));
+  d.kinouKeikakuRecords = [{ id: 'chk-kk-0', patientId: ps[0].id, createdDate: '令和8年10月1日', nyuinDate: '', taiinDate: '', hasshoDate: '', life: { dates: { adm: { y: '2024.0', m: '3.0', d: '' }, dis: { y: '令和6', m: '４', d: '15.0' }, onset: { y: 'abc', m: '13', d: '' } } } }];
+  d.diarySettings = { ...(d.diarySettings || {}), staff: [ ...((d.diarySettings || {}).staff || []).filter(x => x && x.name !== '検査 看護' && x.name !== '検査 機能'), { id: 'chk-st-n', name: '検査 看護', role: '看護師' }, { id: 'chk-st-k', name: '検査 機能', role: '機能訓練指導員' } ] };
+  d.seikatsuKinouRecords = [{ id: 'chk-sk-old', patientId: ps[1].id, recordDate: '令和8年9月1日', recorder: 'LIFE移行取込', recorderJob: '', adl: {}, kikyo: {}, iadl: {}, shinshin: {}, createdAt: 1 }];
+  d.adlRecords = ps.map((p, i) => ({ id: `chk-adl-${i}`, patientId: p.id, evalDate: '2026-10-15', evaluator: i === 0 ? '検査' : 'LIFE移行取込', items, total: 50, adlMonth: i === 0 ? 'first' : '', science: { height: '150', weight: '45', denture: 0, choke: 0, stains_on_teeth: 0, condition_of_gums: 0, demScale: [0,0,0,0,0,0,0], vitality: [1,1,1,1,1] } }));
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0');
   sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'life_submit', pid: null, t: Date.now() })); });
 await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2000); await page.locator('button', { hasText: 'あとで' }).click({ timeout: 300 }).catch(() => {});
@@ -62,8 +64,9 @@ if (await card.count()) {
   const lines = txt.split(/\r?\n/).filter(Boolean); const cols = lines[1].split(','); const vals = lines[2].split(',');
   const at = (k) => vals[cols.indexOf(k)];
   console.log('IDUA 年月:', ['onset_date_year','onset_date_month','latest_admission_date_year','latest_admission_date_month','latest_admission_date_day','latest_discharge_date_year','latest_discharge_date_month'].map(k => `${k}=${at(k)}`).join(' '));
-  ok(at('latest_admission_date_year') === '2024' && at('latest_admission_date_month') === '03' && at('latest_admission_date_day') === '', '入院 2024.0/3.0 → 2024/03/空');
-  ok(at('latest_discharge_date_year') === '2024' && at('latest_discharge_date_month') === '04', '退院 令和6/４ → 2024/04');
+  ok(at('latest_admission_date_year') === '' && at('latest_admission_date_month') === '' && at('latest_admission_date_day') === '', '入院 2024.0/3.0/日なし → 年月日そろわないので全部空(trial554)');
+  ok(at('latest_discharge_date_year') === '2024' && at('latest_discharge_date_month') === '04' && at('latest_discharge_date_day') === '15', '退院 令和6/４/15.0 → 2024/04/15');
+  ok(/直近の入院の年月日は取込の値/.test(await page.locator('body').innerText()), '要確認に「入院の年月日がそろっていないため出しません」');
   ok(at('onset_date_year') === '' && at('onset_date_month') === '', '発症 abc/13 → 空/空(年が無ければ月も出さない)');
 }
 // ★ trial553: 2人目(対象月区分なし)の ADL維持等は「対象外」と出る(緑の「出力できます」ではない)
@@ -72,6 +75,12 @@ if (await card.count()) {
   await page.evaluate((pid) => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'life_hub', pid, t: Date.now() })), pid2);
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2000);
   ok(await page.getByTestId('life-skip-AINT2024').isVisible(), 'ADL維持等のカードに「対象外」と理由が出る');
+  // ★ trial554: 「LIFE移行取込」の評価者は名簿の機能訓練指導員に直る(ADL評価・生活機能チェック)
+  await page.waitForTimeout(1500);
+  const healed = await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const k = (d.diarySettings.staff || []).find(x => x && x.role === '機能訓練指導員' && x.name); return { exp: k && k.name, adl: (d.adlRecords || []).map(r => r.evaluator), sk: (d.seikatsuKinouRecords || []).map(r => r.recorder) }; });
+  console.log('評価者:', JSON.stringify(healed));
+  ok(!!healed.exp && healed.adl.includes(healed.exp) && !healed.adl.includes('LIFE移行取込') && healed.adl.includes('検査'), `ADL評価の「LIFE移行取込」→ 名簿の機能訓練指導員(${healed.exp})・他の評価者はそのまま`);
+  ok(healed.sk.length === 1 && healed.sk[0] === healed.exp, '生活機能チェックの記録者も直る');
   ok(/出せるもの 1／/.test(await page.getByTestId('life-person-bundle').innerText()), 'まとめて保存の「出せるもの」は ADL維持等を除いた数');
 }
 await ctx.close(); await b.close();
