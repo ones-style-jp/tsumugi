@@ -40696,13 +40696,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-11-09 trial532(ユーザー指示「40行を35行にして行を高く、緊急連絡先の名前を大きく。下の注記は『個人情報を含むので取り扱い・保管に注意』の1行だけにして、その分も使う」)
     const ROWS_MAX = 35, ONE_PAGE_MAX = 40, ROWS_MIN = 30, BODY_H = 1030, headH = 20; // BODY_H=本文(283mm)の高さの目安(px)
     const n = pts.length; const rowsPer = n <= ONE_PAGE_MAX ? Math.max(ROWS_MIN, n) : ROWS_MAX;
-    const tblH = BODY_H - 26 - 13 - 4;
+    // ★ 2026-11-10 1110b(ユーザー「緊急連絡先がある人とない人で行の高さが違う。全員そろえて」): 行の高さは表の高さ÷行数で固定(tr に height)。
+    //   これまでは表の高さだけ決めて行は成り行きだったので、2段(相手の名前＋番号)の行だけ高くなっていた。文字の大きさも2段の欄が収まる上限で決める
+    const rowH = Math.floor((BODY_H - 26 - 13 - 4 - headH) / rowsPer); const tblH = headH + rowH * rowsPer;
     const maxNameEm = Math.max(4, ...pts.map(pt => _emW2(pt.name)));
     const pairs = new Map(pts.map(pt => [pt.id, telPair(pt)]));
     const telEm = Math.min(14, Math.max(7.2, ...pts.map(pt => { const tp = pairs.get(pt.id); return Math.max(_emW2(tp.mobile), _emW2(tp.fixed)); })));
     const colW = (f) => { const fT0 = Math.max(9, f - 1); const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil(telEm * fT0 * 1.18) + 12, emg = tel; return { ini, name, tel, emg, addr: Math.max(80, 720 - ini - name - tel * 2 - emg) }; };
     // 文字: 1行の高さに収まる大きさ・11〜16px。住所の欄が狭くなりすぎないように
-    let fz = Math.max(11, Math.min(16, Math.floor(((tblH - headH) / rowsPer - 6) / 1.3)));
+    let fz = Math.max(11, Math.min(16, Math.floor((rowH - 6) / 1.3), Math.floor((rowH + 2.1) / 2.1))); // 2段: 名前(fz-3)×1.0 + 番号(fz-1)×1.1 + 余白2 ≦ rowH
     while (fz > 11 && colW(fz).addr < 230) fz--;
     const w = colW(fz); const fT = Math.max(9, fz - 1); const fA0 = Math.max(9, fz - 2); const fS = Math.max(9, fT - 2); // fS=相手の名前・続柄の文字(★ 2026-11-09 trial532: 行が高くなった分、前より2px大きく)
     const tbl = (list) => {
@@ -40711,8 +40713,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       let html = '';
       rows.forEach((r, k) => {
         const bg = k % 2 === 1 ? '#eceeea' : '#ffffff'; // 1行おきに薄いグレー
-        const td = (inner, st) => `<td style="border:1px solid #66756b;background:${bg};${st}">${inner}</td>`;
-        if (!r) { html += `<tr>${td('', '')}${td('&nbsp;', `font-size:${fz}px;`)}${td('', '')}${td('', '')}${td('', '')}${td('', '')}</tr>`; return; }
+        const td = (inner, st) => `<td style="border:1px solid #66756b;background:${bg};vertical-align:middle;${st}"><div style="max-height:${rowH - 2}px;overflow:hidden;">${inner}</div></td>`;
+        if (!r) { html += `<tr style="height:${rowH}px;">${td('', '')}${td('&nbsp;', `font-size:${fz}px;`)}${td('', '')}${td('', '')}${td('', '')}${td('', '')}</tr>`; return; }
         let iniTd = '';
         if (k === 0 || !rows[k-1] || rows[k-1].ini !== r.ini) { let span = 1; while (k + span < rows.length && rows[k+span] && rows[k+span].ini === r.ini) span++;
           iniTd = `<td rowspan="${span}" style="border:1px solid #66756b;background:#dfe6dc;text-align:center;vertical-align:middle;font-size:${fz}px;font-weight:800;color:#2f4a35;">${_escP(r.ini)}</td>`; }
@@ -40721,10 +40723,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const fA = Math.max(9, Math.min(fA0, fitA)); const wrapA = fitA < 9;
         const tp = pairs.get(r.pt.id); const whoOn = tp.who ? (tp.mobile ? 'mobile' : (tp.fixed ? 'fixed' : '')) : '';
         const telTd = (num, kind) => { const fit = num ? Math.floor((w.tel - 8) / Math.max(1, _emW2(num))) : fT; const f2 = Math.max(8, Math.min(fT, fit));
-          return td(num ? `${whoOn === kind ? `<div style="font-size:${fS}px;color:#475569;line-height:1.1;white-space:nowrap;overflow:hidden;">${_escP(tp.who)}</div>` : ''}<div>${_escP(num)}</div>` : '', `padding:0 4px;font-size:${f2}px;line-height:1.2;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`); };
+          return td(num ? `${whoOn === kind ? `<div style="font-size:${fS}px;color:#475569;line-height:1.0;white-space:nowrap;overflow:hidden;">${_escP(tp.who)}</div>` : ''}<div style="line-height:1.1;">${_escP(num)}</div>` : '', `padding:0 4px;font-size:${f2}px;line-height:1.1;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`); };
         const c = emgOf(r.pt, tp); const cPh = c ? String(c.phoneMobile || c.phone || '').trim() : ''; const cNm = c ? [c.relation, c.name].filter(Boolean).join(' ') : '';
         const fE = cPh ? Math.max(8, Math.min(fT, Math.floor((w.emg - 8) / Math.max(1, _emW2(cPh))))) : fT;
-        html += `<tr>${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), tsuBldRoom(r.pt.addressBuilding, r.pt.addressRoom)].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${telTd(tp.mobile, 'mobile')}${telTd(tp.fixed, 'fixed')}${td(c ? `${cNm ? `<div style="font-size:${fS}px;color:#475569;line-height:1.1;white-space:nowrap;overflow:hidden;">${_escP(cNm)}</div>` : ''}<div>${_escP(cPh)}</div>` : '', `padding:0 4px;font-size:${fE}px;line-height:1.2;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`)}</tr>`;
+        html += `<tr style="height:${rowH}px;">${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), tsuBldRoom(r.pt.addressBuilding, r.pt.addressRoom)].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${telTd(tp.mobile, 'mobile')}${telTd(tp.fixed, 'fixed')}${td(c ? `${cNm ? `<div style="font-size:${fS}px;color:#475569;line-height:1.0;white-space:nowrap;overflow:hidden;">${_escP(cNm)}</div>` : ''}<div style="line-height:1.1;">${_escP(cPh)}</div>` : '', `padding:0 4px;font-size:${fE}px;line-height:1.1;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`)}</tr>`;
       });
       // 高さは px で(Safari・PDF化では height:100% が効かない)。本文 − 題字 − 注記 − 余裕
       return `<table style="border-collapse:collapse;width:100%;height:${tblH}px;table-layout:fixed;">
