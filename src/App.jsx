@@ -40694,7 +40694,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return (getAllContacts(pt) || []).find(c => c && ((c.name || '').trim() || (c.phoneMobile || c.phone || '').trim()) && !(nk && _contactNameKey(c) === nk) && ![c.phoneMobile, c.phone].map(_digits).filter(Boolean).some(x => used.has(x))) || null;
     } catch { return null; } };
     // ★ 2026-11-09 trial532(ユーザー指示「40行を35行にして行を高く、緊急連絡先の名前を大きく。下の注記は『個人情報を含むので取り扱い・保管に注意』の1行だけにして、その分も使う」)
-    const ROWS_MAX = 35, ONE_PAGE_MAX = 40, ROWS_MIN = 30, BODY_H = 1030, headH = 20; // BODY_H=本文(283mm)の高さの目安(px)
+    // ★ 2026-11-10 1110c(ユーザー「下が空白で2〜3行入る」): 本文の高さは 283mm=1069px(題字 約28px・注記 約16px を除く)。1030 は控えめすぎて下に60px ほど余っていた → 1064 にして1枚の行数を3行増やす
+    const ROWS_MAX = 38, ONE_PAGE_MAX = 43, ROWS_MIN = 30, BODY_H = 1064, headH = 20; // BODY_H=本文(283mm)の高さの目安(px)
     const n = pts.length; const rowsPer = n <= ONE_PAGE_MAX ? Math.max(ROWS_MIN, n) : ROWS_MAX;
     // ★ 2026-11-10 1110b(ユーザー「緊急連絡先がある人とない人で行の高さが違う。全員そろえて」): 行の高さは表の高さ÷行数で固定(tr に height)。
     //   これまでは表の高さだけ決めて行は成り行きだったので、2段(相手の名前＋番号)の行だけ高くなっていた。文字の大きさも2段の欄が収まる上限で決める
