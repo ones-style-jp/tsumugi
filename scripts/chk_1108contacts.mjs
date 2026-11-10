@@ -56,7 +56,7 @@ r.fitsPage = ov <= 0; if (!r.fitsPage) console.log('overflow px', ov);
 const rh = await pv.evaluate(() => { const trs = [...document.querySelectorAll('tbody tr')]; const hs = trs.map(t => Math.round(t.getBoundingClientRect().height)); const over = [...document.querySelectorAll('td > div')].filter(d => d.scrollHeight > d.clientHeight + 1).length; return { min: Math.min(...hs), max: Math.max(...hs), n: hs.length, over }; });
 r.sameRowHeight = rh.max - rh.min <= 1; r.noCellOverflow = rh.over === 0; console.log('rows', rh);
 // ★ 2026-11-10 1110c: 下の空白は1行分未満(用紙の本文を使い切る)
-const gap = await pv.evaluate(() => { const pg = document.querySelector('[data-page-break]'); const inner = pg && pg.firstElementChild; const note = inner && inner.lastElementChild; return inner && note ? Math.round(inner.getBoundingClientRect().bottom - note.getBoundingClientRect().bottom) : -1; });
+const gap = await pv.evaluate(() => { const pg = document.querySelector('[data-page-break]'); const inner = pg && pg.firstElementChild; const note = inner && inner.firstElementChild && inner.firstElementChild.lastElementChild; /* 注記(1110d: 前は紙の箱そのものを見ていて常に0だった) */ return inner && note ? Math.round(inner.getBoundingClientRect().bottom - note.getBoundingClientRect().bottom) : -1; });
 r.bottomGapSmall = gap >= 0 && gap <= rh.max; console.log('bottom gap px', gap, 'row px', rh.max);
 await pv.screenshot({ path: `${OUT}/contacts_a4p.png`, fullPage: false });
 console.log(r); const ok = Object.values(r).every(Boolean); console.log(ok ? 'PASS' : 'FAIL'); await b.close(); process.exit(ok ? 0 : 1);

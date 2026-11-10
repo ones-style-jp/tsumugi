@@ -40689,19 +40689,19 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return (getAllContacts(pt) || []).find(c => c && ((c.name || '').trim() || (c.phoneMobile || c.phone || '').trim()) && !(nk && _contactNameKey(c) === nk) && ![c.phoneMobile, c.phone].map(_digits).filter(Boolean).some(x => used.has(x))) || null;
     } catch { return null; } };
     // ★ 2026-11-10 1110c(ユーザー「下が空白で2〜3行入る」): 本文の高さは 283mm=1069px(題字 約28px・注記 約16px を除く)。1030 は控えめすぎて下に60px ほど余っていた → 1064 にして1枚の行数を3行増やす
-    const ROWS_MAX = 43, ONE_PAGE_MAX = 48, ROWS_MIN = 30, BODY_H = 1064, headH = 20; // BODY_H=本文(283mm)の高さの目安(px)
+    const ROWS_MAX = 45, ONE_PAGE_MAX = 50, ROWS_MIN = 30, PAGE_H = 1069, TITLE_H = 26, NOTE_H = 16, headH = 18; // ★ 1110d: 題字・注記・見出しの高さを固定して詰め、行を増やす(用紙 283mm=1069px) // BODY_H=本文(283mm)の高さの目安(px)
     const n = pts.length; const rowsPer = n <= ONE_PAGE_MAX ? Math.max(ROWS_MIN, n) : ROWS_MAX;
     // ★ 2026-11-10 1110b(ユーザー「緊急連絡先がある人とない人で行の高さが違う。全員そろえて」): 行の高さは表の高さ÷行数で固定(tr に height)。
     //   これまでは表の高さだけ決めて行は成り行きだったので、2段(相手の名前＋番号)の行だけ高くなっていた。文字の大きさも2段の欄が収まる上限で決める
-    const rowH = Math.floor((BODY_H - 26 - 18 - 4 - headH) / rowsPer); const tblH = headH + rowH * rowsPer;
+    const rowH = Math.floor((PAGE_H - TITLE_H - NOTE_H - 2 - headH) / rowsPer); const tblH = headH + rowH * rowsPer;
     const maxNameEm = Math.max(4, ...pts.map(pt => _emW2(pt.name)));
     const pairs = new Map(pts.map(pt => [pt.id, telPair(pt)]));
     const telEm = Math.min(14, Math.max(7.2, ...pts.map(pt => { const tp = pairs.get(pt.id); return Math.max(_emW2(tp.mobile), _emW2(tp.fixed)); })));
     const colW = (f) => { const fT0 = Math.max(9, f - 1); const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil(telEm * fT0 * 1.18) + 12, emg = tel; return { ini, name, tel, emg, addr: Math.max(80, 720 - ini - name - tel * 2 - emg) }; };
     // 文字: 1行の高さに収まる大きさ・11〜16px。住所の欄が狭くなりすぎないように
-    let fz = Math.max(11, Math.min(16, Math.floor((rowH - 6) / 1.3), Math.floor((rowH + 2.1) / 2.1))); // 2段: 名前(fz-3)×1.0 + 番号(fz-1)×1.1 + 余白2 ≦ rowH
+    let fz = Math.max(11, Math.min(16, Math.floor((rowH - 6) / 1.3), Math.floor((rowH + 2.05) / 2.05))); // 2段: 名前(fz-3)×1.0 + 番号(fz-1)×1.05 + 余白1 ≦ rowH
     while (fz > 11 && colW(fz).addr < 230) fz--;
-    const w = colW(fz); const fT = Math.max(9, fz - 1); const fA0 = Math.max(9, fz - 2); const fS = Math.max(8, fT - 4); // fS=相手の名前・続柄の小さい文字
+    const w = colW(fz); const fT = Math.max(9, fz - 1); const fA0 = fz; /* ★ 1110d: 住所は名前と同じ大きさ(長い住所はその行だけ縮む) */ const fS = Math.max(8, fT - 4); // fS=相手の名前・続柄の小さい文字
     const tbl = (list) => {
       const rows = list.map(pt => ({ pt, ini: _kanaIni(pt) }));
       while (rows.length < rowsPer) rows.push(null);
@@ -40718,10 +40718,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const fA = Math.max(9, Math.min(fA0, fitA)); const wrapA = fitA < 9;
         const tp = pairs.get(r.pt.id); const whoOn = tp.who ? (tp.mobile ? 'mobile' : (tp.fixed ? 'fixed' : '')) : '';
         const telTd = (num, kind) => { const fit = num ? Math.floor((w.tel - 8) / Math.max(1, _emW2(num))) : fT; const f2 = Math.max(8, Math.min(fT, fit));
-          return td(num ? `${whoOn === kind ? `<div style="font-size:${fS}px;color:#475569;line-height:1.0;white-space:nowrap;overflow:hidden;">${_escP(tp.who)}</div>` : ''}<div style="line-height:1.1;">${_escP(num)}</div>` : '', `padding:0 4px;font-size:${f2}px;line-height:1.1;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`); };
+          return td(num ? `${whoOn === kind ? `<div style="font-size:${fS}px;color:#475569;line-height:1.0;white-space:nowrap;overflow:hidden;">${_escP(tp.who)}</div>` : ''}<div style="line-height:1.05;">${_escP(num)}</div>` : '', `padding:0 4px;font-size:${f2}px;line-height:1.1;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`); };
         const c = emgOf(r.pt, tp); const cPh = c ? String(c.phoneMobile || c.phone || '').trim() : ''; const cNm = c ? [c.relation, c.name].filter(Boolean).join(' ') : '';
         const fE = cPh ? Math.max(8, Math.min(fT, Math.floor((w.emg - 8) / Math.max(1, _emW2(cPh))))) : fT;
-        html += `<tr style="height:${rowH}px;">${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), tsuBldRoom(r.pt.addressBuilding, r.pt.addressRoom)].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${telTd(tp.mobile, 'mobile')}${telTd(tp.fixed, 'fixed')}${td(c ? `${cNm ? `<div style="font-size:${fS}px;color:#475569;line-height:1.0;white-space:nowrap;overflow:hidden;">${_escP(cNm)}</div>` : ''}<div style="line-height:1.1;">${_escP(cPh)}</div>` : '', `padding:0 4px;font-size:${fE}px;line-height:1.1;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`)}</tr>`;
+        html += `<tr style="height:${rowH}px;">${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), tsuBldRoom(r.pt.addressBuilding, r.pt.addressRoom)].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${telTd(tp.mobile, 'mobile')}${telTd(tp.fixed, 'fixed')}${td(c ? `${cNm ? `<div style="font-size:${fS}px;color:#475569;line-height:1.0;white-space:nowrap;overflow:hidden;">${_escP(cNm)}</div>` : ''}<div style="line-height:1.05;">${_escP(cPh)}</div>` : '', `padding:0 4px;font-size:${fE}px;line-height:1.1;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`)}</tr>`;
       });
       // 高さは px で(Safari・PDF化では height:100% が効かない)。本文 − 題字 − 注記 − 余裕
       return `<table style="border-collapse:collapse;width:100%;height:${tblH}px;table-layout:fixed;">
@@ -40734,9 +40734,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     for (let pg = 0; pg < nPages; pg++) {
       const chunk = pts.slice(pg * rowsPer, (pg + 1) * rowsPer);
       pages.push(`<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
-      <div style="text-align:center;font-size:14px;font-weight:bold;letter-spacing:6px;margin-bottom:2mm;flex:none;">利用者連絡先一覧（${_mon.getMonth()+1}/${_mon.getDate()}週・五十音順）${nPages > 1 ? `<span style="letter-spacing:1px;font-weight:normal;font-size:11px;">　${pg+1}/${nPages}枚</span>` : ''}</div>
+      <div style="text-align:center;font-size:14px;font-weight:bold;letter-spacing:6px;height:${TITLE_H - 4}px;line-height:${TITLE_H - 4}px;margin-bottom:4px;flex:none;white-space:nowrap;overflow:hidden;">利用者連絡先一覧（${_mon.getMonth()+1}/${_mon.getDate()}週・五十音順）${nPages > 1 ? `<span style="letter-spacing:1px;font-weight:normal;font-size:11px;">　${pg+1}/${nPages}枚</span>` : ''}</div>
       ${pts.length ? `<div style="flex:none;">${tbl(chunk)}</div>` : '<div style="font-size:11px;color:#94a3b8;">利用中・休止中の利用者がいません</div>'}
-      <div style="font-size:9px;color:#64748b;margin-top:1mm;flex:none;">※ 携帯・固定＝送迎時にかける相手の番号（ご家族などのときは名前を添えています）。緊急連絡先＝それとは別の方。この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
+      <div style="font-size:9px;color:#64748b;height:${NOTE_H - 2}px;line-height:${NOTE_H - 2}px;margin-top:2px;flex:none;white-space:nowrap;overflow:hidden;">※ この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
     </div>`);
     }
     return pages;
