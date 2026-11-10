@@ -56136,6 +56136,16 @@ const LIFE_COMPLICATIONS = [
 const lifeAchieveCode = (v) => { const s=String(v||'').trim(); if(!s) return ''; if(/^[123]$/.test(s)) return s; if(/未達|未|不十分/.test(s)) return '3'; if(/一部|部分/.test(s)) return '2'; if(/達成|完了|維持/.test(s)) return '1'; return ''; };
 // reiwaToYmd(YYYYMMDD文字列) を 年/月(2桁)/日(2桁) に分割
 const lifeSplitYmd = (raw) => { const y=reiwaToYmd(raw); if(!/^\d{8}$/.test(y)) return {y:'',m:'',d:''}; return { y:y.slice(0,4), m:y.slice(4,6), d:y.slice(6,8) }; };
+// ★ 2026-11-10 trial553(新LIFEの取込エラー「直近の入院年/月の形式が不正(yyyy/mm)」): 取込で持ち込んだ年・月・日(life.dates)を LIFE の形に整える。
+//   年=4桁(令和/平成・"2024.0"・全角も可)、月=01〜12、日=01〜31。整えられない値は空にする(形式エラーで様式ごと落ちるより空欄の方がよい・入退院日は任意項目)
+const lifeYmPart = (v, kind) => {
+  let t = String(v == null ? '' : v).trim(); if (!t) return '';
+  t = t.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  if (kind === 'y') { const r = t.match(/^(?:令和|R)\s*(\d{1,2})/); if (r) return String(2018 + Number(r[1])); const h = t.match(/^(?:平成|H)\s*(\d{1,2})/); if (h) return String(1988 + Number(h[1])); const m = t.match(/(\d{4})/); return m ? m[1] : ''; }
+  const m = t.match(/(\d{1,2})/); if (!m) return ''; const n = Number(m[1]);
+  if (kind === 'm') return (n >= 1 && n <= 12) ? String(n).padStart(2, '0') : '';
+  return (n >= 1 && n <= 31) ? String(n).padStart(2, '0') : '';
+};
 const lifeIntStr = (v) => { const m=String(v||'').match(/\d+(\.\d+)?/); return m?m[0]:''; };
 
 // 個別機能訓練 IDUA2024 全103列(§6.2)
@@ -56173,7 +56183,7 @@ const buildIdua2024Row = (patient, rec, sci, settings, targetYm) => {
   //   (999=未コード化→正式は0000999 等290件)ためCSV出力時にゼロ埋めする(2026-08-12)。
   row.disease_name_code = L.diseaseCode ? String(L.diseaseCode).padStart(7,'0') : '';
   // ★ 2026-10-14: 取込(まるっとLIFE)の年/月/日は日が無いことがある(年月のみ)。life.dates にそのまま保持し、画面の日付が空ならそれを出す
-  const _dt = (k, raw) => { const d = (L.dates && L.dates[k]) || null; const sp = lifeSplitYmd(raw); return (sp.y || !d) ? sp : { y: d.y||'', m: d.m||'', d: d.d||'' }; };
+  const _dt = (k, raw) => { const d = (L.dates && L.dates[k]) || null; const sp = lifeSplitYmd(raw); if (sp.y || !d) return sp; const y = lifeYmPart(d.y, 'y'), m = y ? lifeYmPart(d.m, 'm') : '', dd = (y && m) ? lifeYmPart(d.d, 'd') : ''; return { y, m, d: dd }; }; // ★ trial553: 取込の年月日は整える(整わなければ空)
   const on = _dt('onset', r.hasshoDate); row.onset_date_year=on.y; row.onset_date_month=on.m; row.onset_date_day=on.d;
   const ad = _dt('adm', r.nyuinDate); row.latest_admission_date_year=ad.y; row.latest_admission_date_month=ad.m; row.latest_admission_date_day=ad.d;
   const di = _dt('dis', r.taiinDate); row.latest_discharge_date_year=di.y; row.latest_discharge_date_month=di.m; row.latest_discharge_date_day=di.d;
@@ -56226,6 +56236,8 @@ const validateIdua2024 = (patient, rec, sci, row, today) => {
   if (!hasShort) warns.push('短期目標のICFコードが未選択（LIFE提出用コードで指定してください）');
   if (!hasLong) warns.push('長期目標のICFコードが未選択');
   if (!row.function_training_content_01) warns.push('訓練プログラム①のコードが未設定（内容から自動推定できませんでした）');
+  // ★ trial553: 発症・入院・退院の年月日は LIFE の形(yyyy / mm / dd)でなければ取込で様式ごと落ちる
+  [['onset','発症'],['latest_admission','直近の入院'],['latest_discharge','直近の退院']].forEach(([k,lb]) => { const y=row[`${k}_date_year`], m=row[`${k}_date_month`], d=row[`${k}_date_day`]; if (y && !/^\d{4}$/.test(y)) errors.push(`${lb}年の形式が不正（${y}）`); if (m && !/^(0[1-9]|1[0-2])$/.test(m)) errors.push(`${lb}月の形式が不正（${m}）`); if (d && !/^(0[1-9]|[12]\d|3[01])$/.test(d)) errors.push(`${lb}日の形式が不正（${d}）`); if ((m || d) && !y) errors.push(`${lb}の年が無いのに月日があります`); });
   const anyPersonnel = ['01','02','03','04'].some(p=>row[`function_training_personnel_${p}`]);
   if (!anyPersonnel) warns.push('実施者の職種コードが未設定（職種コードは要確認・後日確定）');
   if (!row.insurer_no) warns.push('保険者番号(6桁)が未設定（参考元は空欄運用可・要確認）');
@@ -57534,7 +57546,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   <div className="text-xs text-slate-500">対象評価: {dateLabel}　／　管理番号: {row.external_system_management_number||'（被保険者番号が必要）'}</div>
                   {vr.errors.length>0 && <div className="bg-red-50 border border-red-200 rounded-lg p-3"><div className="text-xs font-bold text-red-700 mb-1">提出前に確認（{vr.errors.length}件）</div><ul className="text-[11px] text-red-700 list-disc pl-4 space-y-0.5">{vr.errors.map((e,i)=><li key={i}>{e}</li>)}</ul></div>}
                   {vr.warns.length>0 && <div className="bg-amber-50 border border-amber-200 rounded-lg p-3"><div className="text-xs font-bold text-amber-700 mb-1">要確認（{vr.warns.length}件）</div><ul className="text-[11px] text-amber-700 list-disc pl-4 space-y-0.5">{vr.warns.map((e,i)=><li key={i}>{e}</li>)}</ul></div>}
-                  {vr.errors.length===0 && <div className="text-xs font-bold text-emerald-600">✓ 必須項目は揃っています。出力できます。</div>}
+                  {vr.errors.length===0 && !vr.skip && <div className="text-xs font-bold text-emerald-600">✓ 必須項目は揃っています。出力できます。</div>}
+                  {vr.errors.length===0 && vr.skip && <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs font-bold text-amber-700" data-testid={`life-skip-${f.id}`}>対象外: {vr.skipReason || '初月・6か月後の評価ではありません'}</div>}{/* ★ trial553: 対象外なのに緑の「出力できます」と見えていた */}
                 </>)}
                 <div className="tsu-hint-row"><TsuHint>※ 文字コードUTF-8・改行CR-LF。ファイル名に氏名・被保険者番号は含めません。{f.id==='TIFI2024'?'提出頻度は令和6年度改定で概ね3ヶ月ごと。「帳票印刷」で評価内容を紙様式で出力できます。':f.id==='AINT2024'?'「対象月区分」で初月・6か月後を指定します（「帳票印刷」でBI一覧を印刷）。【経過措置】新LIFE移行に伴い、ADL維持等加算(Ⅰ)(Ⅱ)は令和9年3月提供分まで従前の区分を継続できます（旧LIFEで7か月以上の評価がある場合等・移管Q&A問7〜9）。適用中もADL値の新LIFEへの登録は続ける必要があります。':f.id==='FUNC2024'?'生活機能チェック(様式3-2)を元に出力します。帳票は生活機能チェックシート画面の「印刷/PDF」から。':f.id==='IDUA2024'?'個別機能訓練計画書(様式3-3)を元に出力します。帳票は計画書画面の「印刷/PDF」から。目標ICF・合併症・職種等のコードは計画書の「LIFE提出用コード」で指定（職種コードは要確認）。':''}事業所番号・保険者番号は各種設定→事業所情報で登録できます。</TsuHint></div>
               </div>
