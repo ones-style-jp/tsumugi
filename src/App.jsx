@@ -2528,7 +2528,7 @@ const _tsumugiOverlayHost = (id) => {
 };
 const _tsumugiOverlayBar = (withPrint) => `<div class="tsumugi-ios-bar" style="position:sticky;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:10px 12px;text-align:center;font-family:-apple-system,'Hiragino Sans',sans-serif;z-index:5;box-shadow:0 2px 10px rgba(0,0,0,0.35);">
     <button type="button" data-act="close" style="font-size:16px;font-weight:bold;padding:10px 18px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">閉じる（元の画面に戻る）</button>
-    ${withPrint ? '<button type="button" data-act="pdf" style="font-size:16px;font-weight:bold;padding:10px 24px;margin-left:10px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">PDFにして印刷・保存</button><div data-act="msg" style="font-size:12px;margin-top:6px;color:#cbd5e1;">ホーム画面のアプリでは、PDFを作って共有メニューの「プリント」から印刷します。</div>' : ''}
+    ${withPrint ? '<button type="button" data-act="pdf" style="font-size:16px;font-weight:bold;padding:10px 24px;margin-left:10px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">印刷する</button><div data-act="msg" style="font-size:12px;margin-top:6px;color:#cbd5e1;">印刷の準備ができたら「印刷する」を押し、共有メニューの「プリント」を選んでください。</div>' : ''}
   </div>`;
 // HTML文書(用紙)を今の画面に重ねて表示する
 const tsumugiShowHtmlInPage = (html, opts = {}) => {
@@ -2625,34 +2625,50 @@ const tsumugiDocToPdf = async (docEl, { pageWmm = 210, pageHmm = 297, onProgress
   }
   return _tsuJpegPdf(out);
 };
-// 印刷表示の上部バーに「PDFにして印刷・保存」を付ける(iPad/iPhone 用)。1回目のタップで作成、2回目で共有メニュー(タップ直後でないと iOS が開かないため)
-const tsumugiAttachPdfButton = (host, btn, { title = '印刷', pageWmm, pageHmm, statusEl } = {}) => {
-  let file = null; let busy = false;
+// 印刷表示の上部バーに「印刷する」を付ける(iPad/iPhone 用)。
+// ★ 2026-11-11 trial555(ユーザー「iPad/スマホで印刷するとき、わざわざ共有を押すのが面倒。一気に行けるボタンを」): 表示を開いたらすぐ裏で PDF を作っておき、
+//   「印刷する」1回で共有メニュー(プリント／"ファイル"に保存)まで進む。iOS はホーム画面のアプリでは window.print() が動かず、印刷は共有メニューの
+//   「プリント」からしかできない(iOS の決まり)ので、押す回数を減らす形で対応。共有メニューは「押した直後」でないと開けないため、準備中に押されたら
+//   できたときにもう一度押してもらう。
+const tsumugiAttachPdfButton = (host, btn, { title = '印刷', pageWmm, pageHmm, statusEl, auto = true } = {}) => {
+  let file = null; let busy = false; let wanted = false;
   const setMsg = (t) => { if (statusEl) statusEl.textContent = t; };
-  btn.onclick = async () => {
-    if (busy) return;
-    if (file) {
-      try {
-        if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title }); return; }
-      } catch (e) { if (e && e.name === 'AbortError') return; }
-      try { const u = URL.createObjectURL(file); const w = window.open(u, '_blank'); if (!w) location.assign(u); } catch { alert('PDFを開けませんでした。'); }
-      return;
-    }
-    // ★ 2026-10-01(試験版): 作成中は回る輪を付ける(画面が止まって見えないように)
-    busy = true; const label = btn.textContent; btn.innerHTML = '<span class="tsumugi-busy-spin" aria-hidden="true"></span>PDFを作成中…'; btn.style.opacity = '0.85';
+  const extra = (() => { try { const m = String(statusEl && statusEl.textContent || '').match(/（([^）]+)）/); return m ? m[1] : ''; } catch { return ''; } })(); // 用紙サイズの案内は残す
+  const spin = '<span class="tsumugi-busy-spin" aria-hidden="true"></span>';
+  const ready = () => { btn.textContent = '印刷する（プリント／"ファイル"に保存）'; btn.style.background = '#16a34a'; btn.style.opacity = '1'; btn.setAttribute('data-ready', '1');
+    setMsg('押すと共有メニューが開きます。「プリント」で印刷、「"ファイル"に保存」でPDFを保存できます。' + (extra ? `（${extra}）` : '')); };
+  // 共有メニュー。開けた/閉じた=true、押した直後でないため開けなかった=false
+  const share = async () => {
+    try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title }); return true; } }
+    catch (e) { if (e && e.name === 'AbortError') return true; if (e && e.name === 'NotAllowedError') return false; }
+    try { const u = URL.createObjectURL(file); const w = window.open(u, '_blank'); if (!w) location.assign(u); } catch { alert('PDFを開けませんでした。'); }
+    return true;
+  };
+  const make = async () => {
+    if (file || busy) return;
+    busy = true; btn.innerHTML = spin + '印刷の準備中…'; btn.style.opacity = '0.85';
     try {
+      // 用紙の中の写真などが読み込み中なら少し待つ(最大3秒)
+      const imgs = Array.from(host.querySelectorAll('.tsumugi-ios-doc img')).filter(i => !i.complete);
+      if (imgs.length) await Promise.race([Promise.all(imgs.map(i => new Promise(r => { i.onload = r; i.onerror = r; }))), new Promise(r => setTimeout(r, 3000))]);
       const doc = host.querySelector('.tsumugi-ios-doc');
-      const blob = await tsumugiDocToPdf(doc, { pageWmm, pageHmm, onProgress: (i, n) => { btn.innerHTML = `<span class="tsumugi-busy-spin" aria-hidden="true"></span>PDFを作成中… ${i}/${n}枚`; } });
+      const blob = await tsumugiDocToPdf(doc, { pageWmm, pageHmm, onProgress: (i, n) => { btn.innerHTML = `${spin}印刷の準備中… ${i}/${n}枚`; } });
       const safe = String(title || '印刷').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 60) || '印刷';
       file = new File([blob], `${safe}.pdf`, { type: 'application/pdf' });
       try { window.__tsumugiLastPdf = { size: blob.size, name: file.name, blob }; } catch {}
-      btn.textContent = '共有メニューを開く（プリント／"ファイル"に保存）'; btn.style.background = '#16a34a'; btn.style.opacity = '1';
-      setMsg('PDFができました。もう一度押すと共有メニューが開きます。「プリント」で印刷、「"ファイル"に保存」でPDFを保存できます。');
+      ready();
+      if (wanted) { wanted = false; const ok = await share(); if (!ok) setMsg('準備ができました。もう一度「印刷する」を押してください。' + (extra ? `（${extra}）` : '')); }
     } catch (e) {
-      btn.textContent = label; btn.style.opacity = '1';
-      alert('PDFを作成できませんでした。\n' + String(e && e.message || e));
+      btn.textContent = 'PDFにして印刷・保存'; btn.style.opacity = '1';
+      setMsg('印刷の準備ができませんでした。もう一度押してください。' + String(e && e.message || e));
     } finally { busy = false; }
   };
+  btn.onclick = async () => {
+    if (file) { const ok = await share(); if (!ok) setMsg('もう一度「印刷する」を押してください。'); return; }
+    if (busy) { wanted = true; setMsg('印刷の準備中です。できたら共有メニューを開きます（開かないときは、もう一度押してください）。'); return; }
+    await make();
+  };
+  if (auto) setTimeout(make, 250); // 画面に付けた後(appendChild の後)で始める
 };
 // window.open('', '_blank') の代わり。ホーム画面アプリでは document.write された内容を今の画面に重ねて表示する窓もどきを返す
 const tsumugiDocWindow = (opts = {}) => {
@@ -25250,9 +25266,9 @@ export default function App() {
                 @media print{ body>*:not(#tsumugi-ios-print){display:none !important;} #tsumugi-ios-print{position:static !important;inset:auto !important;background:#fff !important;overflow:visible !important;} #tsumugi-ios-print .tsumugi-ios-bar{display:none !important;} #tsumugi-ios-print .tsumugi-ios-doc{margin:0 !important;box-shadow:none !important;max-width:none !important;} }
               </style>
               <div class="tsumugi-ios-bar no-print" style="position:fixed;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:12px 16px;text-align:center;font-family:-apple-system,sans-serif;z-index:5;box-shadow:0 2px 10px rgba(0,0,0,0.35);">
-                <button type="button" data-act="pdf" style="font-size:17px;font-weight:bold;padding:11px 28px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">PDFにして印刷・保存</button>
+                <button type="button" data-act="pdf" style="font-size:17px;font-weight:bold;padding:11px 28px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">印刷する</button>
                 <button type="button" data-act="close" style="font-size:15px;font-weight:bold;padding:11px 20px;margin-left:10px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;" className="whitespace-nowrap">閉じる</button>
-                <div data-act="msg" style="font-size:12px;margin-top:7px;color:#cbd5e1;">ホーム画面のアプリでは、PDFを作って共有メニューの「プリント」から印刷します（${hint.replace(/^印刷オプションで /, 'プリントの設定で ')}）。</div>
+                <div data-act="msg" style="font-size:12px;margin-top:7px;color:#cbd5e1;">印刷の準備ができたら「印刷する」を押し、共有メニューの「プリント」を選んでください（${hint.replace(/^印刷オプションで /, 'プリントの設定で ')}）。</div>
               </div>
               <div class="tsumugi-ios-doc">${inner}</div>`;
               tsumugiAttachPdfButton(host, host.querySelector('[data-act="pdf"]'), { title: printPreviewContent.title || '印刷', pageWmm: pageW, pageHmm: pageH, statusEl: host.querySelector('[data-act="msg"]') });

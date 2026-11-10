@@ -21,9 +21,11 @@ const touchScroll = async () => { await page.evaluate(() => window.scrollTo(0, 0
 // 1) 提供記録・連絡帳: 縦にスクロールできる(html が固定になっていない)
 for (const v of ['record', 'print']) {
   await go(v);
+  if (v === 'record') { await page.evaluate(() => localStorage.setItem('tsuRecCardMode', 'all')); await go(v); } // ★ 11/11: 人数が少ない曜日は1画面に収まるので、全員広げて長くしてから測る
   const st = await page.evaluate(() => ({ pos: getComputedStyle(document.documentElement).position, sh: document.documentElement.scrollHeight, ih: innerHeight, cls: document.documentElement.className }));
   ok(st.pos !== 'fixed' && st.sh > st.ih + 100, `${v}: ページが伸びて縦にスクロールできる作り(html position=${st.pos}, 高さ ${st.sh}/${st.ih})`);
   const top = await touchScroll(); ok(top > 100, `${v}: 指で縦に動かすとスクロールする(${top}px)`);
+  if (v === 'record') await page.evaluate(() => localStorage.removeItem('tsuRecCardMode')); // 以降の検査は既定の「押した人だけ広げる」
   ok(/tsu-pair/.test(st.cls) && await page.getByTestId('tsu-pair').isVisible(), `${v}: 上の見出し(提供記録｜連絡帳)は出ている`);
 }
 // 2) 下のバーの真ん中は連絡帳でも光る・自由枠の既定は日誌
