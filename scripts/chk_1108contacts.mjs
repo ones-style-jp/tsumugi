@@ -52,5 +52,8 @@ const pv = await (await b.newContext({ viewport: { width: 794, height: 1123 } })
 await pv.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;}</style></head><body>${c.html}</body></html>`); await pv.waitForTimeout(300);
 const ov = await pv.evaluate(() => { const pg = document.querySelector('[data-page-break]'); const inner = pg && pg.firstElementChild; return inner ? inner.scrollHeight - inner.clientHeight : -1; });
 r.fitsPage = ov <= 0; if (!r.fitsPage) console.log('overflow px', ov);
+// ★ 2026-11-10 1110b: 行の高さは全員同じ(緊急連絡先・ご家族の名前がある2段の行も)。欄の中身がはみ出ていない
+const rh = await pv.evaluate(() => { const trs = [...document.querySelectorAll('tbody tr')]; const hs = trs.map(t => Math.round(t.getBoundingClientRect().height)); const over = [...document.querySelectorAll('td > div')].filter(d => d.scrollHeight > d.clientHeight + 1).length; return { min: Math.min(...hs), max: Math.max(...hs), n: hs.length, over }; });
+r.sameRowHeight = rh.max - rh.min <= 1; r.noCellOverflow = rh.over === 0; console.log('rows', rh);
 await pv.screenshot({ path: `${OUT}/contacts_a4p.png`, fullPage: false });
 console.log(r); const ok = Object.values(r).every(Boolean); console.log(ok ? 'PASS' : 'FAIL'); await b.close(); process.exit(ok ? 0 : 1);
