@@ -12184,6 +12184,58 @@ function SidebarGroup({ icon, label, activeChild, children }) {
 //   この端末だけ切れる(各種設定 → システム → この端末の表示)。切ると左上の3本線に戻る。
 const TSU_TABBAR_KEY = 'tsumugiPhoneTabBar';
 const tsuTabBarOn = () => { try { return localStorage.getItem(TSU_TABBAR_KEY) !== '0'; } catch { return true; } };
+// ★ 2026-11-10 trial546(ユーザー「X みたいな使用感」): ①提供記録⇄連絡帳は上の2つの見出し(TsuPhonePairTabs)＋横スワイプで行き来
+//   ②画面の左端から右へスワイプで縦のメニュー(サイドバー) ③下のバーの4つ目は「この端末の自由枠」(長押しで選ぶ・既定は連絡帳)
+const TSU_TABCUSTOM_KEY = 'tsumugiPhoneTabCustom';
+const tsuTabCustom = () => { try { return localStorage.getItem(TSU_TABCUSTOM_KEY) || 'print'; } catch { return 'print'; } };
+function TsuPhonePairTabs({ items, active, onPick }) {
+  return (
+    <div data-testid="tsu-pair" className="tsu-pair no-print" role="tablist" aria-label="提供記録と連絡帳">
+      {items.map(it => <button key={it.key} type="button" role="tab" aria-selected={active === it.key} data-testid={`tsu-pair-${it.key}`} className={active === it.key ? 'on' : ''} onClick={() => { if (active !== it.key) onPick(it.key); }}>{it.label}</button>)}
+    </div>
+  );
+}
+// 横スワイプ(指の動き)を document で受ける。入力欄・横に動く表・画面全体の幕の上では反応しない。左端(24px)からの右スワイプは onEdgeRight
+function useTsuSwipe(enabled, getHandlers) {
+  React.useEffect(() => {
+    if (!enabled) return;
+    let st = null;
+    const isBad = (el) => { try { for (let e = el; e && e !== document.body; e = e.parentElement) {
+      const tag = e.tagName; if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.isContentEditable) return true;
+      if (e.hasAttribute && e.hasAttribute('data-tsu-noswipe')) return true;
+      const cs = getComputedStyle(e);
+      if (e.scrollWidth > e.clientWidth + 2 && (cs.overflowX === 'auto' || cs.overflowX === 'scroll')) return true;
+      if (cs.position === 'fixed' && !e.classList.contains('tsu-pin') && !e.classList.contains('tsu-pair')) return true; // 小窓・幕・下のバーの上
+    } } catch {} return false; };
+    const onStart = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } st = { x: t.clientX, y: t.clientY, t: Date.now(), edge: t.clientX <= 24, bad: isBad(ev.target) }; };
+    const onEnd = (ev) => { const s0 = st; st = null; if (!s0) return; const t = ev.changedTouches && ev.changedTouches[0]; if (!t) return;
+      const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return;
+      const h = (typeof getHandlers === 'function' ? getHandlers() : getHandlers) || {};
+      if (s0.edge && dx > 0) { if (h.onEdgeRight) h.onEdgeRight(); return; }
+      if (s0.bad) return; if (dx < 0) { if (h.onLeft) h.onLeft(); } else if (h.onRight) h.onRight(); };
+    document.addEventListener('touchstart', onStart, { passive: true }); document.addEventListener('touchend', onEnd, { passive: true }); document.addEventListener('touchcancel', () => { st = null; }, { passive: true });
+    return () => { document.removeEventListener('touchstart', onStart); document.removeEventListener('touchend', onEnd); };
+  }, [enabled]);
+}
+// 下のバーの自由枠を選ぶ小窓(下から・メニューの札と同じ項目)
+function TsuPhoneTabPicker({ open, onClose, groups, current, onPick }) {
+  React.useEffect(() => { if (!open) return; const h = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
+  if (!open) return null;
+  return ReactDOM.createPortal(
+    <div className="tsu-tabpick-back" data-testid="tsu-tabpick-back" onClick={onClose}>
+      <div className="tsu-tabpick" data-testid="tsu-tabpick" role="dialog" aria-label="下のバーの4つ目に出す画面" onClick={e => e.stopPropagation()}>
+        <div className="head"><span>下のバーの4つ目に出す画面</span><button type="button" data-testid="tsu-tabpick-close" onClick={onClose} aria-label="閉じる"><X size={20} /></button></div>
+        <div className="note">この端末だけの設定です。札を長押しするといつでも変えられます。</div>
+        <div className="list">
+          {groups.flatMap(g => g.items).map(it => (
+            <button key={it.key} type="button" data-testid={`tsu-tabpick-${it.key}`} className={current === it.key ? 'on' : ''} onClick={() => onPick(it.key)}>
+              <span className="ico">{it.icon}</span><span className="lbl">{it.label}</span>{current === it.key && <CheckCheck size={18} className="chk" />}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>, document.body);
+}
 // 文字を打っている間(iPhone はキーボードの上に固定の帯が浮いて邪魔)と、重なる小窓(tsu-back-lock)が出ている間は隠す
 function useTsuTabBarHidden() {
   const [hide, setHide] = React.useState(false);
@@ -12197,10 +12249,16 @@ function useTsuTabBarHidden() {
 }
 function TsuPhoneTabBar({ items, hidden }) {
   const typing = useTsuTabBarHidden();
+  // ★ trial546: 自由枠(it.onLongPress)は長押し(550ms)で選ぶ小窓。長押ししたら押した扱いにしない
+  const lp = React.useRef({ timer: null, fired: false });
+  const down = (it) => () => { if (!it.onLongPress) return; lp.current.fired = false; clearTimeout(lp.current.timer); lp.current.timer = setTimeout(() => { lp.current.fired = true; it.onLongPress(); }, 550); };
+  const up = () => { clearTimeout(lp.current.timer); };
   return (
     <nav data-testid="tsu-tabbar" className={`tsu-tabbar no-print ${(hidden || typing) ? 'tsu-tabbar-hide' : ''}`} aria-label="画面の切り替え">
       {items.map(it => (
-        <button key={it.key} type="button" data-testid={`tsu-tab-${it.key}`} onClick={it.onClick} className={`${it.center ? 'tsu-tab-center' : ''} ${it.active ? 'on' : ''}`} aria-current={it.active ? 'page' : undefined}>
+        <button key={it.key} type="button" data-testid={`tsu-tab-${it.key}`} data-custom={it.onLongPress ? '1' : undefined} onClick={(e) => { if (lp.current.fired) { lp.current.fired = false; e.preventDefault(); return; } it.onClick && it.onClick(e); }}
+          onPointerDown={down(it)} onPointerUp={up} onPointerLeave={up} onPointerCancel={up} onContextMenu={it.onLongPress ? (e) => e.preventDefault() : undefined}
+          className={`${it.center ? 'tsu-tab-center' : ''} ${it.active ? 'on' : ''}`} aria-current={it.active ? 'page' : undefined} title={it.onLongPress ? '長押しで、この札に出す画面を選べます' : undefined}>
           <span className="ico">{it.icon}</span>
           <span className="lbl">{it.label}</span>
           {it.badge != null && it.badge > 0 && <span className="tsu-tab-badge" data-testid={`tsu-tab-${it.key}-badge`}>{it.badge > 99 ? '99+' : it.badge}</span>}
@@ -23030,8 +23088,20 @@ export default function App() {
   const _tabBarOn = _phoneW && tsuTabBarOn(); // _tabBarTick が変わるたびに描き直されて読み直す
   React.useEffect(() => { try { document.documentElement.classList.toggle('tsu-tabbar-on', !!_tabBarOn); } catch {} return () => { try { document.documentElement.classList.remove('tsu-tabbar-on'); } catch {} }; }, [_tabBarOn, _tabBarTick]);
   // ★ trial540: スマホで下のバーを使い提供記録を開いているときは、上の見出し(日付の行)を出さない(日付は操作の段にある)。帯は画面の上端から
-  React.useEffect(() => { const on = !!_tabBarOn && currentView === 'record'; try { document.documentElement.classList.toggle('tsu-nohdr', on); } catch {} return () => { try { document.documentElement.classList.remove('tsu-nohdr'); } catch {} }; }, [_tabBarOn, _tabBarTick, currentView]);
+  // ★ trial546: 連絡帳も同じ(提供記録⇄連絡帳の2つの見出しが上に出る)
+  const _pairOn = !!_tabBarOn && (currentView === 'record' || currentView === 'print');
+  React.useEffect(() => { const on = _pairOn; try { document.documentElement.classList.toggle('tsu-nohdr', on); document.documentElement.classList.toggle('tsu-pair', on); } catch {} return () => { try { document.documentElement.classList.remove('tsu-nohdr'); document.documentElement.classList.remove('tsu-pair'); } catch {} }; }, [_pairOn, _tabBarTick]);
   const [_phoneMenuOpen, _setPhoneMenuOpen] = useState(false);
+  const [_tabPickOpen, _setTabPickOpen] = useState(false);
+  // ★ trial546: 横スワイプ。提供記録で左へ=連絡帳・連絡帳で右へ=提供記録(X と同じ向き)。左端から右へ=縦のメニュー(Safari では iPhone の「戻る」に取られる・ホーム画面のアプリ版で効く)
+  const _goPair = (v) => { if (v !== currentView) navigateTo(v); };
+  const _swipeRef = React.useRef(null);
+  _swipeRef.current = {
+    onLeft: () => { if (currentView === 'record' && !isSidebarOpen && !_phoneMenuOpen) _goPair('print'); },
+    onRight: () => { if (currentView === 'print' && !isSidebarOpen && !_phoneMenuOpen) _goPair('record'); },
+    onEdgeRight: () => { if (!isSidebarOpen && !_phoneMenuOpen && !_tabPickOpen) setIsSidebarOpen(true); },
+  };
+  useTsuSwipe(!!_tabBarOn, () => _swipeRef.current);
   React.useEffect(() => { if (!_tabBarOn) _setPhoneMenuOpen(false); }, [_tabBarOn]);
   // 下のバー「提供記録」の印: 今日来る予定(基本利用日)で、まだ提供記録が1件も無い方の数。休業日・定休日は0。午前/午後は今の時刻で切り替え(trial539)
   const _recTodayMissing = React.useMemo(() => {
@@ -25971,13 +26041,19 @@ export default function App() {
         ];
         // 下のバー: ホーム / 送迎表(使わない店は日誌) / 提供記録 / 連絡帳 / メニュー (trial541: 真ん中も同じ形・名前は「提供記録」)
         const second = tsumugiTransportOn(appData) ? item('transport', '送迎表', <Car size={24} />) : item('diary', '日誌', <PenTool size={24} />, { badge: diaryTodayBadge });
+        // ★ trial546: 4つ目は「この端末の自由枠」(長押しで選ぶ・既定は連絡帳)。メニューの札と同じ項目から
+        const _allItems = groups.flatMap(g => g.items);
+        const _customKey = tsuTabCustom();
+        const _customBase = _allItems.find(i => i.key === _customKey) || _allItems.find(i => i.key === 'print') || item('print', '連絡帳', <Printer size={22} />);
+        const _custom = { ..._customBase, onLongPress: () => _setTabPickOpen(true) };
         const tabs = [
           item('dashboard', 'ホーム', <CalendarCheck size={24} />, { badge: _homeUnreadCount }),
           second,
           item('record', '提供記録', <ClipboardList size={24} />, { badge: _recTodayMissing }),
-          item('print', '連絡帳', <Printer size={24} />),
+          _custom,
           { key: 'menu', label: 'メニュー', icon: <Menu size={24} />, active: _phoneMenuOpen, onClick: () => _setPhoneMenuOpen(v => !v) },
         ];
+        const _pickTab = (k) => { try { localStorage.setItem(TSU_TABCUSTOM_KEY, k); } catch {} _setTabPickOpen(false); try { window.dispatchEvent(new Event('tsumugi-tabbar-change')); } catch {} };
         const footer = (
           <div className="tsu-phone-menu-foot">
             {activeRecorder && isMemberAdmin(activeRecorder, appData.systemSettings) && (
@@ -25989,8 +26065,10 @@ export default function App() {
           </div>
         );
         return (<>
+          {_pairOn && <TsuPhonePairTabs items={[{ key: 'record', label: '提供記録' }, { key: 'print', label: '連絡帳' }]} active={currentView} onPick={_goPair} />}
           <TsuPhoneTabBar items={tabs} hidden={isSidebarOpen} />
           <TsuPhoneMenu open={_phoneMenuOpen} onClose={() => _setPhoneMenuOpen(false)} groups={groups} footer={footer} />
+          <TsuPhoneTabPicker open={_tabPickOpen} onClose={() => _setTabPickOpen(false)} groups={groups} current={_customKey} onPick={_pickTab} />
         </>);
       })()}
       {/* ★ サイドバーのスタッフ追加モーダル */}
@@ -37023,7 +37101,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       <style>{`@media print{@page{size:182mm 257mm;margin:0;}body,html,#root{height:auto!important;overflow:visible!important;background:white!important;}.no-print{display:none!important;}.cb-page{border:0!important;box-shadow:none!important;}.cb-page *{box-shadow:none!important;outline:none!important;--tw-ring-shadow:0 0 transparent!important;--tw-ring-color:transparent!important;--tw-ring-offset-shadow:0 0 transparent!important;}}`}</style>
       {/* ツールバー: 横いっぱい・浮かさず上部に固定 */}
       {/* ★ 2026-10-08(ユーザー要望): スマホは 日付・AM/PM・人数 を上に固定し、提供記録〜ダウンロードは「操作」の中に1行で */}
-      <TsuPhoneFold storageKey="renraku" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
+      <TsuPhoneFold storageKey="renraku" sheet summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
         <TsuDatePick testId="cb-fold-date" value={selectedDate} label={isNaN(_d) ? '日付' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`}
           onChange={v => { const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]); setSelectedDate(nearestOpenDate(v, closed, [])); }} />
         {setSharedAmpm && <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0">
@@ -41087,7 +41165,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="text-[11px] text-slate-400 mt-2">この表示は30分間は出ません</div>
           </div>
         </div>), document.body)}
-      <div data-testid="tp-ops" className={`bg-white px-2 sm:px-3 py-1.5 border-b border-slate-200 shadow-sm flex items-center gap-2 flex-wrap ${_tpPhone && !_tpOpsOpen ? 'hidden' : ''}`}>
+      {/* ★ 2026-11-10 trial546(ユーザー「操作を開いたときの上部の配置がイマイチ」): スマホは提供記録と同じ下から出る小窓(幕・見出し・2列の並び) */}
+      {_tpPhone && _tpOpsOpen && <div className="tsu-fold-sheet-back" data-testid="tp-ops-back" onClick={_tpTogOps} aria-hidden="true" />}
+      <div data-testid="tp-ops" className={`bg-white px-2 sm:px-3 py-1.5 border-b border-slate-200 shadow-sm flex items-center gap-2 flex-wrap ${_tpPhone && !_tpOpsOpen ? 'hidden' : ''} ${_tpPhone && _tpOpsOpen ? 'tsu-fold-sheet tsu-tpo-sheet' : ''}`}>
+        {_tpPhone && _tpOpsOpen && <div className="tsu-fold-sheet-head tsu-tpo-head"><span>操作</span><button type="button" data-testid="tp-ops-close" onClick={_tpTogOps} aria-label="閉じる"><X size={20} /></button></div>}
         {_tpTemplate ? (
           <div className="tsu-tpo-week flex items-center gap-2" data-testid="tp-base-head">
             {/* ★ 2026-11-03 trial509: 基本の送迎表(曜日ごとの型)の編集中 */}
@@ -41320,7 +41401,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   return (
                   <div key={c.id}>
                     <div className="px-3 py-1 flex items-center gap-x-3 gap-y-1 flex-wrap text-[16px] font-bold text-slate-800 bg-slate-100 border-y border-slate-200"><span>{c.name}{!ms.length && !rmHere.length ? <span className="ml-1 text-[12px] font-normal text-slate-500">（送りだけ）</span> : null}</span>{drv ? <span className="text-[15px] text-slate-800"><span className="text-[12px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}
-                      {_dropMs.length ? <button type="button" data-testid={`tp-dl-seat-${iso}-${sl}-${c.id}`} onClick={() => setSeatView({ iso, sl, cid: c.id })} className="ml-auto shrink-0 text-[13px] font-bold text-white bg-indigo-600 rounded-lg px-2.5 py-1">送りの座席</button> : null}</div>
+                      <span className="ml-auto inline-flex items-center gap-2">
+                        {/* ★ 2026-11-10 trial546(ユーザー「1日版のスマホにもナビを」): 週の表と同じ(この車の乗車順で Google マップの経路案内) */}
+                        {!!ms.length && <button type="button" data-testid={`tp-navi-day-${iso}-${sl}-${c.id}`} onClick={() => openNavi(iso, sl, c.id)} aria-label="ナビ（この車の乗車順で経路案内）" className="shrink-0 inline-flex items-center gap-0.5 h-8 px-2 rounded-lg border border-blue-300 bg-white text-blue-700 text-[13px] font-bold"><Navigation size={14} />ナビ</button>}
+                        {_dropMs.length ? <button type="button" data-testid={`tp-dl-seat-${iso}-${sl}-${c.id}`} onClick={() => setSeatView({ iso, sl, cid: c.id })} className="shrink-0 text-[13px] font-bold text-white bg-indigo-600 rounded-lg px-2.5 py-1">送りの座席</button> : null}
+                      </span></div>
                     {rows.map(m => <Row key={`${m._rm?'rm-':''}${m.pid}`} m={m} pl={pl} sl={sl} rm={m._rm} />)}
                     {/* ★ 2026-10-28(ユーザー要望「スマホの施設に到着(目安)は不要。編集はiPad・パソコンで」): スマホの1日表示から「施設に到着」を外した(週の表・iPad・パソコンはそのまま) */}
                   </div>); })}
@@ -44691,7 +44776,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       {/* ★ スマホ: 背景オーバーレイ */}
       {mobileRosterOpen && <div onClick={() => setMobileRosterOpen(false)} className="md:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true" />}
       <div className={`bg-white shadow-md border border-slate-300 flex flex-col overflow-hidden min-h-0
-        fixed inset-y-0 left-0 z-50 w-[88%] max-w-[360px] rounded-none transition-transform duration-300 ${mobileRosterOpen ? 'translate-x-0' : '-translate-x-full'}
+        tsu-roster-drawer fixed inset-y-0 left-0 z-[44] w-[88%] max-w-[360px] rounded-none transition-transform duration-300 ${mobileRosterOpen ? 'translate-x-0' : '-translate-x-full'}
         md:static md:z-auto md:translate-x-0 md:rounded-2xl md:flex-shrink-0 md:w-auto md:transition-all ${isSidebarCollapsed ? 'md:w-[44px]' : 'md:w-[340px]'}`}>{/* ★ 2026-10-23: md:z-auto … flexの子は static でも z-index が効くため、z-50 のままだとサイドバー(z-50・DOMで前)より上に描かれて押せなかった(iPad縦) */}
         {(isSidebarCollapsed && !isMobileView) ? (<button onClick={() => setIsSidebarCollapsed(false)} className="h-full flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50"><ChevronRight size={18} /><span className="text-[9px] font-bold mt-2" style={{ writingMode: 'vertical-rl' }}>名簿</span></button>) : (<>
           <div className="p-3 border-b border-slate-200 bg-slate-50 shrink-0">
@@ -50320,7 +50405,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               {/* ★ 2026-11-10 trial536: スマホの下のバー(この端末だけ) */}
               <label className="flex items-start gap-2 cursor-pointer mb-3" data-testid="tabbar-setting">
                 <input type="checkbox" data-testid="tabbar-toggle" defaultChecked={tsuTabBarOn()} onChange={e=>{ try { localStorage.setItem(TSU_TABBAR_KEY, e.target.checked ? '1' : '0'); } catch {} try { window.dispatchEvent(new Event('tsumugi-tabbar-change')); } catch {} }} className="mt-1 accent-blue-600"/>
-                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表・提供記録・連絡帳・メニューを下に置きます。外すと左上の3本線に戻ります。iPad・パソコンは変わりません。</TsuHint></span>
+                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表（または日誌）・提供記録・自由枠（長押しで選ぶ・はじめは連絡帳）・メニューを下に置きます。提供記録と連絡帳は上の見出しか横スワイプで行き来。左端から右へスワイプで縦のメニュー（ホーム画面のアプリ版）。外すと左上の3本線に戻ります。iPad・パソコンは変わりません。</TsuHint></span>
               </label>
               <label className="flex items-start gap-2 cursor-pointer">
                 <input type="checkbox" defaultChecked={isAutoFullscreenOn()} onChange={e=>{ try { localStorage.setItem(AUTO_FS_KEY, e.target.checked ? '1' : '0'); } catch {} }} className="mt-1 accent-blue-600"/>
@@ -52837,7 +52922,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           </div>
         );
       })()}
-      <TsuPhoneFold storageKey="diary" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
+      <TsuPhoneFold storageKey="diary" sheet summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
         {renderDiaryCal(true)}
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0" data-testid="diary-fold-ampm">
           {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>_diarySwitchAmpm(v)} className={`px-2.5 h-10 text-sm font-bold ${ampm===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
@@ -58541,7 +58626,7 @@ ${optionsDesc}
       {/* ★ モニタリングヘッダ: 淡い水色、 文字は黒で読みやすく */}
       {/* ★ 2026-08-30 店舗要望: 題名行を廃止し、絞り込み/並び替えはポップアップ化して1行に集約(画面領域の拡大) */}
       {/* ★ 2026-10-08(ユーザー報告「スマホでモニタリングがおかしい」): スマホは上部を折りたたみ(要約=月・人数・保存) */}
-      <TsuPhoneFold storageKey="monitoring" className="no-print" summary={<>
+      <TsuPhoneFold storageKey="monitoring" sheet className="no-print" summary={<>
         {/* ★ 2026-10-08(ユーザー要望): よく使う AI下書き・一括確定 も1行目に(「操作」の中からは外す) */}
         <TsuDatePick type="month" testId="mon-fold-month" value={targetMonth} label={String(targetMonth||'').replace(/^(\d{4})-(\d{2})$/, (m0, y, mo) => `${Number(mo)}月`)} onChange={v => setTargetMonth(v)} />
         {sheetBatchProg

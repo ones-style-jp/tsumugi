@@ -702,3 +702,52 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
   .tsu-fold-sheet-head > button { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; background: none; color: #475569; margin-right: -8px; }
   @media (prefers-reduced-motion: reduce) { .tsu-fold-sheet { animation: none; } }
 }
+
+/* ★ 2026-11-10 trial546(ユーザー「X みたいな使用感」): 提供記録⇄連絡帳の2つの見出し(上・緑の下線)・自由枠を選ぶ小窓。tsu-nohdr のあとに置く(同じ強さなので後勝ち) */
+@media (max-width: 767px) {
+  .tsu-pair { position: fixed; top: 0; left: 0; right: 0; height: 40px; z-index: 39; display: flex; align-items: stretch;
+    background: rgba(255,255,255,0.97); -webkit-backdrop-filter: saturate(180%) blur(12px); backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid #e2e8f0; }
+  .tsu-pair > button { flex: 1 1 0; min-width: 0; border: 0; background: none; font-size: 15px; font-weight: 700; color: #64748b; position: relative; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  .tsu-pair > button.on { color: #1e293b; }
+  .tsu-pair > button.on::after { content: ''; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 64px; height: 3px; border-radius: 3px 3px 0 0; background: #3c8d47; }
+  html.tsu-pair #appMainArea { padding-top: 40px !important; }
+  html.tsu-pair { --tsu-pin-top: 40px; }
+  html.tsu-pair #tsuContentScroller .sticky.top-0[data-tsu-doc]:not(th):not(thead):not(tr) { top: 40px !important; }
+  html.tsu-pair #tsuContentScroller [style*="position: sticky"][style*="top: 0px"][data-tsu-doc]:not(th):not(thead):not(tr) { top: 40px !important; }
+  .tsu-tabbar > button[data-custom] { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+  .tsu-tabpick-back { position: fixed; inset: 0; z-index: 58; background: rgba(15, 23, 42, 0.35); }
+  .tsu-tabpick { position: fixed; left: 0; right: 0; bottom: 0; z-index: 59; background: #fff; border-radius: 18px 18px 0 0; box-shadow: 0 -8px 30px rgba(15,23,42,0.18);
+    padding: 4px 12px calc(12px + env(safe-area-inset-bottom, 0px)); max-height: calc(100dvh - 80px); overflow-y: auto; animation: tsu-menu-up .2s ease-out; }
+  .tsu-tabpick .head { display: flex; align-items: center; justify-content: space-between; min-height: 44px; font-size: 15px; font-weight: 700; color: #1e293b; }
+  .tsu-tabpick .head > button { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; background: none; color: #475569; margin-right: -8px; }
+  .tsu-tabpick .note { font-size: 12px; color: #64748b; margin: 0 0 8px; }
+  .tsu-tabpick .list { display: flex; flex-direction: column; }
+  .tsu-tabpick .list > button { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 6px; border: 0; border-bottom: 1px solid #f1f5f9; background: none; font-size: 15px; font-weight: 700; color: #1e293b; text-align: left; }
+  .tsu-tabpick .list > button .ico { width: 36px; height: 36px; border-radius: 10px; background: #eef6ea; color: #3c8d47; display: flex; align-items: center; justify-content: center; flex: none; }
+  .tsu-tabpick .list > button.on { color: #2f7a3d; }
+  .tsu-tabpick .list > button .chk { margin-left: auto; color: #2f7a3d; }
+  @media (prefers-reduced-motion: reduce) { .tsu-tabpick { animation: none; } }
+}
+
+/* ★ 2026-11-10 trial546: 送迎表(スマホ)の「操作」は下から出る小窓。中は 週の移動(1行)・凡例(1行)・ボタン2列・ダウンロードは全幅。利用者マスタの一覧は下のバーより下(z44)でバーの分だけ短く */
+@media (max-width: 767px) {
+  [data-testid="tp-ops"].tsu-tpo-sheet { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px !important; padding: 4px 12px 14px !important; border: 0 !important; overflow: visible !important; }
+  .tsu-tpo-sheet > .tsu-tpo-head { grid-column: 1 / -1; margin: 0 !important; }
+  .tsu-tpo-sheet > .tsu-tpo-week { grid-column: 1 / -1; display: flex !important; justify-content: center; gap: 6px !important; }
+  .tsu-tpo-sheet > .tsu-tpo-week > button { height: 40px; padding: 0 12px !important; font-size: 14px !important; }
+  .tsu-tpo-sheet > .tsu-tpo-week > span { font-size: 15px !important; padding: 0 4px !important; }
+  .tsu-tpo-sheet > .tsu-tpo-legend { grid-column: 1 / -1; display: flex !important; justify-content: center; margin: 0 !important; gap: 4px !important; font-size: 11px !important; }
+  .tsu-tpo-sheet > .tsu-tpo-legend > span:first-child { grid-column: auto; }
+  .tsu-tpo-sheet > button:not(.hidden) { width: 100% !important; height: 44px !important; padding: 0 8px !important; font-size: 14px !important; flex: none !important; border-radius: 12px !important; }
+  .tsu-tpo-sheet > span.relative { width: 100%; }
+  .tsu-tpo-sheet > span.relative > button { width: 100%; height: 44px; font-size: 14px; }
+  .tsu-tpo-sheet > button:last-of-type { grid-column: 1 / -1; }
+  .tsu-tpo-sheet [data-testid="tp-more-menu"] { top: auto; bottom: 48px; right: 0; }
+  html.tsu-tabbar-on .tsu-roster-drawer { bottom: var(--tsu-tabbar-h, 0px); }
+  /* 小窓の中は左から詰めて並べる(右寄せ・ml-auto のまま持ち込むと左が大きく空く: 日誌の操作) */
+  .tsu-fold-sheet [class*="justify-end"] { justify-content: flex-start !important; }
+  .tsu-fold-sheet .ml-auto:not(.tsu-rv-usual) { margin-left: 0 !important; }
+  .tsu-fold-sheet [class*="ml-auto"]:not(.tsu-rv-usual) { margin-left: 0 !important; }
+  .tsu-fold-sheet .tsu-diary-bar { justify-content: flex-start !important; position: static !important; }
+  .tsu-fold-sheet .tsu-diary-bar > .flex-1, .tsu-fold-sheet .tsu-diary-bar > [class*="flex-1"] { display: none !important; }
+}

@@ -16,8 +16,8 @@ await page.getByTestId('tsu-tab-record').click(); await page.waitForTimeout(1500
 // ★ trial540: 提供記録では見出し(日付の行)が消え、帯が上端から。「操作」は下から出る小窓。「全画面」は出ない
 ok(await page.evaluate(() => document.documentElement.classList.contains('tsu-nohdr')), '提供記録では html.tsu-nohdr');
 ok(!(await page.locator('header.tsu-app-header').isVisible()), '見出し(日付の行)が消えている');
-const pinBox = await page.locator('.tsu-pin').first().boundingBox(); ok(pinBox && pinBox.y <= 1, `帯が画面の上端から (y=${pinBox && Math.round(pinBox.y)})`);
-const padTop = await page.evaluate(() => parseInt(getComputedStyle(document.getElementById('appMainArea')).paddingTop)); ok(padTop === 0, `本文の上の余白 ${padTop}px`);
+const pinBox = await page.locator('.tsu-pin').first().boundingBox(); ok(pinBox && Math.round(pinBox.y) === 40, `帯は「提供記録｜連絡帳」の見出し(40px)のすぐ下 (y=${pinBox && Math.round(pinBox.y)})`); // ★ trial546
+const padTop = await page.evaluate(() => parseInt(getComputedStyle(document.getElementById('appMainArea')).paddingTop)); ok(padTop === 40, `本文の上の余白は見出しの分だけ ${padTop}px`); // ★ trial546
 await page.getByTestId('fold-btn-record').click(); await page.waitForTimeout(400);
 ok(await page.getByTestId('fold-sheet-close-record').isVisible(), '操作が下から出る小窓で開く');
 const sh = await page.getByTestId('fold-body-record').boundingBox(); ok(sh && sh.y + sh.height <= 844 - 60 + 1 && sh.y > 200, `小窓は下のバーの上に (y=${sh && Math.round(sh.y)}〜${sh && Math.round(sh.y + sh.height)})`);
@@ -92,9 +92,11 @@ await page.getByTestId('fold-btn-record').click(); await page.waitForTimeout(400
 await page.getByTestId('rec-cardmode-one').click(); await page.waitForTimeout(500);
 await page.getByTestId('fold-sheet-close-record').click().catch(() => {}); await page.waitForTimeout(300);
 ok((await page.locator('.tsu-rv-cards > .tsu-rv-row').count()) === n, '「押した人だけ広げる」に戻すと行に戻る');
-// 別の画面へ移ると見出しが戻る
-await page.getByTestId('tsu-tab-print').click(); await page.waitForTimeout(1000);
-ok(await page.locator('header.tsu-app-header').isVisible(), '連絡帳では見出しが戻る');
-ok(await page.evaluate(() => !document.documentElement.classList.contains('tsu-nohdr')), 'html.tsu-nohdr が外れる');
+// ★ trial546: 連絡帳は提供記録と対(上の見出しが続く・日付の行は出ない)。ホームへ移ると見出しが戻る
+await page.getByTestId('tsu-pair-print').click(); await page.waitForTimeout(1000);
+ok(!(await page.locator('header.tsu-app-header').isVisible()) && (await page.getByTestId('tsu-pair').isVisible()), '連絡帳でも見出し(日付の行)は出ず「提供記録｜連絡帳」が続く');
+await page.getByTestId('tsu-tab-dashboard').click(); await page.waitForTimeout(1000);
+ok(await page.locator('header.tsu-app-header').isVisible(), 'ホームでは見出しが戻る');
+ok(await page.evaluate(() => !document.documentElement.classList.contains('tsu-nohdr') && !document.documentElement.classList.contains('tsu-pair')), 'html.tsu-nohdr / tsu-pair が外れる');
 await ctx.close(); await b.close();
 console.log(fails ? `FAILS ${fails}` : 'ALL PASS'); process.exit(fails ? 1 : 0);
