@@ -14173,6 +14173,9 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   { let _nd=1; while (cells.length % 7 !== 0) cells.push(_mkC(_nY2,_nM2,_nd++,true)); }
   const dstrOf = (d) => `${cy}-${String(cm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   const shiftMonth = (delta) => { const d = new Date(cy, cm-1+delta, 1); setCurMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); };
+  // ★ 2026-11-10 trial547: スマホの月の表は横スワイプで前の月／次の月(指を左へ=翌月)
+  const _schSwipeRef = React.useRef(null); _schSwipeRef.current = () => ((_schPhone && viewMode === 'month') ? shiftMonth : null);
+  React.useEffect(() => { const h = (e) => { const f = _schSwipeRef.current && _schSwipeRef.current(); if (!f) return; f(e && e.detail && e.detail.dir === 'left' ? 1 : -1); }; window.addEventListener('tsumugi-swipe', h); return () => window.removeEventListener('tsumugi-swipe', h); }, []);
   const todayEvents = evOf(todayStr);
   const selEvents = evOf(selDay);
   const dow = ['日','月','火','水','木','金','土'];
@@ -23097,8 +23100,9 @@ export default function App() {
   const _goPair = (v) => { if (v !== currentView) navigateTo(v); };
   const _swipeRef = React.useRef(null);
   _swipeRef.current = {
-    onLeft: () => { if (currentView === 'record' && !isSidebarOpen && !_phoneMenuOpen) _goPair('print'); },
-    onRight: () => { if (currentView === 'print' && !isSidebarOpen && !_phoneMenuOpen) _goPair('record'); },
+    // ★ trial547: 提供記録⇄連絡帳以外の画面には合図 'tsumugi-swipe' {dir:'left'|'right'} を送る(送迎表の1日=日送り・日誌=日送り・カレンダー=月送り)
+    onLeft: () => { if (isSidebarOpen || _phoneMenuOpen || _tabPickOpen) return; if (currentView === 'record') _goPair('print'); else if (currentView !== 'print') { try { window.dispatchEvent(new CustomEvent('tsumugi-swipe', { detail: { dir: 'left', view: currentView } })); } catch {} } },
+    onRight: () => { if (isSidebarOpen || _phoneMenuOpen || _tabPickOpen) return; if (currentView === 'print') _goPair('record'); else if (currentView !== 'record') { try { window.dispatchEvent(new CustomEvent('tsumugi-swipe', { detail: { dir: 'right', view: currentView } })); } catch {} } },
     onEdgeRight: () => { if (!isSidebarOpen && !_phoneMenuOpen && !_tabPickOpen) setIsSidebarOpen(true); },
   };
   useTsuSwipe(!!_tabBarOn, () => _swipeRef.current);
@@ -41146,6 +41150,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _tpDayIso = days.some(d => _iso(d) === selectedDate) ? selectedDate : (days.some(d => _iso(d) === _iso(new Date())) ? _iso(new Date()) : (days[0] ? _iso(days[0]) : selectedDate));
   const _tpViewDays = _tpOneDay ? days.filter(d => _iso(d) === _tpDayIso) : days;
   const _tpStepDay = (n) => { const closed = (appData.systemSettings?.facilityInfo?.closedDays || [0]).map(Number); const d = new Date(_tpDayIso + 'T00:00:00'); for (let i = 0; i < 8; i++) { d.setDate(d.getDate() + n); if (!closed.includes(d.getDay())) break; } setSelectedDate(_iso(d)); };
+  // ★ 2026-11-10 trial547(ユーザー「やってみて」): スマホの1日表示は横スワイプで前の日／次の日(指を左へ=次の日・上の ◀▶ と同じ)。合図は App の useTsuSwipe から
+  const _tpSwipeRef = React.useRef(null); _tpSwipeRef.current = () => ((_tpPhone && _tpOneDay) ? _tpStepDay : null);
+  React.useEffect(() => { const h = (e) => { const f = _tpSwipeRef.current && _tpSwipeRef.current(); if (!f) return; f(e && e.detail && e.detail.dir === 'left' ? 1 : -1); }; window.addEventListener('tsumugi-swipe', h); return () => window.removeEventListener('tsumugi-swipe', h); }, []);
   const _tpCols = `26px repeat(${_tpViewDays.length}, minmax(${_tpOneDay ? 0 : 236}px, 1fr))`; // 先頭=午前/午後の縦見出し列
   // ==== 画面 ====
   const _finalView = !!_finalAtOfWeek() && !tpEdit;
@@ -51297,6 +51304,10 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
 // === 日誌画面 ===
 function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAmpm, setSharedAmpm, dirtyRef, saveFnRef, onShowPrintPreview }) {
   const _isPhoneDiary = useTsuIsPhone(); // ★ 2026-10-08: スマホは上部を折りたたみ(未完成の一覧は外に出す)
+  // ★ 2026-11-10 trial547: スマホは横スワイプで前の日／次の日(指を左へ=次の日・定休日は飛ばす)
+  const _diarySwipeRef = React.useRef(null);
+  _diarySwipeRef.current = () => { if (!_isPhoneDiary) return null; return (n) => { const closed = (appData.systemSettings?.facilityInfo?.closedDays || [0]).map(Number); const d = new Date(selectedDate + 'T00:00:00'); if (isNaN(d)) return; for (let i = 0; i < 8; i++) { d.setDate(d.getDate() + n); if (!closed.includes(d.getDay())) break; } setSelectedDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }; };
+  React.useEffect(() => { const h = (e) => { const f = _diarySwipeRef.current && _diarySwipeRef.current(); if (!f) return; f(e && e.detail && e.detail.dir === 'left' ? 1 : -1); }; window.addEventListener('tsumugi-swipe', h); return () => window.removeEventListener('tsumugi-swipe', h); }, []);
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
 
