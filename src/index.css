@@ -705,11 +705,17 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
 
 /* ★ 2026-11-10 trial546(ユーザー「X みたいな使用感」): 提供記録⇄連絡帳の2つの見出し(上・緑の下線)・自由枠を選ぶ小窓。tsu-nohdr のあとに置く(同じ強さなので後勝ち) */
 @media (max-width: 767px) {
-  .tsu-pair { position: fixed; top: 0; left: 0; right: 0; height: 40px; z-index: 39; display: flex; align-items: stretch;
+  /* ★ trial548: 帯の class は tsu-pairtabs(html の印 tsu-pair と同じ名前だったため html 自体が固定・高さ40pxになり、提供記録と連絡帳で縦にスクロールできなかった不具合の修正)。下線は1本を左右に動かす */
+  .tsu-pairtabs { position: fixed; top: 0; left: 0; right: 0; height: 40px; z-index: 39; display: flex; align-items: stretch;
     background: rgba(255,255,255,0.97); -webkit-backdrop-filter: saturate(180%) blur(12px); backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid #e2e8f0; }
-  .tsu-pair > button { flex: 1 1 0; min-width: 0; border: 0; background: none; font-size: 15px; font-weight: 700; color: #64748b; position: relative; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-  .tsu-pair > button.on { color: #1e293b; }
-  .tsu-pair > button.on::after { content: ''; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 64px; height: 3px; border-radius: 3px 3px 0 0; background: #3c8d47; }
+  .tsu-pairtabs > button { flex: 1 1 0; min-width: 0; border: 0; background: none; font-size: 15px; font-weight: 700; color: #64748b; position: relative; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: color .18s ease; }
+  .tsu-pairtabs > button.on { color: #1e293b; }
+  .tsu-pairtabs::after { content: ''; position: absolute; left: calc(25% - 32px); bottom: 0; width: 64px; height: 3px; border-radius: 3px 3px 0 0; background: #3c8d47; transition: left .22s ease; }
+  .tsu-pairtabs[data-on="print"]::after { left: calc(75% - 32px); }
+  /* 横スワイプで切り替わるとき、中身を一瞬うすくしてから出す(透明度だけ=軽い。指に付いてくる動きは2画面を同時に描く必要があり重くなるので採らない) */
+  #tsuContentScroller.tsu-swap { animation: tsuSwap .16s ease-out; }
+  @keyframes tsuSwap { from { opacity: .3; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { #tsuContentScroller.tsu-swap { animation: none; } .tsu-pairtabs::after { transition: none; } }
   html.tsu-pair #appMainArea { padding-top: 40px !important; }
   html.tsu-pair { --tsu-pin-top: 40px; }
   html.tsu-pair #tsuContentScroller .sticky.top-0[data-tsu-doc]:not(th):not(thead):not(tr) { top: 40px !important; }

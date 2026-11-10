@@ -60,7 +60,7 @@ const login = async (page) => {
   if (/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || '')) { await page.mouse.click(380, 500); await page.waitForTimeout(500); }
   ok(!/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), 'メニューを閉じると下のバーが戻る');
   // 4つ目(自由枠): 長押しで選ぶ
-  const slot = page.locator('.tsu-tabbar > button[data-custom]'); ok((await slot.count()) === 1 && /連絡帳/.test(await slot.innerText()), '4つ目は自由枠(はじめは連絡帳)');
+  const slot = page.locator('.tsu-tabbar > button[data-custom]'); ok((await slot.count()) === 1 && /日誌|カレンダー/.test(await slot.innerText()), '4つ目は自由枠(はじめは日誌・送迎表を使わない店はカレンダー) trial548');
   await slot.dispatchEvent('pointerdown'); await page.waitForTimeout(750); await slot.dispatchEvent('pointerup'); await page.waitForTimeout(400);
   ok(await page.getByTestId('tsu-tabpick').isVisible(), '長押しで選ぶ小窓が出る');
   await page.screenshot({ path: `${OUT}/phone_tabpick.png` });
@@ -69,7 +69,7 @@ const login = async (page) => {
   ok(await page.evaluate(() => localStorage.getItem('tsumugiPhoneTabCustom') === 'master'), '端末に覚える');
   await slot.click(); await page.waitForTimeout(1200); ok(/利用者/.test(await page.locator('h1').innerText()), '押すとその画面へ');
   await slot.dispatchEvent('pointerdown'); await page.waitForTimeout(750); await slot.dispatchEvent('pointerup'); await page.waitForTimeout(400);
-  await page.getByTestId('tsu-tabpick-print').click(); await page.waitForTimeout(400); ok(/連絡帳/.test(await slot.innerText()), '連絡帳に戻せる');
+  await page.getByTestId('tsu-tabpick-print').click(); await page.waitForTimeout(400); ok(/連絡帳/.test(await slot.innerText()), '連絡帳も選べる');
   await page.evaluate(() => document.activeElement && document.activeElement.blur()); await page.waitForTimeout(400); // 利用者マスタの検索欄に焦点が残ると下のバーは隠れる(入力中)
   // 連絡帳
   console.log('dbg bar class:', await bar.getAttribute('class'), 'active:', await page.evaluate(() => document.activeElement && document.activeElement.tagName + '.' + (document.activeElement.className || '').toString().slice(0, 40)), 'atPoint:', await page.evaluate(() => { const b = document.querySelector('[data-testid="tsu-tab-print"]'); const r = b.getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e ? e.tagName + '.' + String(e.className).slice(0, 60) + ' z=' + getComputedStyle(e).zIndex : 'none'; }), 'barBox:', JSON.stringify(await bar.boundingBox()));

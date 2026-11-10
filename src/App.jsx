@@ -12187,10 +12187,10 @@ const tsuTabBarOn = () => { try { return localStorage.getItem(TSU_TABBAR_KEY) !=
 // ★ 2026-11-10 trial546(ユーザー「X みたいな使用感」): ①提供記録⇄連絡帳は上の2つの見出し(TsuPhonePairTabs)＋横スワイプで行き来
 //   ②画面の左端から右へスワイプで縦のメニュー(サイドバー) ③下のバーの4つ目は「この端末の自由枠」(長押しで選ぶ・既定は連絡帳)
 const TSU_TABCUSTOM_KEY = 'tsumugiPhoneTabCustom';
-const tsuTabCustom = () => { try { return localStorage.getItem(TSU_TABCUSTOM_KEY) || 'print'; } catch { return 'print'; } };
+const tsuTabCustom = () => { try { return localStorage.getItem(TSU_TABCUSTOM_KEY) || ''; } catch { return ''; } }; // ''=未設定(既定は App で決める: 送迎表の店は日誌・使わない店はカレンダー)
 function TsuPhonePairTabs({ items, active, onPick }) {
   return (
-    <div data-testid="tsu-pair" className="tsu-pair no-print" role="tablist" aria-label="提供記録と連絡帳">
+    <div data-testid="tsu-pair" className="tsu-pairtabs no-print" data-on={active} role="tablist" aria-label="提供記録と連絡帳">{/* ★ trial548: class 名は html の印 tsu-pair と別にする(同じ名前だと html 自体が固定・高さ40pxになり縦にスクロールできなくなった) */}
       {items.map(it => <button key={it.key} type="button" role="tab" aria-selected={active === it.key} data-testid={`tsu-pair-${it.key}`} className={active === it.key ? 'on' : ''} onClick={() => { if (active !== it.key) onPick(it.key); }}>{it.label}</button>)}
     </div>
   );
@@ -12205,14 +12205,14 @@ function useTsuSwipe(enabled, getHandlers) {
       if (e.hasAttribute && e.hasAttribute('data-tsu-noswipe')) return true;
       const cs = getComputedStyle(e);
       if (e.scrollWidth > e.clientWidth + 2 && (cs.overflowX === 'auto' || cs.overflowX === 'scroll')) return true;
-      if (cs.position === 'fixed' && !e.classList.contains('tsu-pin') && !e.classList.contains('tsu-pair')) return true; // 小窓・幕・下のバーの上
+      if (cs.position === 'fixed' && !e.classList.contains('tsu-pin') && !e.classList.contains('tsu-pairtabs')) return true; // 小窓・幕・下のバーの上
     } } catch {} return false; };
-    const onStart = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } st = { x: t.clientX, y: t.clientY, t: Date.now(), edge: t.clientX <= 24, bad: isBad(ev.target) }; };
+    const onStart = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } st = { x: t.clientX, y: t.clientY, t: Date.now(), edge: t.clientX <= 24, bad: isBad(ev.target), target: ev.target }; };
     const onEnd = (ev) => { const s0 = st; st = null; if (!s0) return; const t = ev.changedTouches && ev.changedTouches[0]; if (!t) return;
       const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return;
       const h = (typeof getHandlers === 'function' ? getHandlers() : getHandlers) || {};
       if (s0.edge && dx > 0) { if (h.onEdgeRight) h.onEdgeRight(); return; }
-      if (s0.bad) return; if (dx < 0) { if (h.onLeft) h.onLeft(); } else if (h.onRight) h.onRight(); };
+      if (s0.bad) return; if (dx < 0) { if (h.onLeft) h.onLeft(s0.target); } else if (h.onRight) h.onRight(s0.target); };
     document.addEventListener('touchstart', onStart, { passive: true }); document.addEventListener('touchend', onEnd, { passive: true }); document.addEventListener('touchcancel', () => { st = null; }, { passive: true });
     return () => { document.removeEventListener('touchstart', onStart); document.removeEventListener('touchend', onEnd); };
   }, [enabled]);
@@ -12225,7 +12225,7 @@ function TsuPhoneTabPicker({ open, onClose, groups, current, onPick }) {
     <div className="tsu-tabpick-back" data-testid="tsu-tabpick-back" onClick={onClose}>
       <div className="tsu-tabpick" data-testid="tsu-tabpick" role="dialog" aria-label="下のバーの4つ目に出す画面" onClick={e => e.stopPropagation()}>
         <div className="head"><span>下のバーの4つ目に出す画面</span><button type="button" data-testid="tsu-tabpick-close" onClick={onClose} aria-label="閉じる"><X size={20} /></button></div>
-        <div className="note">この端末だけの設定です。札を長押しするといつでも変えられます。</div>
+        <div className="note">この端末だけの設定です。札の長押し・メニューの下・各種設定→システム から、いつでも変えられます。</div>
         <div className="list">
           {groups.flatMap(g => g.items).map(it => (
             <button key={it.key} type="button" data-testid={`tsu-tabpick-${it.key}`} className={current === it.key ? 'on' : ''} onClick={() => onPick(it.key)}>
@@ -14174,8 +14174,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const dstrOf = (d) => `${cy}-${String(cm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   const shiftMonth = (delta) => { const d = new Date(cy, cm-1+delta, 1); setCurMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); };
   // ★ 2026-11-10 trial547: スマホの月の表は横スワイプで前の月／次の月(指を左へ=翌月)
-  const _schSwipeRef = React.useRef(null); _schSwipeRef.current = () => ((_schPhone && viewMode === 'month') ? shiftMonth : null);
-  React.useEffect(() => { const h = (e) => { const f = _schSwipeRef.current && _schSwipeRef.current(); if (!f) return; f(e && e.detail && e.detail.dir === 'left' ? 1 : -1); }; window.addEventListener('tsumugi-swipe', h); return () => window.removeEventListener('tsumugi-swipe', h); }, []);
+  const _schSwipeRef = React.useRef(null); _schSwipeRef.current = () => (_schPhone ? (viewMode === 'month' ? shiftMonth : (d) => shiftSelDay(7 * d)) : null); // ★ trial548: 週の表は前の週／次の週
+  React.useEffect(() => { const h = (e) => { const f = _schSwipeRef.current && _schSwipeRef.current(); if (!f) return; if (e && e.detail) e.detail.handled = true; f(e && e.detail && e.detail.dir === 'left' ? 1 : -1); }; window.addEventListener('tsumugi-swipe', h); return () => window.removeEventListener('tsumugi-swipe', h); }, []);
   const todayEvents = evOf(todayStr);
   const selEvents = evOf(selDay);
   const dow = ['日','月','火','水','木','金','土'];
@@ -23098,15 +23098,26 @@ export default function App() {
   const [_tabPickOpen, _setTabPickOpen] = useState(false);
   // ★ trial546: 横スワイプ。提供記録で左へ=連絡帳・連絡帳で右へ=提供記録(X と同じ向き)。左端から右へ=縦のメニュー(Safari では iPhone の「戻る」に取られる・ホーム画面のアプリ版で効く)
   const _goPair = (v) => { if (v !== currentView) navigateTo(v); };
+  const _swipeFx = () => { try { if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; const el = document.getElementById('tsuContentScroller'); if (!el) return; el.classList.remove('tsu-swap'); void el.offsetWidth; el.classList.add('tsu-swap'); setTimeout(() => { try { el.classList.remove('tsu-swap'); } catch {} }, 260); } catch {} };
+  const _swipeGo = (dir, tgt) => {
+    if (isSidebarOpen || _phoneMenuOpen || _tabPickOpen) return;
+    const _person = currentView === 'record' && !!(tgt && tgt.closest && tgt.closest('[data-rv-open]'));
+    if (currentView === 'record' && !_person) { if (dir === 'left') { _swipeFx(); _goPair('print'); } return; }
+    if (currentView === 'print') { if (dir === 'right') { _swipeFx(); _goPair('record'); } return; }
+    try { const d = { dir, view: currentView, handled: false }; window.dispatchEvent(new CustomEvent('tsumugi-swipe', { detail: d })); if (d.handled) _swipeFx(); } catch {}
+  };
   const _swipeRef = React.useRef(null);
   _swipeRef.current = {
     // ★ trial547: 提供記録⇄連絡帳以外の画面には合図 'tsumugi-swipe' {dir:'left'|'right'} を送る(送迎表の1日=日送り・日誌=日送り・カレンダー=月送り)
-    onLeft: () => { if (isSidebarOpen || _phoneMenuOpen || _tabPickOpen) return; if (currentView === 'record') _goPair('print'); else if (currentView !== 'print') { try { window.dispatchEvent(new CustomEvent('tsumugi-swipe', { detail: { dir: 'left', view: currentView } })); } catch {} } },
-    onRight: () => { if (isSidebarOpen || _phoneMenuOpen || _tabPickOpen) return; if (currentView === 'print') _goPair('record'); else if (currentView !== 'record') { try { window.dispatchEvent(new CustomEvent('tsumugi-swipe', { detail: { dir: 'right', view: currentView } })); } catch {} } },
+    // ★ trial548: 提供記録で「広げた人の枠(data-rv-open)」の上で動かしたときは前の方／次の方(提供記録が受ける)。それ以外の場所(名前の帯・たたんだ行)は連絡帳へ。
+    //   切り替わるときは中身を一瞬うすくしてから出す(tsu-swap・160ms・透明度だけなので軽い)。合図を受けた画面は detail.handled=true を立てる(受け手が無ければ何も起きない)
+    onLeft: (tgt) => _swipeGo('left', tgt),
+    onRight: (tgt) => _swipeGo('right', tgt),
     onEdgeRight: () => { if (!isSidebarOpen && !_phoneMenuOpen && !_tabPickOpen) setIsSidebarOpen(true); },
   };
   useTsuSwipe(!!_tabBarOn, () => _swipeRef.current);
   React.useEffect(() => { if (!_tabBarOn) _setPhoneMenuOpen(false); }, [_tabBarOn]);
+  React.useEffect(() => { const h = () => _setTabPickOpen(true); window.addEventListener('tsumugi-tabpick-open', h); return () => window.removeEventListener('tsumugi-tabpick-open', h); }, []); // ★ trial548: 各種設定→システム の「選ぶ」から
   // 下のバー「提供記録」の印: 今日来る予定(基本利用日)で、まだ提供記録が1件も無い方の数。休業日・定休日は0。午前/午後は今の時刻で切り替え(trial539)
   const _recTodayMissing = React.useMemo(() => {
     try {
@@ -26045,15 +26056,17 @@ export default function App() {
         ];
         // 下のバー: ホーム / 送迎表(使わない店は日誌) / 提供記録 / 連絡帳 / メニュー (trial541: 真ん中も同じ形・名前は「提供記録」)
         const second = tsumugiTransportOn(appData) ? item('transport', '送迎表', <Car size={24} />) : item('diary', '日誌', <PenTool size={24} />, { badge: diaryTodayBadge });
-        // ★ trial546: 4つ目は「この端末の自由枠」(長押しで選ぶ・既定は連絡帳)。メニューの札と同じ項目から
+        // ★ trial546: 4つ目は「この端末の自由枠」(長押しで選ぶ)。メニューの札と同じ項目から
+        // ★ trial548(ユーザー「提供記録の札に連絡帳も一緒に。右の連絡帳は無くてよい」): 真ん中の札は提供記録と連絡帳の2つ(上の見出し・横スワイプで行き来・連絡帳でも光る)。
+        //   自由枠の既定は 送迎表を使う店=日誌・使わない店=カレンダー(連絡帳を出したい端末は長押し／各種設定で選ぶ)
         const _allItems = groups.flatMap(g => g.items);
-        const _customKey = tsuTabCustom();
-        const _customBase = _allItems.find(i => i.key === _customKey) || _allItems.find(i => i.key === 'print') || item('print', '連絡帳', <Printer size={22} />);
+        const _customKey = tsuTabCustom() || (tsumugiTransportOn(appData) ? 'diary' : 'schedule');
+        const _customBase = _allItems.find(i => i.key === _customKey) || _allItems.find(i => i.key === 'diary') || _allItems.find(i => i.key === 'print') || item('print', '連絡帳', <Printer size={22} />);
         const _custom = { ..._customBase, onLongPress: () => _setTabPickOpen(true) };
         const tabs = [
           item('dashboard', 'ホーム', <CalendarCheck size={24} />, { badge: _homeUnreadCount }),
           second,
-          item('record', '提供記録', <ClipboardList size={24} />, { badge: _recTodayMissing }),
+          item('record', '提供記録', <ClipboardList size={24} />, { badge: _recTodayMissing, views: ['record', 'print'] }),
           _custom,
           { key: 'menu', label: 'メニュー', icon: <Menu size={24} />, active: _phoneMenuOpen, onClick: () => _setPhoneMenuOpen(v => !v) },
         ];
@@ -26064,6 +26077,7 @@ export default function App() {
               <button type="button" onClick={() => { _setPhoneMenuOpen(false); setBugReport({ desc: '', sending: false, sent: false, err: '' }); }}>不具合を運営に報告</button>
             )}
             <button type="button" onClick={() => { _setPhoneMenuOpen(false); setStaffPolicyView('office'); }}>利用規約・同意ポリシー</button>
+            <button type="button" data-testid="tsu-phone-menu-tabpick" onClick={() => { _setPhoneMenuOpen(false); _setTabPickOpen(true); }}>下のバーの4つ目の画面を選ぶ（今: {_customBase.label}）</button>{/* ★ trial548: 長押しに気づかなかったので入口を足す */}
             <button type="button" data-testid="tsu-phone-menu-sidebar" onClick={() => { _setPhoneMenuOpen(false); setIsSidebarOpen(true); }}>元のメニュー（左のサイドバー）を開く</button>
             <div className="ver">アプリ版: {__builtUpdateNotes?.version || '-'}</div>
           </div>
@@ -27639,6 +27653,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _keypadOn = (appData.systemSettings?.keypadDisabled !== true);
   // ★ 2026-10-16(ユーザー要望「スマホで利用者が多いと、どこだっけとスクロールするのが大変」): 上部の「利用者」から選ぶと、その方のカードへ移る
   const [recJump, setRecJump] = useState(null); // null=閉じる / { top, q }
+  // ★ trial548: スマホで広げた人の枠(data-rv-open)の上を横に動かすと 前の方(右へ)／次の方(左へ)。合図は App の useTsuSwipe から('tsumugi-swipe' view:'record')。端まで来たら何もしない
+  const _rvSwipeRef = React.useRef(null);
+  React.useEffect(() => { const h = (e) => { const d = e && e.detail; if (!d || d.view !== 'record') return; if (_rvSwipeRef.current && _rvSwipeRef.current(d.dir)) d.handled = true; }; window.addEventListener('tsumugi-swipe', h); return () => window.removeEventListener('tsumugi-swipe', h); }, []);
   // ★ 2026-10-27(ユーザー報告「縦表示で利用者をタップしてサイドバーを開くとバグった感じ」・決定「サイドバーを押したら一覧は閉じる」): 一覧(z 9000)がサイドバーの上に残っていた
   React.useEffect(() => { if (isSidebarOpen) setRecJump(null); }, [isSidebarOpen]);
   const [recFlash, setRecFlash] = useState(null);
@@ -28253,6 +28270,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const _in = displayRecords.filter(p => p[_kinouGField] === kinouGroupSel), _out = displayRecords.filter(p => p[_kinouGField] !== kinouGroupSel);
     displayRecords = [..._in, ..._out];
   }
+  _rvSwipeRef.current = (dir) => { if (recCardMode === 'all' || !recOpenId) return false; const i = displayRecords.findIndex(r => r.id === recOpenId); if (i < 0) return false; const nx = displayRecords[i + (dir === 'left' ? 1 : -1)]; if (nx) jumpToRecCard(nx.id); return true; }; // ★ trial548
   const _kinouEff = (() => { const cnt = {}; _kinouRows.forEach(p => { if (_kinouAbs(p)) return; const v = p[_kinouField]; if (v) cnt[v] = (cnt[v] || 0) + 1; }); const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0]; return top || _kinouList[0] || ''; })();
   const applyKinouAll = (name) => { _kinouRows.forEach(p => { if (_kinouAbs(p)) return; updateRecord(p.id, _kinouField, name); }); };
 
@@ -28781,7 +28799,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               );
             }
             return (
-              <div key={`m-${p.id}`} data-rec-card={p.id} data-rv-mark={_rvMarks.includes(p.id) ? '1' : undefined} className={`bg-white rounded-xl border-2 shadow-sm p-3 transition-shadow ${isAbsent||isPause?'border-slate-200 opacity-70':'border-slate-300'} ${recFlash===p.id?'ring-4 ring-amber-400':''}`}>
+              <div key={`m-${p.id}`} data-rec-card={p.id} data-rv-open={recCardMode !== 'all' ? '1' : undefined} data-rv-mark={_rvMarks.includes(p.id) ? '1' : undefined} className={`bg-white rounded-xl border-2 shadow-sm p-3 transition-shadow ${isAbsent||isPause?'border-slate-200 opacity-70':'border-slate-300'} ${recFlash===p.id?'ring-4 ring-amber-400':''}`}>
                 <div className="flex items-center justify-between gap-2 mb-2.5">
                   <button {..._rvLpHandlers(p.id)} onClick={_rvLpClick(()=>setPatientInfoModal(masterData))} data-testid={`rv-cname-${p.id}`} style={{WebkitUserSelect:'none',userSelect:'none',WebkitTouchCallout:'none'}} className="font-bold text-base text-slate-800 flex items-center gap-1 min-w-0"><span className="truncate">{p.name}</span><span className="text-[10px] text-blue-500 shrink-0">ⓘ</span></button>
                   <button type="button" onClick={()=>setZoomPid(p.id)} title="この方だけを大きな文字で入力します" className="shrink-0 text-teal-600 hover:text-teal-800 bg-teal-50 border border-teal-200 rounded-md p-1.5" style={{lineHeight:0}}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.6" y1="15.6" x2="21" y2="21"/><line x1="10.5" y1="8" x2="10.5" y2="13"/><line x1="8" y1="10.5" x2="13" y2="10.5"/></svg></button>
@@ -41152,7 +41170,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _tpStepDay = (n) => { const closed = (appData.systemSettings?.facilityInfo?.closedDays || [0]).map(Number); const d = new Date(_tpDayIso + 'T00:00:00'); for (let i = 0; i < 8; i++) { d.setDate(d.getDate() + n); if (!closed.includes(d.getDay())) break; } setSelectedDate(_iso(d)); };
   // ★ 2026-11-10 trial547(ユーザー「やってみて」): スマホの1日表示は横スワイプで前の日／次の日(指を左へ=次の日・上の ◀▶ と同じ)。合図は App の useTsuSwipe から
   const _tpSwipeRef = React.useRef(null); _tpSwipeRef.current = () => ((_tpPhone && _tpOneDay) ? _tpStepDay : null);
-  React.useEffect(() => { const h = (e) => { const f = _tpSwipeRef.current && _tpSwipeRef.current(); if (!f) return; f(e && e.detail && e.detail.dir === 'left' ? 1 : -1); }; window.addEventListener('tsumugi-swipe', h); return () => window.removeEventListener('tsumugi-swipe', h); }, []);
+  React.useEffect(() => { const h = (e) => { const f = _tpSwipeRef.current && _tpSwipeRef.current(); if (!f) return; if (e && e.detail) e.detail.handled = true; f(e && e.detail && e.detail.dir === 'left' ? 1 : -1); }; window.addEventListener('tsumugi-swipe', h); return () => window.removeEventListener('tsumugi-swipe', h); }, []);
   const _tpCols = `26px repeat(${_tpViewDays.length}, minmax(${_tpOneDay ? 0 : 236}px, 1fr))`; // 先頭=午前/午後の縦見出し列
   // ==== 画面 ====
   const _finalView = !!_finalAtOfWeek() && !tpEdit;
@@ -50412,8 +50430,15 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               {/* ★ 2026-11-10 trial536: スマホの下のバー(この端末だけ) */}
               <label className="flex items-start gap-2 cursor-pointer mb-3" data-testid="tabbar-setting">
                 <input type="checkbox" data-testid="tabbar-toggle" defaultChecked={tsuTabBarOn()} onChange={e=>{ try { localStorage.setItem(TSU_TABBAR_KEY, e.target.checked ? '1' : '0'); } catch {} try { window.dispatchEvent(new Event('tsumugi-tabbar-change')); } catch {} }} className="mt-1 accent-blue-600"/>
-                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表（または日誌）・提供記録・自由枠（長押しで選ぶ・はじめは連絡帳）・メニューを下に置きます。提供記録と連絡帳は上の見出しか横スワイプで行き来。左端から右へスワイプで縦のメニュー（ホーム画面のアプリ版）。外すと左上の3本線に戻ります。iPad・パソコンは変わりません。</TsuHint></span>
+                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表（または日誌）・提供記録（連絡帳と一組）・自由枠・メニューを下に置きます。提供記録と連絡帳は上の見出しか横スワイプで行き来。左端から右へスワイプで縦のメニュー（ホーム画面のアプリ版）。外すと左上の3本線に戻ります。iPad・パソコンは変わりません。</TsuHint></span>
               </label>
+              {typeof window !== 'undefined' && window.innerWidth < 768 && tsuTabBarOn() && (
+                <div className="mb-3 pl-6 flex items-center gap-2 flex-wrap" data-testid="tabcustom-setting">{/* ★ trial548: 自由枠の入口(長押しに気づかなかった) */}
+                  <span className="text-sm text-slate-700">下のバーの4つ目に出す画面</span>
+                  <button type="button" data-testid="tabcustom-pick" onClick={() => { try { window.dispatchEvent(new Event('tsumugi-tabpick-open')); } catch {} }} className="px-3 py-2 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 text-sm font-bold">選ぶ</button>
+                  <TsuHint>はじめは日誌（送迎表を使わない店はカレンダー）。札を長押ししても選べます。</TsuHint>
+                </div>
+              )}
               <label className="flex items-start gap-2 cursor-pointer">
                 <input type="checkbox" defaultChecked={isAutoFullscreenOn()} onChange={e=>{ try { localStorage.setItem(AUTO_FS_KEY, e.target.checked ? '1' : '0'); } catch {} }} className="mt-1 accent-blue-600"/>
                 <span className="text-sm text-slate-700"><b>ログイン後に担当者を選んだら自動で全画面にする（この端末だけ・パソコン向け）</b> <TsuHint className="ml-1">タブ・URL欄を隠して広く使えます（Escで戻ります）。iPad・iPhoneは「ホーム画面に追加」から開くと全画面になります。</TsuHint></span>
@@ -51307,7 +51332,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   // ★ 2026-11-10 trial547: スマホは横スワイプで前の日／次の日(指を左へ=次の日・定休日は飛ばす)
   const _diarySwipeRef = React.useRef(null);
   _diarySwipeRef.current = () => { if (!_isPhoneDiary) return null; return (n) => { const closed = (appData.systemSettings?.facilityInfo?.closedDays || [0]).map(Number); const d = new Date(selectedDate + 'T00:00:00'); if (isNaN(d)) return; for (let i = 0; i < 8; i++) { d.setDate(d.getDate() + n); if (!closed.includes(d.getDay())) break; } setSelectedDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }; };
-  React.useEffect(() => { const h = (e) => { const f = _diarySwipeRef.current && _diarySwipeRef.current(); if (!f) return; f(e && e.detail && e.detail.dir === 'left' ? 1 : -1); }; window.addEventListener('tsumugi-swipe', h); return () => window.removeEventListener('tsumugi-swipe', h); }, []);
+  React.useEffect(() => { const h = (e) => { const f = _diarySwipeRef.current && _diarySwipeRef.current(); if (!f) return; if (e && e.detail) e.detail.handled = true; f(e && e.detail && e.detail.dir === 'left' ? 1 : -1); }; window.addEventListener('tsumugi-swipe', h); return () => window.removeEventListener('tsumugi-swipe', h); }, []);
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
 
