@@ -1,7 +1,7 @@
 // Supabase クライアント (Phase 1: 家族認証のみ)
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
-import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard } from './logic.js';
+import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard, pushShrinkGuard } from './logic.js';
 import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
@@ -1663,6 +1663,12 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
         });
         merged.noticeReads = out;
       }
+    }
+    // ★ 2026-11-10 trial545(ユーザー承認「『消える』変化は自動では書かない」): 合成の結果がクラウドより減る(墓石なし)なら書かない=最後の網。
+    //   意図した減少(allowEmpty=全削除など)は通す。止めたら 'blocked'(再送に積まない)・理由は syncHealth.lastError='blocked-shrink'
+    if (!(opts && opts.allowEmpty)) {
+      const _sk = pushShrinkGuard(merged, cloud, mergedTomb, ['patients', ...ARRAY_KEYS.filter(k => k !== 'auditLog' && !isOplogFrozen(k))]);
+      if (_sk) { _blocked = _sk; return null; }
     }
     return sanitizeForSync(merged);
     }, { maxRetries: 12, skipIfSame: true }); // supabaseCasUpdate の mutate 終わり (2台同時編集の競合に耐えるため厚め・中身が同じなら書かない)

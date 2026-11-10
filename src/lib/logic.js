@@ -363,6 +363,22 @@ export function pushEmptyGuard(storeId, local, cloud, opts = {}) {
   return null;
 }
 
+// ★ 2026-11-10 trial545(ユーザー承認「『消える』変化は自動では書かない」): 保存の合成結果がクラウドより「減る」とき(クラウドにある id が合成後に無く、
+//   墓石にも無い)は書かない=最後の網。合成は和集合なので本来は起きない。起きたら作りの不具合なので止めて知らせる。
+//   keys は見る配列の名前('patients' と記録系)。戻り値 null=問題なし / {reason:'shrink', key, n, ids}
+export function pushShrinkGuard(merged, cloud, tomb, keys) {
+  if (!merged || !cloud) return null;
+  for (const k of (keys || [])) {
+    const cv = Array.isArray(cloud[k]) ? cloud[k] : []; if (!cv.length) continue;
+    const mv = Array.isArray(merged[k]) ? merged[k] : [];
+    const have = new Set(mv.map(x => (x && x.id != null) ? String(x.id) : null).filter(Boolean));
+    const tk = (tomb && tomb[k]) || {};
+    const lost = cv.filter(x => x && x.id != null && !have.has(String(x.id)) && !tk[String(x.id)]).map(x => x.id);
+    if (lost.length) return { reason: 'shrink', key: k, n: lost.length, ids: lost.slice(0, 20), cp: cv.length, mp: mv.length };
+  }
+  return null;
+}
+
 // ★ 2026-11-09 trial532(ユーザー要望「利用者名・緊急連絡先・ケアマネの姓と名の間が半角か全角かでバラバラ。全部半角で統一」):
 //   名前の中の空白(全角・半角・連続)を半角1つにそろえる。前後の空白は外す。空白のない名前はそのまま(分けられない)
 export const tsuNameSpace = (s) => String(s ?? '').replace(/[\s　]+/g, ' ').trim();

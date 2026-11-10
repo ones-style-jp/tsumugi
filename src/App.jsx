@@ -21816,6 +21816,20 @@ export default function App() {
   // ★ 2026-10-07: クラウドの確認(軽い更新時刻の確認を含む)が最後に成功した時刻。「未同期」の判定はこちらも見る
   //   (変化が無いときの全量の取り直しを5分に1回へ減らしたため、反映時刻だけでは30秒で止まったと誤判定する)
   const lastPullCheckOkAtRef = React.useRef(0);
+  // ★ 2026-11-10 trial545(ユーザー承認「眠りから覚めた端末は、受け取りが終わるまで書かない」): 60秒以上クラウドを確かめていない端末は、
+  //   保存(ふつうの保存・再送)の前に必ず最新を取り込み、取り込みが終わるまで待つ。取り込む関数は pull の effect が _pullNowRef に入れる。
+  //   書くのは元の保存内容(合成で最新と合わせる)。取り込みが10秒で終わらなければ待たずに進む(保存を失わない)
+  const _pullNowRef = React.useRef(null);
+  const _pullIfStale = async (tag) => {
+    try {
+      const last = Math.max(lastAppliedAtRef.current || 0, lastPullCheckOkAtRef.current || 0); const age = Date.now() - last;
+      if (!_pullNowRef.current || age < 60000) return false;
+      syncLog('push-stale-pull-first', { tag, ageSec: Math.round(age / 1000) });
+      await Promise.race([Promise.resolve().then(() => _pullNowRef.current()), new Promise(r => setTimeout(r, 10000))]);
+      await new Promise(r => setTimeout(r, 300));
+      return true;
+    } catch { return false; }
+  };
   // ★ 容量超過を一度検知したら10分間はフル保存を試みず軽量版へ直行する(2026-08-30)。
   //   従来は保存のたびに フル→写真分離→軽量 と巨大JSONの変換を3回行ってから失敗しており、
   //   CPUの無駄と persist-fail ログの洪水になっていた(動作自体は軽量版成功で問題なし)。
@@ -21837,6 +21851,7 @@ export default function App() {
         const p = await _pendIdb.get(sid); if (!p || !p.data || stopped) return;
         if (p.data._sbStoreId && p.data._sbStoreId !== sid) { await _pendIdb.del(sid); return; } // 別店舗の控えは捨てる(店舗ゲート)
         syncLog('pend-resend', { age: Math.round((Date.now() - (p.at || Date.now())) / 1000) });
+        await _pullIfStale('resend'); // ★ trial545: 通信が戻った直後の再送も、まず最新を取り込んでから
         let ok = false, _blk = false; try { const _r = await supabaseMergeAndSyncStateForStore(sid, p.data); ok = _r !== false; _blk = _r === 'blocked'; } catch {}
         if (_blk) { await _pendIdb.del(sid); _pendPushRef.current = false; syncLog('pend-resend-blocked', {}); return; } // ★ 2026-11-02: 読み込み前/利用者0の控えは危険なので送らずに捨てる
         if (ok) { await _pendIdb.del(sid); _pendPushRef.current = false; syncLog('pend-resend-ok', {}); setToastMsg('前回保存できなかった変更をクラウドへ送信しました（数秒後に画面に反映されます）'); setShowToast(true); setTimeout(() => setShowToast(false), 5000); }
@@ -22790,6 +22805,7 @@ export default function App() {
         }
       }
     };
+    _pullNowRef.current = checkAndPull; // ★ trial545: 保存の前の「まず取り込む」で使う
     checkAndPull(); // 即時1回
     const timer = setInterval(checkAndPull, 4000); // ★ 4秒ごと (Realtime未有効時の保険。反映を速く)
     // ★ 生存確認: これが途切れていたら「ブラウザがタブを休止させている/画面が固まっている」と判別できる
@@ -24406,10 +24422,13 @@ export default function App() {
           try {
             let cur = dataToPush;
             while (cur) {
+              await _pullIfStale('save'); // ★ trial545: 眠っていた端末はまず取り込む
               const ok = await _retryPush(cur);
               { const ws = _pushWaitersRef.current.splice(0); ws.forEach(r => { try { r(ok === true); } catch {} }); }
               if (ok === 'blocked') { // ★ 2026-11-02 水元店の事故: 関所で止めた保存は再送に積まない(その状態をクラウドへ送ると全店のデータが消える)。端末はまもなく最新を取り直す
-                setToastMsg('⚠ この端末はまだ店舗のデータを読み込めていないため、クラウドへの保存を見送りました。数秒待ってから、もう一度保存してください（他の端末のデータは無事です）');
+                // ★ trial545: 「減る」保存を止めたとき(blocked-shrink)は案内を変え、すぐ最新を取り込む
+                if (String(syncHealth.lastError || '') === 'blocked-shrink') { try { _pullNowRef.current && _pullNowRef.current(); } catch {} setToastMsg('⚠ この保存を送ると、他の端末で登録された利用者や記録が消えるため、クラウドへの保存を見送りました。最新を取り込みますので、内容を確かめてからもう一度保存してください（クラウドのデータは無事です）'); }
+                else setToastMsg('⚠ この端末はまだ店舗のデータを読み込めていないため、クラウドへの保存を見送りました。数秒待ってから、もう一度保存してください（他の端末のデータは無事です）');
                 setShowToast(true); setTimeout(()=>setShowToast(false),8000);
               } else if (!ok) {
                 syncLog('push-give-up', {});
@@ -59518,7 +59537,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   _collectAbs(_nY, _nM);
 
   const getKey = (date, patId) => `${date}_${patId}`;
-  const getFax = (date, patId) => faxData[getKey(date, patId)] || { checkboxes: { kyuukyuu: false, kakunin: false, orikaesu: false }, reporter: '', status: 'none' };
+  // ★ 2026-11-10 trial545: 控えに項目が欠けていても(古い版・取り込み)画面が落ちないよう、既定と重ねて返す(checkboxes が無いと kyuukyuu の参照で落ちていた)
+  const getFax = (date, patId) => { const f = faxData[getKey(date, patId)]; const d = { checkboxes: { kyuukyuu: false, kakunin: false, orikaesu: false }, reporter: '', status: 'none' }; return f ? { ...d, ...f, checkboxes: { ...d.checkboxes, ...((f && f.checkboxes) || {}) } } : d; };
 
   const openFax = (date, pat, tokki) => {
     setSelectedEntry({ date, patient: pat, tokki });
@@ -59548,9 +59568,10 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     const key = getKey(selectedEntry.date, selectedEntry.patient.id);
     const cur = getFax(selectedEntry.date, selectedEntry.patient.id);
     if (cur.status === 'faxed' || cur.status === 'both') return;
-    // ★ 2026-10-04(ユーザー指摘「ダウンロードしても連絡済になる」): ダウンロード(PDF)は status 'pdf' = 「ダウンロード済」。印刷は 'printed' = 「連絡済」
-    if (method === 'pdf') { updateFax(key, { status: cur.status === 'printed' ? 'both' : 'pdf' }, { autoSave: true }); return; }
-    updateFax(key, { status: cur.status === 'pdf' ? 'both' : 'printed' }, { autoSave: true });
+    // ★ 2026-10-04(ユーザー指摘「ダウンロードしても連絡済になる」): ダウンロード(PDF)は連絡済にしない。印刷は 'printed' = 「連絡済」
+    // ★ 2026-11-10 trial545(ユーザー「連絡済にするボタンがあるので、ダウンロード済は不要」): ダウンロードでは状態を変えない(「DL済」は廃止・古い 'pdf' は編集済として扱う)
+    if (method === 'pdf') return;
+    updateFax(key, { status: 'printed' }, { autoSave: true });
   };
   React.useEffect(() => {
     const h = (e) => { try { if (String(e?.detail?.title || '').startsWith('休み連絡')) _printedRef.current && _printedRef.current(e?.detail?.method); } catch {} };
@@ -59576,7 +59597,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   };
   // ★ 将来のFAX API送信後は updateFax(key,{status:'faxed'},{autoSave:true}) を呼ぶ(=連絡済)
   const handleSavePdf = () => {
-    const doAfterPdf=()=>{document.title='つむぎ｜デイサービス管理';setIsPrint(false);if(selectedEntry){const key=getKey(selectedEntry.date,selectedEntry.patient.id);const cur=getFax(selectedEntry.date,selectedEntry.patient.id);updateFax(key,{status:cur.status==='printed'?'both':'pdf'},{autoSave:true});}};
+    const doAfterPdf=()=>{document.title='つむぎ｜デイサービス管理';setIsPrint(false);}; // ★ trial545: ダウンロードでは状態を変えない
     if(onShowPrintPreview){setIsPrint(true);setTimeout(()=>{onShowPrintPreview(`休み連絡_${selectedEntry?.patient?.name||''}`, 'A4 portrait', 'print-content-fax');doAfterPdf();},100);}
     else{setIsPrint(true);document.title=`休み連絡_${selectedEntry?.patient?.name||''}`;setTimeout(()=>{window.print();setTimeout(doAfterPdf,500);},100);}
   };
@@ -59714,7 +59735,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
               <Save size={13}/> 保存
             </button>
             {/* ★ 手動の連絡済(2026-09-29): 手書きで送った・複合機から直接送ったなど、アプリから印刷していない場合用 */}
-            {['printed','pdf','both','faxed'].includes(fax.status) ? (
+            {['printed','both','faxed'].includes(fax.status) ? ( /* ★ trial545: 古い 'pdf'(DL済) は編集済の扱い */
               <button type="button" data-testid="abs-done-toggle" onClick={()=>{ if(!window.confirm('「連絡済」を取り消して「編集済」に戻しますか？')) return; updateFax(key, { status: 'edited' }, { autoSave: true }); }} title="連絡済を取り消す" style={{background:'#dcfce7',border:'1px solid #86efac',color:'#166534',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
                 ✓ 連絡済（取消）
               </button>
@@ -59915,8 +59936,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
   // ★ 状態を区別して表示(2026-08-25 店舗要望): 編集しただけ=青、印刷/PDF/送信済み=緑
   // ★ 2026-09-24 ユーザー指示: 印刷/PDF/FAX(将来のAPI送信=faxed)はすべて「連絡済」と表示する(編集済→連絡済の2段階)
-  const statusColors = { none:'', edited:'#dbeafe', printed:'#dcfce7', pdf:'#ccfbf1', both:'#dcfce7', faxed:'#dcfce7' }; // DL済は薄い青緑(連絡済と見分ける)
-  const statusLabels = { edited:'編集済', printed:'連絡済', pdf:'DL済', both:'連絡済', faxed:'連絡済' }; // ★ 2026-10-06: 「ダウンロード済」→「DL済」
+  const statusColors = { none:'', edited:'#dbeafe', printed:'#dcfce7', pdf:'#dbeafe', both:'#dcfce7', faxed:'#dcfce7' }; // ★ trial545: 'pdf'(旧DL済)は編集済と同じ色
+  const statusLabels = { edited:'編集済', printed:'連絡済', pdf:'編集済', both:'連絡済', faxed:'連絡済' }; // ★ trial545: 「DL済」は廃止(古い 'pdf' は編集済)
   // fax データが何らかの編集（理由・連絡者・備考・チェック）を含むかどうか
   const isFaxEdited = (fd) => {
     if (!fd) return false;
@@ -59951,10 +59972,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             <span style={{width:12,height:12,borderRadius:3,background:'#dcfce7',border:'1px solid #64748b',display:'inline-block'}}/>
             <span style={{color:'#cbd5e1'}}>連絡済</span>
           </span>
-          <span style={{display:'flex',alignItems:'center',gap:4}}>
-            <span style={{width:12,height:12,borderRadius:3,background:'#ccfbf1',border:'1px solid #64748b',display:'inline-block'}}/>
-            <span style={{color:'#cbd5e1'}}>DL<span className="tsu-abscal-y">（ダウンロード）</span>済</span>
-          </span>
+          {/* ★ trial545: 「DL（ダウンロード）済」の凡例は廃止(ダウンロードでは状態を変えない) */}
           <button type="button" onClick={()=>setShowFaxHist(true)}
             style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5,marginLeft:8}}>
             履歴
