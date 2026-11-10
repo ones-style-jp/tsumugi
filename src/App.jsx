@@ -56464,6 +56464,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const savePInsurer = () => { onSave({ ...appData, patients:(appData.patients||[]).map(p=>p.id===pid?{...p, insurerNo:pInsurer}:p) }, { manual:true, message:'✓ 保険者番号を保存しました' }); };
   // ★ 提出ダッシュボード/まとめ出力(様式横断: TIFI2024/AINT2024)。 提出年月はファイル名の整理用(既定=今月)
   const [submitYm, setSubmitYm] = React.useState(today.slice(0,7));
+  const [dashSel, setDashSel] = React.useState(() => new Set()); // ★ trial550: 提出ダッシュボードでチェックした利用者(選んだ人だけまとめて保存)
+  const _toggleDashSel = (id) => setDashSel(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const enabledForms = Object.keys(LIFE_FORMS).filter(id=>addons[LIFE_FORMS[id].addon]).map(id=>({ id, ...LIFE_FORMS[id] }));
   const [dashFormId, setDashFormId] = React.useState(enabledForms[0]?.id || 'TIFI2024');
   const dashForm = enabledForms.find(f=>f.id===dashFormId) || enabledForms[0] || null;
@@ -56510,14 +56512,18 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
     _dlByOffice(`${dashForm.id}_${submitYm.replace('-','')}`, dashForm.cols, ok.map(d=>d.row), dashForm.dataType);
   };
   // ★ 2026-10-14(ユーザー要望「分かりやすく」): 算定中の様式をまとめて保存(様式ごと・事業所番号ごとにファイルを分ける)
-  const exportAllForms = () => {
-    const sets = enabledForms.map(f => { const rows = _lifeRowsFor(f); return { f, rows, ok: rows.filter(d => d.status === 'ok') }; });
+  // ★ 2026-11-10 trial550(ユーザー「個別に2名入れたい。選んで一括出力できないか」): selIds(提出ダッシュボードでチェックした利用者)があればその人だけ。様式ごと・事業所番号ごとにファイルを分けるのは同じ
+  const exportAllForms = (selIds) => {
+    const sel = (selIds && typeof selIds.has === 'function' && selIds.size) ? selIds : null;
+    const sets = enabledForms.map(f => { const rows = _lifeRowsFor(f).filter(d => !sel || sel.has(d.p.id)); return { f, rows, ok: rows.filter(d => d.status === 'ok') }; });
     const total = sets.reduce((n, x) => n + x.ok.length, 0);
-    if (!total) { alert('提出できる利用者がいません（未評価またはエラーのため）。下の「提出ダッシュボード」で理由を確認できます。'); return; }
+    if (!total) { alert((sel ? '選んだ方に' : '') + '提出できる利用者がいません（未評価またはエラーのため）。下の「提出ダッシュボード」で理由を確認できます。'); return; }
     const ofcs = new Set(sets.flatMap(x => x.ok.map(d => String(d.row.care_facility_id || ''))));
-    const msg = `算定中の様式をまとめて保存します（提出年月 ${submitYm.replace('-','年')}月）。\n` + sets.map(x => `・${x.f.label}：提出可 ${x.ok.length}名` + (x.rows.length - x.ok.length ? `（除外 ${x.rows.length - x.ok.length}名）` : '')).join('\n')
+    const _why = (d) => d.status==='none' ? '未評価' : d.status==='skip' ? '対象外（初月・6か月後ではない）' : `エラー${d.vr.errors.length}件`;
+    const msg = (sel ? `選んだ ${sel.size}名 の算定中の様式をまとめて保存します（提出年月 ${submitYm.replace('-','年')}月）。\n` : `算定中の様式をまとめて保存します（提出年月 ${submitYm.replace('-','年')}月）。\n`)
+      + sets.map(x => `・${x.f.label}：提出可 ${x.ok.length}名` + (x.rows.length - x.ok.length ? (sel ? `（出さない: ${x.rows.filter(d => d.status !== 'ok').map(d => `${d.p.name}=${_why(d)}`).join('、')}）` : `（除外 ${x.rows.length - x.ok.length}名）`) : '')).join('\n')
       + (ofcs.size > 1 ? `\n\n事業所番号が${ofcs.size}種類あるため、事業所番号ごとにファイルを分けます（それぞれの新LIFEアカウントで取り込んでください）。` : '')
-      + '\n\n除外の方は、下の「提出ダッシュボード」で様式を切り替えると理由が見られます。\nブラウザに「複数のファイルのダウンロード」の確認が出たら「許可」を押してください。';
+      + (sel ? '\n\nブラウザに「複数のファイルのダウンロード」の確認が出たら「許可」を押してください。' : '\n\n除外の方は、下の「提出ダッシュボード」で様式を切り替えると理由が見られます。\nブラウザに「複数のファイルのダウンロード」の確認が出たら「許可」を押してください。');
     if (!window.confirm(msg)) return;
     let delay = 0;
     sets.forEach(x => { if (!x.ok.length) return; const rows = x.ok.map(d => d.row); setTimeout(() => _dlByOffice(`${x.f.id}_${submitYm.replace('-','')}`, x.f.cols, rows, x.f.dataType), delay); delay += 900 * Math.max(1, _groupByOffice(rows).length) + 300; });
@@ -56854,6 +56860,18 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const latestKinou = (appData.kinouKeikakuRecords||[])
     .filter(r => r && r.patientId === pid)
     .sort((a,b) => tsuByJpDesc('createdDate')(a,b) || ((b.createdAt||0)-(a.createdAt||0)))[0] || null;
+  // ★ trial550: この利用者の1様式分(いちばん新しい評価・行・検証)。下の様式カードと「まとめて保存」が同じ計算を使う
+  const _personFormOf = (f) => {
+    const src = f.source || 'adl';
+    let latest=null, sci={}, ym='', dateLabel='';
+    if (src==='seikatsu') { latest = latestSeikatsu; ym = latest ? reiwaToYmd(latest.recordDate).slice(0,6) : today.slice(0,7).replace('-',''); dateLabel = latest?.recordDate || ''; }
+    else if (src==='kinou') { latest = latestKinou; ym = latest ? reiwaToYmd(latest.createdDate).slice(0,6) : today.slice(0,7).replace('-',''); dateLabel = latest?.createdDate || ''; }
+    else { latest = adlRecords[0] || null; sci = latest?.science || {}; ym = String((latest?.evalDate||today)).slice(0,7).replace('-',''); dateLabel = latest?.evalDate || ''; }
+    const st = patient ? lifeCfgFor(patient) : {};
+    const row = (latest && patient) ? f.build(patient, latest, sci, st, ym) : null;
+    const vr = (latest && patient) ? f.validate(patient, latest, sci, row, today) : { errors:[], warns:[] };
+    return { src, latest, sci, ym, dateLabel, row, vr };
+  };
   const importFromSeikatsu = () => {
     if (!latestSeikatsu) { alert('この利用者の生活機能チェック（様式3-2）がまだありません。'); return; }
     const sug = seikatsuAdlToBarthel(latestSeikatsu.adl);
@@ -57168,7 +57186,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                 <div className="flex items-center gap-2 flex-wrap">
                   <label className="text-xs font-bold text-slate-500">提出年月</label>
                   <input type="month" value={submitYm} onChange={e=>setSubmitYm(e.target.value)} className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
-                  <button type="button" data-testid="life-export-all" onClick={exportAllForms} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">算定中の様式をまとめて保存</button>
+                  <button type="button" data-testid="life-export-all" onClick={() => exportAllForms()} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">算定中の様式をまとめて保存</button>
+                  {dashSel.size > 0 && <button type="button" data-testid="life-export-selected" onClick={() => exportAllForms(dashSel)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">選んだ {dashSel.size}名 だけまとめて保存</button>}
                 </div>)}
             </div>
             <ol className="mt-3 space-y-2 text-xs text-slate-700">
@@ -57213,10 +57232,11 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
               ); })()}
               <div className="overflow-x-auto border border-slate-200 rounded-lg">
                 <table className="w-full text-xs">
-                  <thead><tr className="bg-slate-50 text-slate-500"><th className="px-2 py-1.5 text-left">利用者</th><th className="px-2 py-1.5 w-24">最新評価日</th><th className="px-2 py-1.5 w-28">状態</th><th className="px-2 py-1.5 text-left">確認事項</th></tr></thead>
+                  <thead><tr className="bg-slate-50 text-slate-500"><th className="px-1 py-1.5 w-8 text-center" title="チェックした人だけ「選んだ人だけまとめて保存」で出力できます"><input type="checkbox" data-testid="life-sel-all" aria-label="提出可の人をすべて選ぶ" checked={dashRows.some(d=>d.status==='ok') && dashRows.filter(d=>d.status==='ok').every(d=>dashSel.has(d.p.id))} onChange={e=>{ const on=e.target.checked; setDashSel(prev=>{ const n=new Set(prev); dashRows.filter(d=>d.status==='ok').forEach(d=>{ if (on) n.add(d.p.id); else n.delete(d.p.id); }); return n; }); }} className="accent-emerald-600"/></th><th className="px-2 py-1.5 text-left">利用者</th><th className="px-2 py-1.5 w-24">最新評価日</th><th className="px-2 py-1.5 w-28">状態</th><th className="px-2 py-1.5 text-left">確認事項</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
-                    {dashRows.length===0 ? <tr><td colSpan={4} className="px-2 py-4 text-center text-slate-400">対象の利用者がいません</td></tr> : dashRows.map(d=>(
-                      <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-purple-50':''}`} onClick={()=>{ if (_isSubmit) { if (navigateTo) navigateTo('life_hub', d.p.id); return; } setEditing(null); setPid(d.p.id); }}>
+                    {dashRows.length===0 ? <tr><td colSpan={5} className="px-2 py-4 text-center text-slate-400">対象の利用者がいません</td></tr> : dashRows.map(d=>(
+                      <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-purple-50':''} ${dashSel.has(d.p.id)?'bg-emerald-50':''}`} onClick={()=>{ if (_isSubmit) { if (navigateTo) navigateTo('life_hub', d.p.id); return; } setEditing(null); setPid(d.p.id); }}>
+                        <td className="px-1 py-1.5 text-center" onClick={e=>e.stopPropagation()}><input type="checkbox" data-testid={`life-sel-${d.p.id}`} aria-label={`${d.p.name}を選ぶ`} checked={dashSel.has(d.p.id)} onChange={()=>_toggleDashSel(d.p.id)} className="accent-emerald-600"/></td>{/* ★ trial550: 選んだ人だけまとめて保存 */}
                         <td className="px-2 py-1.5 font-bold text-slate-700 whitespace-nowrap">{d.p.name}</td>
                         <td className="px-2 py-1.5 text-center text-slate-500 whitespace-nowrap">{d.latest?.evalDate||d.latest?.recordDate||d.latest?.createdDate||'—'}</td>
                         <td className="px-2 py-1.5 text-center">{d.status==='ok'?<span className="text-emerald-600 font-bold">✓ 提出可</span>:d.status==='error'?<span className="text-red-600 font-bold">エラー{d.vr.errors.length}件</span>:d.status==='skip'?<span className="text-slate-500 font-bold">対象外</span>:<span className="text-slate-400 font-bold">未評価</span>}</td>
@@ -57226,7 +57246,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   </tbody>
                 </table>
               </div>
-              <div className="text-[10px] text-slate-400 mt-2 leading-relaxed">※ 「まとめてCSV出力」は<b>提出可</b>の利用者だけを1つの {`${dashForm.id}_${submitYm.replace('-','')}.csv`} にまとめます（未評価・エラーは自動的に除外し確認一覧に表示）。各行の管理番号はその利用者の評価年月で採番します。行をクリックするとその利用者の入力・単票出力に切り替わります。{enabledForms.length>1 && '　様式は上のプルダウンで切り替えられます。'}</div>
+              <div className="text-[10px] text-slate-400 mt-2 leading-relaxed">※ 「まとめてCSV出力」は<b>提出可</b>の利用者だけを1つの {`${dashForm.id}_${submitYm.replace('-','')}.csv`} にまとめます（未評価・エラーは自動的に除外し確認一覧に表示）。左のチェックを付けると、上の「選んだ人だけまとめて保存」でその人の算定中の様式だけを出せます。各行の管理番号はその利用者の評価年月で採番します。行をクリックするとその利用者の入力・単票出力に切り替わります。{enabledForms.length>1 && '　様式は上のプルダウンで切り替えられます。'}</div>
             </div>
           )}
 
@@ -57454,6 +57474,23 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             )}
           </div>
 
+          {/* ★ 2026-11-10 trial550(ユーザー「1人ずつ様式ごとに押すのは手間。選んで一括で出せないか」): この利用者の算定中の様式を、提出できるものだけまとめて保存 */}
+          {!editing && enabledForms.length > 1 && (() => {
+            const items = enabledForms.map(f => { const x = _personFormOf(f); return { f, ...x, ok: !!x.latest && !x.vr.skip && !x.vr.errors.length }; });
+            const oks = items.filter(x => x.ok);
+            const run = () => {
+              if (!oks.length) { alert('この利用者に提出できる様式がありません（未作成・対象外・エラーのため）。'); return; }
+              const msg = `この利用者の算定中の様式をまとめて保存します。\n` + items.map(x => `・${x.f.label}：${x.ok ? `出す（評価 ${x.dateLabel}）` : (!x.latest ? '出さない（未作成）' : x.vr.skip ? '出さない（対象外: 初月・6か月後ではない）' : `出さない（エラー${x.vr.errors.length}件）`)}`).join('\n') + '\n\nブラウザに「複数のファイルのダウンロード」の確認が出たら「許可」を押してください。';
+              if (!window.confirm(msg)) return;
+              oks.forEach((x, i) => setTimeout(() => lifeDownloadCsv(`${x.f.id}_${x.ym}.csv`, lifeToCsvText(x.f.cols, [x.row], x.f.dataType)), i * 900));
+            };
+            return (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap" data-testid="life-person-bundle">
+                <div className="text-sm text-slate-700"><b>この利用者の様式をまとめて保存</b>　出せるもの {oks.length}／{items.length} 様式 <TsuHint className="ml-1">未作成・対象外・エラーの様式は自動で外します。様式ごとに1ファイルずつ保存されます（下の各カードで1つずつ出すのと同じ中身）。</TsuHint></div>
+                <button type="button" data-testid="life-person-bundle-btn" onClick={run} disabled={!oks.length} className={`px-4 py-2 rounded-lg text-sm font-bold shadow active:scale-95 ${oks.length ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>まとめて保存（{oks.length}様式）</button>
+              </div>
+            );
+          })()}
           {!editing && enabledForms.map(f => {
             const src = f.source || 'adl';
             let latest=null, sci={}, ym='', dateLabel='';
