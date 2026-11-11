@@ -39091,6 +39091,24 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _tpBaseIsoOf = (dow) => { const d = new Date(`${TSU_TP_BASE_MON}T00:00:00`); d.setDate(d.getDate() + (dow === 0 ? 6 : dow - 1)); return _iso(d); };
   const _isTplIso = (iso) => /^2099-01-(0[5-9]|1[01])$/.test(String(iso || ''));
   const _tpTemplate = _iso(_mon) === TSU_TP_BASE_MON;
+  // ★ 2026-11-11 trial556(ユーザー要望「送迎表の基準値を入れたら月間スケジュールの基本のお迎え時間にも反映。帰りも設定しているなら送りの時間も。どれを反映するかはチェックで」):
+  //   基本の送迎表(2099-01-xx)で入れた お迎え時間(t)・送りの時間(dropAt)を、利用者マスタの 基本のお迎え時間 pickupTimes[曜日]・基本の送り時間 dropTimes[曜日] にも書く。
+  //   どれを反映するかは店舗の設定 systemSettings.tpBaseReflect {pickup, drop}(既定はどちらも入)。時と分がそろった時間だけ反映し、消したときはマスタを触らない。
+  //   送りの時間を反映した方は「基本の送り時間も設定する」(dropTimeOn)を入にする(入でないと初期値に使われないため)。保存は送迎表のコマと同じ onSave で一緒に書く(mutate の extra)
+  const _tplReflectCfg = (() => { const c = (appData.systemSettings || {}).tpBaseReflect || {}; return { pickup: c.pickup !== false, drop: c.drop !== false }; })();
+  const _setTplReflect = (k, on) => { try { onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), tpBaseReflect: { ..._tplReflectCfg, [k]: !!on }, _updatedAt: syncNow() } }, { silent: true }); } catch {} };
+  const _tplReflectPatch = (iso, pid, { t, dropAt } = {}) => {
+    try {
+      if (!_isTplIso(iso)) return null;
+      const dow = new Date(`${iso}T00:00:00`).getDay(); const pt = (appData.patients || []).find(p => p && p.id === pid); if (!pt) return null;
+      const hm = (v) => { const m = String(v || '').trim().match(/^(\d{1,2}):(\d{2})$/); return m && +m[1] <= 23 && +m[2] <= 59 ? [+m[1], m[2]] : null; };
+      let np = pt;
+      if (t !== undefined && _tplReflectCfg.pickup) { const x = hm(t); if (x) { const val = `${String(x[0]).padStart(2, '0')}:${x[1]}`; const arr = [...(Array.isArray(pt.pickupTimes) ? pt.pickupTimes : [])]; while (arr.length < 7) arr.push(''); const cur = hm(arr[dow]); if (!cur || cur[0] !== x[0] || cur[1] !== x[1] || !(pt.pickupType === 'fixed' || pt.pickupType === 'partial')) { arr[dow] = val; np = { ...np, pickupTimes: arr, pickupType: (pt.pickupType === 'fixed' || pt.pickupType === 'partial') ? pt.pickupType : 'fixed' }; } } }
+      if (dropAt !== undefined && _tplReflectCfg.drop) { const x = hm(dropAt); if (x) { const val = `${x[0]}:${x[1]}`; const arr = [...(Array.isArray(pt.dropTimes) ? pt.dropTimes : [])]; while (arr.length < 7) arr.push(''); const cur = hm(arr[dow]); if (!pt.dropTimeOn || !cur || cur[0] !== x[0] || cur[1] !== x[1]) { arr[dow] = val; np = { ...np, dropTimes: arr, dropTimeOn: true }; } } }
+      if (np === pt) return null;
+      return { patients: (appData.patients || []).map(p => p && p.id === pid ? np : p) };
+    } catch { return null; }
+  };
   // ★ 2026-11-03 trial505(ユーザー報告「退所した方がスマホの送迎表で休みに出る」): 送迎表の利用者の判定。利用期間(isPatientActiveOnDate=利用終了日)に加えて、
   //   状態が退所・終了なのに利用終了日が空(入れ忘れ)の方は、今日以降の日には出さない(終了日があればその日まで出す・過去の週はそのまま)。他の画面(isPatientListable)との食い違い対策
   const _tpActiveOn = (p, iso) => { if (!isPatientActiveOnDate(p, iso)) return false; if (/退所|終了/.test(String(p.status || '')) && !dateIsoAny(p.endDate) && String(iso).slice(0, 10) >= _iso(new Date())) return false; return true; };
@@ -39307,14 +39325,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     }
     return _draftPlan(iso, sl);
   };
-  const savePlan = (iso, sl, plan) => {
+  const savePlan = (iso, sl, plan, extra) => { // ★ 2026-11-11 trial556: extra=同じ保存で一緒に書く項目(基本の送迎表の時間→利用者マスタ。別々に onSave すると後の方が前の方を消すため)
     const { _draft, ...rest0 } = plan; const rest = _autoDropDepart(_pruneDropAt(rest0), sl); // ★ 2026-10-25(ユーザー: 動かすたびに到着が変わって面倒): 保存のたびの到着の目安の入れ直しはやめた(目安は「自動計算」「前週コピー」のときだけ) ★ 2026-10-21: 乗っていない方の送りの時間は消す
     const k = `${iso}_${sl}`;
     const next = _stampChg(plans[k], { ...rest, _savedAt: syncNow() });
     _pushUndo('手での変更', { [k]: next });
-    onSave({ ...appData, transportPlans: { ...plans, [k]: next } }, { silent: true });
+    onSave({ ...appData, ...(extra || {}), transportPlans: { ...plans, [k]: next } }, { silent: true });
   };
-  const mutate = (iso, sl, fn) => { const cur = getPlan(iso, sl); const next = JSON.parse(JSON.stringify({ ...cur })); delete next._draft; fn(next); savePlan(iso, sl, next); };
+  const mutate = (iso, sl, fn, extra) => { const cur = getPlan(iso, sl); const next = JSON.parse(JSON.stringify({ ...cur })); delete next._draft; fn(next); savePlan(iso, sl, next, extra); };
   // ★ 2026-10-26(ユーザー要望): 運行表を出した(ダウンロードした)ときに、そのコマの配置を「配布の控え(_base)」として残す(初めて出したときだけ)。以後の変更は赤枠・変更n件・要連絡に出る
   // ★ 2026-10-26(ユーザー「店舗によっては運行表を月1回しか出さないので、ダウンロード時点ではなく日付で」): 送迎日の7日前(それより前に開いていなければ、初めて開いた時点)の配置を自動で控える
   React.useEffect(() => { try { const t0 = new Date(); t0.setHours(0, 0, 0, 0); const isos = []; for (let i = 0; i <= 7; i++) { const d = new Date(t0); d.setDate(t0.getDate() + i); isos.push(_iso(d)); } _stampHanded(isos); } catch {} }, [plans]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -39612,7 +39630,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     Object.keys(pl.cars||{}).forEach(cid => { const arr = pl.cars[cid]; if (!Array.isArray(arr) || !arr.some(m => m.pid === pid)) return;
       const key = (m, i) => [_tMin(m.t) >= 99998 ? 1 : 0, _tMin(m.t), i];
       pl.cars[cid] = arr.map((m, i) => ({ m, k: key(m, i) })).sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2]).map(x => x.m); });
-  });
+  }, _tplReflectPatch(iso, pid, { t: val })); // ★ trial556: 基本の送迎表なら利用者マスタの基本のお迎え時間にも
   // ★ 2026-10-01(試験版・ユーザー要望「徒歩にしたら自動で開始時間に・あとから編集も可能」): 徒歩の時間は保存値「徒歩」=クラスの開始時刻(各種設定の提供時間)を表示。
   //   1人ずつ時刻を入れて変えられる。空にして欄から離れると「徒歩」(=開始時刻)に戻る。徒歩から車へ移すと時刻は空(乗車時間は別に決める)。
   const setWalkTime = (iso, sl, pid, val) => mutate(iso, sl, (pl) => { (pl.walkers||[]).forEach(m => { if (m.pid === pid) m.t = val; }); });
@@ -39800,7 +39818,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     mutate(iso, sl, (p2) => { if (!p2.drop) return; const dep = { ...(p2.drop.depart||{}) }; const au = { ...(p2.drop.departAuto||{}) }; todo.forEach(c => { const e = _dropDepartEst(p2, sl, c.id); if (e) { dep[c.id] = e.v; au[c.id] = true; } }); p2.drop.depart = dep; p2.drop.departAuto = au; }); return todo.length; };
   // ★ 2026-10-21(店舗要望「送りも何時ごろ着くかヘルパーに聞かれる」): 送りの一人ずつの「家に着く時間」。目安は atAuto
   const setDropAt = (iso, sl, cid, pid, v) => mutate(iso, sl, (pl) => { const k = String(pid); const a2 = { ...(pl.dropAt || {}) }, au = { ...(pl.dropAtAuto || {}) }; if (v) a2[k] = v; else delete a2[k]; delete au[k]; pl.dropAt = a2; pl.dropAtAuto = au;
-    if (pl.drop && pl.drop.cars) { const nc = {}; Object.keys(pl.drop.cars).forEach(c2 => { nc[c2] = (pl.drop.cars[c2] || []).map(m => { if (!m || m.pid !== pid || !('at' in m || 'atAuto' in m)) return m; const { at, atAuto, ...rest } = m; return rest; }); }); pl.drop.cars = nc; } });
+    if (pl.drop && pl.drop.cars) { const nc = {}; Object.keys(pl.drop.cars).forEach(c2 => { nc[c2] = (pl.drop.cars[c2] || []).map(m => { if (!m || m.pid !== pid || !('at' in m || 'atAuto' in m)) return m; const { at, atAuto, ...rest } = m; return rest; }); }); pl.drop.cars = nc; } }, _tplReflectPatch(iso, pid, { dropAt: v })); // ★ trial556: 基本の送迎表なら利用者マスタの基本の送り時間にも
   //   送りの順番: 座席表の日はその順、迎えと同じ日は迎えの逆順(座席表の下書きと同じ)
   const _dropListsOf = (pl) => { const out = {}; const custom = pl && pl.dropMode === 'custom' && pl.drop; cars.forEach(c => { const ms = custom ? tpDropSeatFirst(c, (pl.drop.cars || {})[c.id] || []) : [...(((pl && pl.cars) || {})[c.id] || [])].reverse(); const L = ms.filter(m => m && m.pid != null); if (L.length) out[c.id] = L; }); return out; };
   //   出発: 座席表で決めた出発 → 無ければ 終了時刻＋乗る方の「乗車にかかる時間」(未設定は1分)
@@ -39921,10 +39939,26 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   useEffect(() => {
     if (!dragMv) return;
     const mv = (e) => {
-      const t = _dropTarget(e);
+      const t = _dropTarget(e); _lastPt = { x: e.clientX, y: e.clientY };
       setDragMv(d => d ? { ...d, x: e.clientX, y: e.clientY, over: t } : d);
     };
     const tm = (e) => { e.preventDefault(); }; // ドラッグ中は画面スクロールを止める
+    // ★ 2026-11-11 trial556(ユーザー要望・iPad「長押しで上や下の端まで持っていっても画面が動かず、いったん離してスクロールしてまたつかむ必要がある。Excel や Word のように一緒にスクロールしてほしい」):
+    //   つかんだまま端(70px以内)に近づくと、その下のスクロールできる枠(無ければページ)を端に近いほど速く(最大 毎フレーム 24px)動かし、落とす先の青い線も更新する。横の端でも同じ(週の表の横スクロール)
+    let _lastPt = null; let _raf = 0;
+    const _scrollerOf = (x, y, axis) => { let el = document.elementFromPoint(x, y); while (el && el !== document.body && el !== document.documentElement) { try { const cs = getComputedStyle(el); if (axis === 'y' ? (/(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 2) : (/(auto|scroll)/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 2)) return el; } catch {} el = el.parentElement; } return document.scrollingElement || document.documentElement; };
+    const _edgeV = (pos, lo, hi, EDGE, MAXV) => { if (pos < lo + EDGE) return -Math.ceil(MAXV * Math.min(1, (lo + EDGE - pos) / EDGE)); if (pos > hi - EDGE) return Math.ceil(MAXV * Math.min(1, (pos - (hi - EDGE)) / EDGE)); return 0; };
+    const _tick = () => {
+      _raf = requestAnimationFrame(_tick); const p = _lastPt; if (!p) return;
+      try {
+        const EDGE = 70, MAXV = 24; let moved = false;
+        const sy = _scrollerOf(p.x, p.y, 'y'); const ry = (sy === document.scrollingElement || sy === document.documentElement) ? { top: 0, bottom: window.innerHeight } : sy.getBoundingClientRect();
+        const dy = _edgeV(p.y, ry.top, ry.bottom, EDGE, MAXV); if (dy) { const b0 = sy.scrollTop; sy.scrollTop = b0 + dy; moved = moved || sy.scrollTop !== b0; }
+        const sx = _scrollerOf(p.x, p.y, 'x'); const rx = (sx === document.scrollingElement || sx === document.documentElement) ? { left: 0, right: window.innerWidth } : sx.getBoundingClientRect();
+        const dx = _edgeV(p.x, rx.left, rx.right, EDGE, MAXV); if (dx) { const l0 = sx.scrollLeft; sx.scrollLeft = l0 + dx; moved = moved || sx.scrollLeft !== l0; }
+        if (moved) { const t = _dropTarget({ clientX: p.x, clientY: p.y }); setDragMv(d => d ? { ...d, over: t } : d); }
+      } catch {}
+    };
     const up = (e) => {
       const t = _dropTarget(e);
       setDragMv(d => {
@@ -39957,7 +39991,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     document.addEventListener('pointerup', up);
     document.addEventListener('touchmove', tm, { passive: false });
     document.body.style.userSelect = 'none';
-    return () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('touchmove', tm); document.body.style.userSelect = ''; };
+    _raf = requestAnimationFrame(_tick); // ★ trial556: 端に近づいたときの自動スクロール
+    return () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('touchmove', tm); document.body.style.userSelect = ''; cancelAnimationFrame(_raf); };
   }, [dragMv ? dragMv.pid : null]);
   // ★ 2026-10-02(試験版・ユーザー要望「iPadで長押しドラッグすると文字の範囲選択も出てしまう」): ドラッグできる要素すべてに
   //   data-tpdrag を付け、CSS(src/index.css)で文字の選択・長押しメニューを出さない。ドラッグ中は画面全体の文字選択も止める(下の effect)。
@@ -41361,6 +41396,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <b>基本の送迎表</b>＝曜日ごとの「いつもの並び」です。まだ作っていない曜日は、今の送迎表の並び（車・順番・時間・運転者）を写して入れてあります。基本利用曜日の方だけで、振替で来た方は入りません（休み・退所の方は関係ありません）。
             名前を長押しして車へ入れるか「自動計算」で並べ、運転者・座席表・送りの時間も決めておけます。
             新しい週を開くと、この並びにその日来る方を当てはめて自動で下書きを作ります（「コピー → 基本の送迎表からコピー」でも写せます）。基本利用曜日を変えた方は、ここを開いたときに自動で外れます。
+            {/* ★ 2026-11-11 trial556: ここで入れた時間を利用者マスタの基本の時間へも反映(どれを反映するかはチェック・店舗の設定) */}
+            <div className="mt-1.5 pt-1.5 border-t border-emerald-200 flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="tp-base-reflect">
+              <span className="font-bold">ここで入れた時間を利用者マスタ（月間スケジュールの基本の時間）にも反映:</span>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" data-testid="tp-base-reflect-pickup" checked={_tplReflectCfg.pickup} onChange={e => _setTplReflect('pickup', e.target.checked)} className="w-4 h-4 accent-emerald-600"/>お迎え時間</label>
+              {_dropShown && <label className="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" data-testid="tp-base-reflect-drop" checked={_tplReflectCfg.drop} onChange={e => _setTplReflect('drop', e.target.checked)} className="w-4 h-4 accent-emerald-600"/>送りの時間<TsuHint>送りの時間を入れた方は、利用者マスタの「基本の送り時間も設定する」が入になります。時と分がそろった時間だけ反映し、消したときはマスタを触りません。</TsuHint></label>}
+            </div>
           </div>
         )}
         {_tpPhone && (
