@@ -12289,7 +12289,7 @@ function TsuPhoneTabBar({ items, hidden }) {
 // ★ 2026-11-11 trial560(ユーザー要望): 上の帯を下へ引くと出る「今日の予定」。この週の7日(予定の数の印)・今日の予定・済んでいないタスク・今日の申し送り。
 //   上へスワイプ／幕／×で閉じる。
 // ★ 2026-11-11 trial563(ユーザー): ①日を押すとカレンダーへ飛ばず、小窓の中でその日の予定を出す(「カレンダーを開く」で選んだ日のカレンダーへ)
-//   ②週／月を切り替えられる(端末が覚える tsumugiTodaySheetMode・既定は週)。月は ◀ ▶ で前後の月へ
+//   ②週／月を切り替えられる(端末が覚える tsumugiTodaySheetMode・既定は週)。月は ◀ ▶ で前後の月へ。trial564: 日曜はじまり
 function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
   const swRef = React.useRef(null);
   const today = tsuTodayIso();
@@ -12309,10 +12309,11 @@ function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
   let tasks = []; try { tasks = tsuTaskOpenOccurrences(appData, tsuIsoAdd(sel, -31), sel, today).filter(x => x.iso === sel || (sel === today && x.iso < today)); } catch {}
   const memos = evs.filter(e => tsuIsMemo(e) && e.date === sel).sort(tsuMemoSort);
   // 週(選んだ日の週・月曜はじまり)
-  const wkMon = new Date(sd); wkMon.setDate(sd.getDate() - ((sd.getDay() + 6) % 7));
+  // ★ trial564(ユーザー「ふつうのカレンダーは日曜はじまりなので、ここも日曜から」): 週・月とも日曜はじまり
+  const wkMon = new Date(sd); wkMon.setDate(sd.getDate() - sd.getDay());
   const week = Array.from({ length: 7 }, (_, i) => { const d = new Date(wkMon); d.setDate(wkMon.getDate() + i); const iso = isoOf(d); return { d, iso, n: evOn(iso).length }; });
   // 月(表示中の月・月曜はじまり・6週まで)
-  const [my, mm] = mon.split('-').map(Number); const m1 = new Date(my, mm - 1, 1); const lead = (m1.getDay() + 6) % 7; const dim = new Date(my, mm, 0).getDate();
+  const [my, mm] = mon.split('-').map(Number); const m1 = new Date(my, mm - 1, 1); const lead = m1.getDay(); const dim = new Date(my, mm, 0).getDate();
   const cells = []; for (let i = 0; i < lead; i++) cells.push(null); for (let d = 1; d <= dim; d++) { const dt = new Date(my, mm - 1, d); const iso = isoOf(dt); cells.push({ d: dt, iso, n: evOn(iso).length }); } while (cells.length % 7) cells.push(null);
   const moveMon = (n) => { const d = new Date(my, mm - 1 + n, 1); setMon(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); };
   const setMode2 = (m) => { setMode(m); try { localStorage.setItem('tsumugiTodaySheetMode', m); } catch {} if (m === 'month') setMon(sel.slice(0, 7)); };
@@ -12355,7 +12356,7 @@ function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
           <div data-testid="tsu-today-week" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, padding: '0 10px 6px' }}>{week.map(w => dayBtn(w, false))}</div>
         ) : (
           <div data-testid="tsu-today-month" style={{ padding: '0 10px 6px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 3 }}>{['月','火','水','木','金','土','日'].map((l, i) => <div key={l} style={{ textAlign: 'center', fontSize: 10, fontWeight: 'bold', color: i === 6 ? '#dc2626' : i === 5 ? '#2563eb' : '#64748b' }}>{l}</div>)}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 3 }}>{['日','月','火','水','木','金','土'].map((l, i) => <div key={l} style={{ textAlign: 'center', fontSize: 10, fontWeight: 'bold', color: i === 0 ? '#dc2626' : i === 6 ? '#2563eb' : '#64748b' }}>{l}</div>)}</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>{cells.map((w, i) => w ? dayBtn(w, true) : <span key={`e${i}`} />)}</div>
           </div>
         )}

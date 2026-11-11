@@ -1,7 +1,21 @@
 {
-  "version": "upd-2026-1111-trial563",
+  "version": "upd-2026-1111-trial564",
   "updatedAt": "2026-11-11",
   "notes": [
+    {
+      "id": "upd-2026-1111-trial564",
+      "type": "change",
+      "title": "スマホ: 「今日の予定」の週と月は日曜はじまり",
+      "date": "2026-11-11",
+      "body": "全体",
+      "items": [
+        {
+          "kind": "change",
+          "where": "スマホ → 上端から下へ引く「今日の予定」",
+          "change": "週の7日と月のカレンダーを、ふつうのカレンダーと同じ日曜はじまりにしました。"
+        }
+      ]
+    },
     {
       "id": "upd-2026-1111-trial563",
       "type": "change",

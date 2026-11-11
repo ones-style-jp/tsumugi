@@ -56,6 +56,7 @@ const sheet = page.getByTestId('tsu-today-sheet');
 ok((await sheet.count()) === 1, '上の帯を下へ引くと「今日の予定」の小窓が出る');
 let tx = await sheet.innerText();
 ok(/今日 .*の予定/.test(tx) && (await page.locator('[data-testid^="tsu-today-day-"]').count()) === 7, '今日の日付と、この週の7日が出る(週)');
+ok(/^日/.test((await page.locator('[data-testid^="tsu-today-day-"]').first().innerText()).trim()), '週は日曜はじまり(trial564)');
 ok(/検査の担当者会議/.test(tx) && /10:30〜11:00/.test(tx), '今日の予定(時間つき)が出る');
 ok(/検査のタスク/.test(tx), '済んでいないタスクが出る');
 ok(/検査の申し送り/.test(tx), '今日の申し送りが出る');
