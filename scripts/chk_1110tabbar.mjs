@@ -52,9 +52,11 @@ const login = async (page) => {
   ok(/連絡帳/.test(await page.locator('h1').innerText()), '提供記録で左へスワイプ → 連絡帳');
   await swipe(300, 500, 230, 700); await page.waitForTimeout(800);
   ok(/連絡帳/.test(await page.locator('h1').innerText()), '縦の動きが大きいスワイプでは切り替わらない');
-  // 左端から右へ → 縦のメニュー(サイドバー)
+  // ★ trial558: 右端から左へ → 縦のメニュー(サイドバー)。左端から右へでは開かない
   await swipe(8, 500, 150, 505); await page.waitForTimeout(800);
-  ok(/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), '左端から右へスワイプで縦のメニューが開く(下のバーは隠れる)');
+  ok(!/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), '左端から右へスワイプでは縦のメニューは開かない(trial558)');
+  await swipe(384, 500, 240, 505); await page.waitForTimeout(800);
+  ok(/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), '右端から左へスワイプで縦のメニューが開く(下のバーは隠れる)');
   await page.screenshot({ path: `${OUT}/phone_edge_sidebar.png` });
   await page.keyboard.press('Escape'); await page.waitForTimeout(400);
   if (/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || '')) { await page.mouse.click(380, 500); await page.waitForTimeout(500); }

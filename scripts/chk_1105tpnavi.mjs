@@ -53,7 +53,7 @@ async function start(prep, date) {
   const c = [await carOf(ids[0]), await carOf(ids[1]), await carOf(ids[2]), await carOf(ids[3])];
   r.base_from_current = c[0] === 'car1' && c[1] === 'car1' && c[2] === 'car2' && c[3] === 'car2';
   const tb = page.locator(`[data-tprow][data-tppid="${ids[2]}"][data-tpiso="2099-01-05"] input`).first(); r.base_time_from_current = (await tb.count()) === 1 && (await tb.inputValue()) === '8:45';
-  r.base_banner = /今の送迎表の並び/.test(await page.getByTestId('tp-base-banner').innerText().catch(() => ''));
+  r.base_banner = /いつもの並び/.test(await page.getByTestId('tp-base-banner').innerText().catch(() => '')) && (await page.getByTestId('tp-base-banner').getByTestId('tsu-hint').count()) >= 1; // ★ trial557: 説明はⓘ
   await page.screenshot({ path: '/tmp/chk_1105tpnavi_base.png' }).catch(() => {});
   await page.context().close(); }
 // ⑥ 座席表の下の「この日の午後の迎え」を大きく(名前 16px)・説明はⓘ

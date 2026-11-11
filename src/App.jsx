@@ -2528,7 +2528,7 @@ const _tsumugiOverlayHost = (id) => {
 };
 const _tsumugiOverlayBar = (withPrint) => `<div class="tsumugi-ios-bar" style="position:sticky;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:10px 12px;text-align:center;font-family:-apple-system,'Hiragino Sans',sans-serif;z-index:5;box-shadow:0 2px 10px rgba(0,0,0,0.35);">
     <button type="button" data-act="close" style="font-size:16px;font-weight:bold;padding:10px 18px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">閉じる（元の画面に戻る）</button>
-    ${withPrint ? '<button type="button" data-act="pdf" style="font-size:16px;font-weight:bold;padding:10px 24px;margin-left:10px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">PDFにして印刷・保存</button><div data-act="msg" style="font-size:12px;margin-top:6px;color:#cbd5e1;">ホーム画面のアプリでは、PDFを作って共有メニューの「プリント」から印刷します。</div>' : ''}
+    ${withPrint ? '<button type="button" data-act="pdf" style="font-size:16px;font-weight:bold;padding:10px 24px;margin-left:10px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">印刷する</button><div data-act="msg" style="font-size:12px;margin-top:6px;color:#cbd5e1;">印刷の準備ができたら「印刷する」を押し、共有メニューの「プリント」を選んでください。</div>' : ''}
   </div>`;
 // HTML文書(用紙)を今の画面に重ねて表示する
 const tsumugiShowHtmlInPage = (html, opts = {}) => {
@@ -2625,34 +2625,50 @@ const tsumugiDocToPdf = async (docEl, { pageWmm = 210, pageHmm = 297, onProgress
   }
   return _tsuJpegPdf(out);
 };
-// 印刷表示の上部バーに「PDFにして印刷・保存」を付ける(iPad/iPhone 用)。1回目のタップで作成、2回目で共有メニュー(タップ直後でないと iOS が開かないため)
-const tsumugiAttachPdfButton = (host, btn, { title = '印刷', pageWmm, pageHmm, statusEl } = {}) => {
-  let file = null; let busy = false;
+// 印刷表示の上部バーに「印刷する」を付ける(iPad/iPhone 用)。
+// ★ 2026-11-11 trial555(ユーザー「iPad/スマホで印刷するとき、わざわざ共有を押すのが面倒。一気に行けるボタンを」): 表示を開いたらすぐ裏で PDF を作っておき、
+//   「印刷する」1回で共有メニュー(プリント／"ファイル"に保存)まで進む。iOS はホーム画面のアプリでは window.print() が動かず、印刷は共有メニューの
+//   「プリント」からしかできない(iOS の決まり)ので、押す回数を減らす形で対応。共有メニューは「押した直後」でないと開けないため、準備中に押されたら
+//   できたときにもう一度押してもらう。
+const tsumugiAttachPdfButton = (host, btn, { title = '印刷', pageWmm, pageHmm, statusEl, auto = true } = {}) => {
+  let file = null; let busy = false; let wanted = false;
   const setMsg = (t) => { if (statusEl) statusEl.textContent = t; };
-  btn.onclick = async () => {
-    if (busy) return;
-    if (file) {
-      try {
-        if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title }); return; }
-      } catch (e) { if (e && e.name === 'AbortError') return; }
-      try { const u = URL.createObjectURL(file); const w = window.open(u, '_blank'); if (!w) location.assign(u); } catch { alert('PDFを開けませんでした。'); }
-      return;
-    }
-    // ★ 2026-10-01(試験版): 作成中は回る輪を付ける(画面が止まって見えないように)
-    busy = true; const label = btn.textContent; btn.innerHTML = '<span class="tsumugi-busy-spin" aria-hidden="true"></span>PDFを作成中…'; btn.style.opacity = '0.85';
+  const extra = (() => { try { const m = String(statusEl && statusEl.textContent || '').match(/（([^）]+)）/); return m ? m[1] : ''; } catch { return ''; } })(); // 用紙サイズの案内は残す
+  const spin = '<span class="tsumugi-busy-spin" aria-hidden="true"></span>';
+  const ready = () => { btn.textContent = '印刷する（プリント／"ファイル"に保存）'; btn.style.background = '#16a34a'; btn.style.opacity = '1'; btn.setAttribute('data-ready', '1');
+    setMsg('押すと共有メニューが開きます。「プリント」で印刷、「"ファイル"に保存」でPDFを保存できます。' + (extra ? `（${extra}）` : '')); };
+  // 共有メニュー。開けた/閉じた=true、押した直後でないため開けなかった=false
+  const share = async () => {
+    try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title }); return true; } }
+    catch (e) { if (e && e.name === 'AbortError') return true; if (e && e.name === 'NotAllowedError') return false; }
+    try { const u = URL.createObjectURL(file); const w = window.open(u, '_blank'); if (!w) location.assign(u); } catch { alert('PDFを開けませんでした。'); }
+    return true;
+  };
+  const make = async () => {
+    if (file || busy) return;
+    busy = true; btn.innerHTML = spin + '印刷の準備中…'; btn.style.opacity = '0.85';
     try {
+      // 用紙の中の写真などが読み込み中なら少し待つ(最大3秒)
+      const imgs = Array.from(host.querySelectorAll('.tsumugi-ios-doc img')).filter(i => !i.complete);
+      if (imgs.length) await Promise.race([Promise.all(imgs.map(i => new Promise(r => { i.onload = r; i.onerror = r; }))), new Promise(r => setTimeout(r, 3000))]);
       const doc = host.querySelector('.tsumugi-ios-doc');
-      const blob = await tsumugiDocToPdf(doc, { pageWmm, pageHmm, onProgress: (i, n) => { btn.innerHTML = `<span class="tsumugi-busy-spin" aria-hidden="true"></span>PDFを作成中… ${i}/${n}枚`; } });
+      const blob = await tsumugiDocToPdf(doc, { pageWmm, pageHmm, onProgress: (i, n) => { btn.innerHTML = `${spin}印刷の準備中… ${i}/${n}枚`; } });
       const safe = String(title || '印刷').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 60) || '印刷';
       file = new File([blob], `${safe}.pdf`, { type: 'application/pdf' });
       try { window.__tsumugiLastPdf = { size: blob.size, name: file.name, blob }; } catch {}
-      btn.textContent = '共有メニューを開く（プリント／"ファイル"に保存）'; btn.style.background = '#16a34a'; btn.style.opacity = '1';
-      setMsg('PDFができました。もう一度押すと共有メニューが開きます。「プリント」で印刷、「"ファイル"に保存」でPDFを保存できます。');
+      ready();
+      if (wanted) { wanted = false; const ok = await share(); if (!ok) setMsg('準備ができました。もう一度「印刷する」を押してください。' + (extra ? `（${extra}）` : '')); }
     } catch (e) {
-      btn.textContent = label; btn.style.opacity = '1';
-      alert('PDFを作成できませんでした。\n' + String(e && e.message || e));
+      btn.textContent = 'PDFにして印刷・保存'; btn.style.opacity = '1';
+      setMsg('印刷の準備ができませんでした。もう一度押してください。' + String(e && e.message || e));
     } finally { busy = false; }
   };
+  btn.onclick = async () => {
+    if (file) { const ok = await share(); if (!ok) setMsg('もう一度「印刷する」を押してください。'); return; }
+    if (busy) { wanted = true; setMsg('印刷の準備中です。できたら共有メニューを開きます（開かないときは、もう一度押してください）。'); return; }
+    await make();
+  };
+  if (auto) setTimeout(make, 250); // 画面に付けた後(appendChild の後)で始める
 };
 // window.open('', '_blank') の代わり。ホーム画面アプリでは document.write された内容を今の画面に重ねて表示する窓もどきを返す
 const tsumugiDocWindow = (opts = {}) => {
@@ -12185,7 +12201,7 @@ function SidebarGroup({ icon, label, activeChild, children }) {
 const TSU_TABBAR_KEY = 'tsumugiPhoneTabBar';
 const tsuTabBarOn = () => { try { return localStorage.getItem(TSU_TABBAR_KEY) !== '0'; } catch { return true; } };
 // ★ 2026-11-10 trial546(ユーザー「X みたいな使用感」): ①提供記録⇄連絡帳は上の2つの見出し(TsuPhonePairTabs)＋横スワイプで行き来
-//   ②画面の左端から右へスワイプで縦のメニュー(サイドバー) ③下のバーの4つ目は「この端末の自由枠」(長押しで選ぶ・既定は連絡帳)
+//   ②画面の右端から左へスワイプで縦のメニュー(サイドバー)(trial558で左端→右端に) ③下のバーの4つ目は「この端末の自由枠」(長押しで選ぶ・既定は連絡帳)
 const TSU_TABCUSTOM_KEY = 'tsumugiPhoneTabCustom';
 const tsuTabCustom = () => { try { return localStorage.getItem(TSU_TABCUSTOM_KEY) || ''; } catch { return ''; } }; // ''=未設定(既定は App で決める: 送迎表の店は日誌・使わない店はカレンダー)
 function TsuPhonePairTabs({ items, active, onPick }) {
@@ -12195,7 +12211,8 @@ function TsuPhonePairTabs({ items, active, onPick }) {
     </div>
   );
 }
-// 横スワイプ(指の動き)を document で受ける。入力欄・横に動く表・画面全体の幕の上では反応しない。左端(24px)からの右スワイプは onEdgeRight
+// 横スワイプ(指の動き)を document で受ける。入力欄・横に動く表・画面全体の幕の上では反応しない。右端(24px)からの左スワイプは onEdgeLeft
+// ★ 2026-11-11 trial558(ユーザー「右利きが多いので、サイドバーは右から左のスワイプで」): 左端からの右スワイプ(onEdgeRight)はやめ、右端からの左スワイプに
 function useTsuSwipe(enabled, getHandlers) {
   React.useEffect(() => {
     if (!enabled) return;
@@ -12207,11 +12224,11 @@ function useTsuSwipe(enabled, getHandlers) {
       if (e.scrollWidth > e.clientWidth + 2 && (cs.overflowX === 'auto' || cs.overflowX === 'scroll')) return true;
       if (cs.position === 'fixed' && !e.classList.contains('tsu-pin') && !e.classList.contains('tsu-pairtabs')) return true; // 小窓・幕・下のバーの上
     } } catch {} return false; };
-    const onStart = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } st = { x: t.clientX, y: t.clientY, t: Date.now(), edge: t.clientX <= 24, bad: isBad(ev.target), target: ev.target }; };
+    const onStart = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } st = { x: t.clientX, y: t.clientY, t: Date.now(), edgeR: t.clientX >= (window.innerWidth - 24), bad: isBad(ev.target), target: ev.target }; };
     const onEnd = (ev) => { const s0 = st; st = null; if (!s0) return; const t = ev.changedTouches && ev.changedTouches[0]; if (!t) return;
       const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return;
       const h = (typeof getHandlers === 'function' ? getHandlers() : getHandlers) || {};
-      if (s0.edge && dx > 0) { if (h.onEdgeRight) h.onEdgeRight(); return; }
+      if (s0.edgeR && dx < 0) { if (h.onEdgeLeft) h.onEdgeLeft(); return; }
       if (s0.bad) return; if (dx < 0) { if (h.onLeft) h.onLeft(s0.target); } else if (h.onRight) h.onRight(s0.target); };
     document.addEventListener('touchstart', onStart, { passive: true }); document.addEventListener('touchend', onEnd, { passive: true }); document.addEventListener('touchcancel', () => { st = null; }, { passive: true });
     return () => { document.removeEventListener('touchstart', onStart); document.removeEventListener('touchend', onEnd); };
@@ -12270,9 +12287,13 @@ function TsuPhoneTabBar({ items, hidden }) {
 // 「メニュー」: 下から全画面。グループごとに四角い札を並べる(サイドバーと同じ項目・同じ出し分け)
 function TsuPhoneMenu({ open, onClose, groups, footer }) {
   React.useEffect(() => { if (!open) return; const h = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
+  // ★ 2026-11-11 trial557(ユーザー要望「メニューを開いたとき、左から右にスワイプしたら閉じる」): 指を左から右へ(60px 以上・縦より横・0.9秒以内)で閉じる
+  const _swRef = React.useRef(null);
+  const _onTS = (e) => { const t = e.touches && e.touches[0]; _swRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
+  const _onTE = (e) => { const s0 = _swRef.current; _swRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dx >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) onClose(); };
   if (!open) return null;
   return ReactDOM.createPortal(
-    <div data-testid="tsu-phone-menu" className="tsu-phone-menu no-print" role="dialog" aria-modal="true" aria-label="メニュー">
+    <div data-testid="tsu-phone-menu" className="tsu-phone-menu no-print" role="dialog" aria-modal="true" aria-label="メニュー" onTouchStart={_onTS} onTouchEnd={_onTE} onTouchCancel={() => { _swRef.current = null; }}>
       <div className="tsu-phone-menu-head">
         <button type="button" data-testid="tsu-phone-menu-close" onClick={onClose} aria-label="閉じる"><X size={22} /></button>
         <div className="ttl">メニュー</div>
@@ -13479,7 +13500,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           );
           const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
-                      {[['tpNotice','送迎の時間が変わった方（連絡が要る）※「本日だけ」=明日の分は出さない'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をパソコン・iPadにも出す（スマホは常に出ます）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                      {[['tpNotice','送迎の時間が変わった方（連絡が要る）※「本日だけ」=明日の分は出さない'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
                           <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={k === 'shortcuts' ? !!c.on : c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
                           {['tpNotice','tasks','fitness','keikaku','monitoring'].includes(k) && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
@@ -13652,7 +13673,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           </Card>)}
         </div>
         {/* ★ 2026-11-04 trial517(ユーザー): 近道は左のメニューと同じなのでスマホだけ。表示設定でパソコン・iPadにも出せる */}
-        {(_narrowHome || _hcfg.shortcuts?.on === true) && (<div data-testid="home-shortcuts" style={{display:'flex',flexDirection:'column',gap:16}}>
+        {/* ★ 2026-11-11 trial557(ユーザー「スマホはメニューに同じ項目があるので、ホームの下の近道は不要」): スマホも表示設定で出したときだけ */}
+        {_hcfg.shortcuts?.on === true && (<div data-testid="home-shortcuts" style={{display:'flex',flexDirection:'column',gap:16}}>
         {/* 記録類 */}
         <Card>
           <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:12}}>記録・入力</div>
@@ -13985,7 +14007,7 @@ function TsuHomeMemos({ appData, onSave, isRead, markRead }) {
   // 見たら既読(サイドバーの「ホーム」の新着の数から外す)
   const _ids = todayL.map(m => m.id).join('|');
   React.useEffect(() => { if (!markRead || !isRead) return; const ids = todayL.filter(m => !isRead(m.id)).map(m => m.id); if (!ids.length) return; const t = setTimeout(() => ids.forEach(id => markRead(id)), 1200); return () => clearTimeout(t); }, [_ids]);
-  const hb = { minHeight: _ph ? 44 : _tp ? 36 : 28, fontSize: _ph ? 14 : 12, fontWeight: 'bold', borderRadius: 8, padding: '0 12px', cursor: 'pointer', whiteSpace: 'nowrap' };
+  const hb = { minHeight: _ph ? 36 : _tp ? 32 : 28, fontSize: _ph ? 13 : 12, fontWeight: 'bold', borderRadius: 8, padding: '0 10px', cursor: 'pointer', whiteSpace: 'nowrap' }; // ★ 2026-11-11 trial557(ユーザー「申し送りを書くのボタンが大きすぎる」): 44→36(スマホ)・36→32(iPad)
   const groups = []; upcoming.forEach(m => { const g = groups[groups.length - 1]; if (g && g.date === m.date) g.list.push(m); else groups.push({ date: m.date, list: [m] }); });
   return (
     <div data-testid="home-memos" style={{ flex: '1 1 100%', minWidth: 0 }}>
@@ -23100,7 +23122,7 @@ export default function App() {
   React.useEffect(() => { const on = _pairOn; try { document.documentElement.classList.toggle('tsu-nohdr', on); document.documentElement.classList.toggle('tsu-pair', on); } catch {} return () => { try { document.documentElement.classList.remove('tsu-nohdr'); document.documentElement.classList.remove('tsu-pair'); } catch {} }; }, [_pairOn, _tabBarTick]);
   const [_phoneMenuOpen, _setPhoneMenuOpen] = useState(false);
   const [_tabPickOpen, _setTabPickOpen] = useState(false);
-  // ★ trial546: 横スワイプ。提供記録で左へ=連絡帳・連絡帳で右へ=提供記録(X と同じ向き)。左端から右へ=縦のメニュー(Safari では iPhone の「戻る」に取られる・ホーム画面のアプリ版で効く)
+  // ★ trial546: 横スワイプ。提供記録で左へ=連絡帳・連絡帳で右へ=提供記録(X と同じ向き)。右端から左へ=縦のメニュー(trial558・Safari では iPhone の「進む」に取られることがある・ホーム画面のアプリ版で効く)
   const _goPair = (v) => { if (v !== currentView) navigateTo(v); };
   const _swipeFx = () => { try { if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; const el = document.getElementById('tsuContentScroller'); if (!el) return; el.classList.remove('tsu-swap'); void el.offsetWidth; el.classList.add('tsu-swap'); setTimeout(() => { try { el.classList.remove('tsu-swap'); } catch {} }, 260); } catch {} };
   const _swipeGo = (dir, tgt) => {
@@ -23117,7 +23139,7 @@ export default function App() {
     //   切り替わるときは中身を一瞬うすくしてから出す(tsu-swap・160ms・透明度だけなので軽い)。合図を受けた画面は detail.handled=true を立てる(受け手が無ければ何も起きない)
     onLeft: (tgt) => _swipeGo('left', tgt),
     onRight: (tgt) => _swipeGo('right', tgt),
-    onEdgeRight: () => { if (!isSidebarOpen && !_phoneMenuOpen && !_tabPickOpen) setIsSidebarOpen(true); },
+    onEdgeLeft: () => { if (!isSidebarOpen && !_phoneMenuOpen && !_tabPickOpen) setIsSidebarOpen(true); }, // ★ trial558: 右端から左へ
   };
   useTsuSwipe(!!_tabBarOn, () => _swipeRef.current);
   React.useEffect(() => { if (!_tabBarOn) _setPhoneMenuOpen(false); }, [_tabBarOn]);
@@ -25245,9 +25267,9 @@ export default function App() {
                 @media print{ body>*:not(#tsumugi-ios-print){display:none !important;} #tsumugi-ios-print{position:static !important;inset:auto !important;background:#fff !important;overflow:visible !important;} #tsumugi-ios-print .tsumugi-ios-bar{display:none !important;} #tsumugi-ios-print .tsumugi-ios-doc{margin:0 !important;box-shadow:none !important;max-width:none !important;} }
               </style>
               <div class="tsumugi-ios-bar no-print" style="position:fixed;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:12px 16px;text-align:center;font-family:-apple-system,sans-serif;z-index:5;box-shadow:0 2px 10px rgba(0,0,0,0.35);">
-                <button type="button" data-act="pdf" style="font-size:17px;font-weight:bold;padding:11px 28px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">PDFにして印刷・保存</button>
+                <button type="button" data-act="pdf" style="font-size:17px;font-weight:bold;padding:11px 28px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">印刷する</button>
                 <button type="button" data-act="close" style="font-size:15px;font-weight:bold;padding:11px 20px;margin-left:10px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;" className="whitespace-nowrap">閉じる</button>
-                <div data-act="msg" style="font-size:12px;margin-top:7px;color:#cbd5e1;">ホーム画面のアプリでは、PDFを作って共有メニューの「プリント」から印刷します（${hint.replace(/^印刷オプションで /, 'プリントの設定で ')}）。</div>
+                <div data-act="msg" style="font-size:12px;margin-top:7px;color:#cbd5e1;">印刷の準備ができたら「印刷する」を押し、共有メニューの「プリント」を選んでください（${hint.replace(/^印刷オプションで /, 'プリントの設定で ')}）。</div>
               </div>
               <div class="tsumugi-ios-doc">${inner}</div>`;
               tsumugiAttachPdfButton(host, host.querySelector('[data-act="pdf"]'), { title: printPreviewContent.title || '印刷', pageWmm: pageW, pageHmm: pageH, statusEl: host.querySelector('[data-act="msg"]') });
@@ -39070,6 +39092,25 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _tpBaseIsoOf = (dow) => { const d = new Date(`${TSU_TP_BASE_MON}T00:00:00`); d.setDate(d.getDate() + (dow === 0 ? 6 : dow - 1)); return _iso(d); };
   const _isTplIso = (iso) => /^2099-01-(0[5-9]|1[01])$/.test(String(iso || ''));
   const _tpTemplate = _iso(_mon) === TSU_TP_BASE_MON;
+  // ★ 2026-11-11 trial556(ユーザー要望「送迎表の基準値を入れたら月間スケジュールの基本のお迎え時間にも反映。帰りも設定しているなら送りの時間も。どれを反映するかはチェックで」):
+  //   基本の送迎表(2099-01-xx)で入れた お迎え時間(t)・送りの時間(dropAt)を、利用者マスタの 基本のお迎え時間 pickupTimes[曜日]・基本の送り時間 dropTimes[曜日] にも書く。
+  //   どれを反映するかは店舗の設定 systemSettings.tpBaseReflect {pickup, drop}(既定はどちらも入)。時と分がそろった時間だけ反映し、消したときはマスタを触らない。
+  //   送りの時間を反映した方は「基本の送り時間も設定する」(dropTimeOn)を入にする(入でないと初期値に使われないため)。保存は送迎表のコマと同じ onSave で一緒に書く(mutate の extra)
+  const _tplReflectCfg = (() => { const c = (appData.systemSettings || {}).tpBaseReflect || {}; return { pickup: c.pickup !== false, drop: c.drop !== false }; })();
+  const _setTplReflect = (k, on) => { try { onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), tpBaseReflect: { ..._tplReflectCfg, [k]: !!on }, _updatedAt: syncNow() } }, { silent: true }); } catch {} };
+  const _tplReflectPatch = (iso, pid, { t, dropAt } = {}) => {
+    try {
+      if (!_isTplIso(iso)) return null;
+      const dow = new Date(`${iso}T00:00:00`).getDay(); const pt = (appData.patients || []).find(p => p && p.id === pid); if (!pt) return null;
+      const hm = (v) => { const m = String(v || '').trim().match(/^(\d{1,2}):(\d{2})$/); return m && +m[1] <= 23 && +m[2] <= 59 ? [+m[1], m[2]] : null; };
+      let np = pt;
+      if (t !== undefined && _tplReflectCfg.pickup) { const x = hm(t); if (x) { const val = `${String(x[0]).padStart(2, '0')}:${x[1]}`; const arr = [...(Array.isArray(pt.pickupTimes) ? pt.pickupTimes : [])]; while (arr.length < 7) arr.push(''); const cur = hm(arr[dow]); if (!cur || cur[0] !== x[0] || cur[1] !== x[1] || !(pt.pickupType === 'fixed' || pt.pickupType === 'partial')) { arr[dow] = val; np = { ...np, pickupTimes: arr, pickupType: (pt.pickupType === 'fixed' || pt.pickupType === 'partial') ? pt.pickupType : 'fixed' }; } } }
+      if (dropAt !== undefined && _tplReflectCfg.drop) { const x = hm(dropAt); if (x) { const val = `${x[0]}:${x[1]}`; const arr = [...(Array.isArray(pt.dropTimes) ? pt.dropTimes : [])]; while (arr.length < 7) arr.push(''); const cur = hm(arr[dow]); if (!pt.dropTimeOn || !cur || cur[0] !== x[0] || cur[1] !== x[1]) { arr[dow] = val; np = { ...np, dropTimes: arr, dropTimeOn: true }; } } }
+      if (np === pt) return null;
+      try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `✓ ${pt.name} 様の利用者マスタの${t !== undefined ? '基本のお迎え時間' : '基本の送り時間'}にも反映しました` } })); } catch {} // ★ trial557: 反映したことが分かるように
+      return { patients: (appData.patients || []).map(p => p && p.id === pid ? np : p) };
+    } catch { return null; }
+  };
   // ★ 2026-11-03 trial505(ユーザー報告「退所した方がスマホの送迎表で休みに出る」): 送迎表の利用者の判定。利用期間(isPatientActiveOnDate=利用終了日)に加えて、
   //   状態が退所・終了なのに利用終了日が空(入れ忘れ)の方は、今日以降の日には出さない(終了日があればその日まで出す・過去の週はそのまま)。他の画面(isPatientListable)との食い違い対策
   const _tpActiveOn = (p, iso) => { if (!isPatientActiveOnDate(p, iso)) return false; if (/退所|終了/.test(String(p.status || '')) && !dateIsoAny(p.endDate) && String(iso).slice(0, 10) >= _iso(new Date())) return false; return true; };
@@ -39286,14 +39327,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     }
     return _draftPlan(iso, sl);
   };
-  const savePlan = (iso, sl, plan) => {
+  const savePlan = (iso, sl, plan, extra) => { // ★ 2026-11-11 trial556: extra=同じ保存で一緒に書く項目(基本の送迎表の時間→利用者マスタ。別々に onSave すると後の方が前の方を消すため)
     const { _draft, ...rest0 } = plan; const rest = _autoDropDepart(_pruneDropAt(rest0), sl); // ★ 2026-10-25(ユーザー: 動かすたびに到着が変わって面倒): 保存のたびの到着の目安の入れ直しはやめた(目安は「自動計算」「前週コピー」のときだけ) ★ 2026-10-21: 乗っていない方の送りの時間は消す
     const k = `${iso}_${sl}`;
     const next = _stampChg(plans[k], { ...rest, _savedAt: syncNow() });
     _pushUndo('手での変更', { [k]: next });
-    onSave({ ...appData, transportPlans: { ...plans, [k]: next } }, { silent: true });
+    onSave({ ...appData, ...(extra || {}), transportPlans: { ...plans, [k]: next } }, { silent: true });
   };
-  const mutate = (iso, sl, fn) => { const cur = getPlan(iso, sl); const next = JSON.parse(JSON.stringify({ ...cur })); delete next._draft; fn(next); savePlan(iso, sl, next); };
+  const mutate = (iso, sl, fn, extra) => { const cur = getPlan(iso, sl); const next = JSON.parse(JSON.stringify({ ...cur })); delete next._draft; fn(next); savePlan(iso, sl, next, extra); };
   // ★ 2026-10-26(ユーザー要望): 運行表を出した(ダウンロードした)ときに、そのコマの配置を「配布の控え(_base)」として残す(初めて出したときだけ)。以後の変更は赤枠・変更n件・要連絡に出る
   // ★ 2026-10-26(ユーザー「店舗によっては運行表を月1回しか出さないので、ダウンロード時点ではなく日付で」): 送迎日の7日前(それより前に開いていなければ、初めて開いた時点)の配置を自動で控える
   React.useEffect(() => { try { const t0 = new Date(); t0.setHours(0, 0, 0, 0); const isos = []; for (let i = 0; i <= 7; i++) { const d = new Date(t0); d.setDate(t0.getDate() + i); isos.push(_iso(d)); } _stampHanded(isos); } catch {} }, [plans]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -39591,7 +39632,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     Object.keys(pl.cars||{}).forEach(cid => { const arr = pl.cars[cid]; if (!Array.isArray(arr) || !arr.some(m => m.pid === pid)) return;
       const key = (m, i) => [_tMin(m.t) >= 99998 ? 1 : 0, _tMin(m.t), i];
       pl.cars[cid] = arr.map((m, i) => ({ m, k: key(m, i) })).sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2]).map(x => x.m); });
-  });
+  }, _tplReflectPatch(iso, pid, { t: val })); // ★ trial556: 基本の送迎表なら利用者マスタの基本のお迎え時間にも
   // ★ 2026-10-01(試験版・ユーザー要望「徒歩にしたら自動で開始時間に・あとから編集も可能」): 徒歩の時間は保存値「徒歩」=クラスの開始時刻(各種設定の提供時間)を表示。
   //   1人ずつ時刻を入れて変えられる。空にして欄から離れると「徒歩」(=開始時刻)に戻る。徒歩から車へ移すと時刻は空(乗車時間は別に決める)。
   const setWalkTime = (iso, sl, pid, val) => mutate(iso, sl, (pl) => { (pl.walkers||[]).forEach(m => { if (m.pid === pid) m.t = val; }); });
@@ -39779,7 +39820,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     mutate(iso, sl, (p2) => { if (!p2.drop) return; const dep = { ...(p2.drop.depart||{}) }; const au = { ...(p2.drop.departAuto||{}) }; todo.forEach(c => { const e = _dropDepartEst(p2, sl, c.id); if (e) { dep[c.id] = e.v; au[c.id] = true; } }); p2.drop.depart = dep; p2.drop.departAuto = au; }); return todo.length; };
   // ★ 2026-10-21(店舗要望「送りも何時ごろ着くかヘルパーに聞かれる」): 送りの一人ずつの「家に着く時間」。目安は atAuto
   const setDropAt = (iso, sl, cid, pid, v) => mutate(iso, sl, (pl) => { const k = String(pid); const a2 = { ...(pl.dropAt || {}) }, au = { ...(pl.dropAtAuto || {}) }; if (v) a2[k] = v; else delete a2[k]; delete au[k]; pl.dropAt = a2; pl.dropAtAuto = au;
-    if (pl.drop && pl.drop.cars) { const nc = {}; Object.keys(pl.drop.cars).forEach(c2 => { nc[c2] = (pl.drop.cars[c2] || []).map(m => { if (!m || m.pid !== pid || !('at' in m || 'atAuto' in m)) return m; const { at, atAuto, ...rest } = m; return rest; }); }); pl.drop.cars = nc; } });
+    if (pl.drop && pl.drop.cars) { const nc = {}; Object.keys(pl.drop.cars).forEach(c2 => { nc[c2] = (pl.drop.cars[c2] || []).map(m => { if (!m || m.pid !== pid || !('at' in m || 'atAuto' in m)) return m; const { at, atAuto, ...rest } = m; return rest; }); }); pl.drop.cars = nc; } }, _tplReflectPatch(iso, pid, { dropAt: v })); // ★ trial556: 基本の送迎表なら利用者マスタの基本の送り時間にも
   //   送りの順番: 座席表の日はその順、迎えと同じ日は迎えの逆順(座席表の下書きと同じ)
   const _dropListsOf = (pl) => { const out = {}; const custom = pl && pl.dropMode === 'custom' && pl.drop; cars.forEach(c => { const ms = custom ? tpDropSeatFirst(c, (pl.drop.cars || {})[c.id] || []) : [...(((pl && pl.cars) || {})[c.id] || [])].reverse(); const L = ms.filter(m => m && m.pid != null); if (L.length) out[c.id] = L; }); return out; };
   //   出発: 座席表で決めた出発 → 無ければ 終了時刻＋乗る方の「乗車にかかる時間」(未設定は1分)
@@ -39900,10 +39941,26 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   useEffect(() => {
     if (!dragMv) return;
     const mv = (e) => {
-      const t = _dropTarget(e);
+      const t = _dropTarget(e); _lastPt = { x: e.clientX, y: e.clientY };
       setDragMv(d => d ? { ...d, x: e.clientX, y: e.clientY, over: t } : d);
     };
     const tm = (e) => { e.preventDefault(); }; // ドラッグ中は画面スクロールを止める
+    // ★ 2026-11-11 trial556(ユーザー要望・iPad「長押しで上や下の端まで持っていっても画面が動かず、いったん離してスクロールしてまたつかむ必要がある。Excel や Word のように一緒にスクロールしてほしい」):
+    //   つかんだまま端(70px以内)に近づくと、その下のスクロールできる枠(無ければページ)を端に近いほど速く(最大 毎フレーム 24px)動かし、落とす先の青い線も更新する。横の端でも同じ(週の表の横スクロール)
+    let _lastPt = null; let _raf = 0;
+    const _scrollerOf = (x, y, axis) => { let el = document.elementFromPoint(x, y); while (el && el !== document.body && el !== document.documentElement) { try { const cs = getComputedStyle(el); if (axis === 'y' ? (/(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 2) : (/(auto|scroll)/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 2)) return el; } catch {} el = el.parentElement; } return document.scrollingElement || document.documentElement; };
+    const _edgeV = (pos, lo, hi, EDGE, MAXV) => { if (pos < lo + EDGE) return -Math.ceil(MAXV * Math.min(1, (lo + EDGE - pos) / EDGE)); if (pos > hi - EDGE) return Math.ceil(MAXV * Math.min(1, (pos - (hi - EDGE)) / EDGE)); return 0; };
+    const _tick = () => {
+      _raf = requestAnimationFrame(_tick); const p = _lastPt; if (!p) return;
+      try {
+        const EDGE = 70, MAXV = 24; let moved = false;
+        const sy = _scrollerOf(p.x, p.y, 'y'); const ry = (sy === document.scrollingElement || sy === document.documentElement) ? { top: 0, bottom: window.innerHeight } : sy.getBoundingClientRect();
+        const dy = _edgeV(p.y, ry.top, ry.bottom, EDGE, MAXV); if (dy) { const b0 = sy.scrollTop; sy.scrollTop = b0 + dy; moved = moved || sy.scrollTop !== b0; }
+        const sx = _scrollerOf(p.x, p.y, 'x'); const rx = (sx === document.scrollingElement || sx === document.documentElement) ? { left: 0, right: window.innerWidth } : sx.getBoundingClientRect();
+        const dx = _edgeV(p.x, rx.left, rx.right, EDGE, MAXV); if (dx) { const l0 = sx.scrollLeft; sx.scrollLeft = l0 + dx; moved = moved || sx.scrollLeft !== l0; }
+        if (moved) { const t = _dropTarget({ clientX: p.x, clientY: p.y }); setDragMv(d => d ? { ...d, over: t } : d); }
+      } catch {}
+    };
     const up = (e) => {
       const t = _dropTarget(e);
       setDragMv(d => {
@@ -39936,7 +39993,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     document.addEventListener('pointerup', up);
     document.addEventListener('touchmove', tm, { passive: false });
     document.body.style.userSelect = 'none';
-    return () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('touchmove', tm); document.body.style.userSelect = ''; };
+    _raf = requestAnimationFrame(_tick); // ★ trial556: 端に近づいたときの自動スクロール
+    return () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('touchmove', tm); document.body.style.userSelect = ''; cancelAnimationFrame(_raf); };
   }, [dragMv ? dragMv.pid : null]);
   // ★ 2026-10-02(試験版・ユーザー要望「iPadで長押しドラッグすると文字の範囲選択も出てしまう」): ドラッグできる要素すべてに
   //   data-tpdrag を付け、CSS(src/index.css)で文字の選択・長押しメニューを出さない。ドラッグ中は画面全体の文字選択も止める(下の effect)。
@@ -41336,9 +41394,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       </div>
         {_tpTemplate && (
           <div data-testid="tp-base-banner" className="bg-emerald-50 border-b border-emerald-200 px-3 py-2 text-[13px] text-emerald-900 leading-relaxed">
-            <b>基本の送迎表</b>＝曜日ごとの「いつもの並び」です。まだ作っていない曜日は、今の送迎表の並び（車・順番・時間・運転者）を写して入れてあります。基本利用曜日の方だけで、振替で来た方は入りません（休み・退所の方は関係ありません）。
-            名前を長押しして車へ入れるか「自動計算」で並べ、運転者・座席表・送りの時間も決めておけます。
-            新しい週を開くと、この並びにその日来る方を当てはめて自動で下書きを作ります（「コピー → 基本の送迎表からコピー」でも写せます）。基本利用曜日を変えた方は、ここを開いたときに自動で外れます。
+            {/* ★ 2026-11-11 trial557(ユーザー「説明文が長い。前のようにタップしたら出るように」): 1行＋ⓘ */}
+            <span className="inline-flex items-center gap-1"><b>基本の送迎表</b>＝曜日ごとの「いつもの並び」。新しい週はこの並びから自動で下書きを作ります。<TsuHint>まだ作っていない曜日は、今の送迎表の並び（車・順番・時間・運転者）を写して入れてあります。基本利用曜日の方だけで、振替で来た方は入りません（休み・退所の方は関係ありません）。名前を長押しして車へ入れるか「自動計算」で並べ、運転者・座席表・送りの時間も決めておけます。新しい週を開くと、この並びにその日来る方を当てはめて自動で下書きを作ります（「コピー → 基本の送迎表からコピー」でも写せます）。基本利用曜日を変えた方は、ここを開いたときに自動で外れます。</TsuHint></span>
+            {/* ★ 2026-11-11 trial556: ここで入れた時間を利用者マスタの基本の時間へも反映(どれを反映するかはチェック・店舗の設定) */}
+            <div className="mt-1.5 pt-1.5 border-t border-emerald-200 flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="tp-base-reflect">
+              <span className="font-bold">ここで入れた時間を利用者マスタ（月間スケジュールの基本の時間）にも反映:</span>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" data-testid="tp-base-reflect-pickup" checked={_tplReflectCfg.pickup} onChange={e => _setTplReflect('pickup', e.target.checked)} className="w-4 h-4 accent-emerald-600"/>お迎え時間</label>
+              {_dropShown && <label className="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" data-testid="tp-base-reflect-drop" checked={_tplReflectCfg.drop} onChange={e => _setTplReflect('drop', e.target.checked)} className="w-4 h-4 accent-emerald-600"/>送りの時間<TsuHint>送りの時間を入れた方は、利用者マスタの「基本の送り時間も設定する」が入になります。時と分がそろった時間だけ反映し、消したときはマスタを触りません。</TsuHint></label>}
+            </div>
           </div>
         )}
         {_tpPhone && (
