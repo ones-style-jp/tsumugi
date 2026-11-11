@@ -12201,7 +12201,7 @@ function SidebarGroup({ icon, label, activeChild, children }) {
 const TSU_TABBAR_KEY = 'tsumugiPhoneTabBar';
 const tsuTabBarOn = () => { try { return localStorage.getItem(TSU_TABBAR_KEY) !== '0'; } catch { return true; } };
 // ★ 2026-11-10 trial546(ユーザー「X みたいな使用感」): ①提供記録⇄連絡帳は上の2つの見出し(TsuPhonePairTabs)＋横スワイプで行き来
-//   ②画面の左端から右へスワイプで縦のメニュー(サイドバー) ③下のバーの4つ目は「この端末の自由枠」(長押しで選ぶ・既定は連絡帳)
+//   ②画面の右端から左へスワイプで縦のメニュー(サイドバー)(trial558で左端→右端に) ③下のバーの4つ目は「この端末の自由枠」(長押しで選ぶ・既定は連絡帳)
 const TSU_TABCUSTOM_KEY = 'tsumugiPhoneTabCustom';
 const tsuTabCustom = () => { try { return localStorage.getItem(TSU_TABCUSTOM_KEY) || ''; } catch { return ''; } }; // ''=未設定(既定は App で決める: 送迎表の店は日誌・使わない店はカレンダー)
 function TsuPhonePairTabs({ items, active, onPick }) {
@@ -12211,7 +12211,8 @@ function TsuPhonePairTabs({ items, active, onPick }) {
     </div>
   );
 }
-// 横スワイプ(指の動き)を document で受ける。入力欄・横に動く表・画面全体の幕の上では反応しない。左端(24px)からの右スワイプは onEdgeRight
+// 横スワイプ(指の動き)を document で受ける。入力欄・横に動く表・画面全体の幕の上では反応しない。右端(24px)からの左スワイプは onEdgeLeft
+// ★ 2026-11-11 trial558(ユーザー「右利きが多いので、サイドバーは右から左のスワイプで」): 左端からの右スワイプ(onEdgeRight)はやめ、右端からの左スワイプに
 function useTsuSwipe(enabled, getHandlers) {
   React.useEffect(() => {
     if (!enabled) return;
@@ -12223,11 +12224,11 @@ function useTsuSwipe(enabled, getHandlers) {
       if (e.scrollWidth > e.clientWidth + 2 && (cs.overflowX === 'auto' || cs.overflowX === 'scroll')) return true;
       if (cs.position === 'fixed' && !e.classList.contains('tsu-pin') && !e.classList.contains('tsu-pairtabs')) return true; // 小窓・幕・下のバーの上
     } } catch {} return false; };
-    const onStart = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } st = { x: t.clientX, y: t.clientY, t: Date.now(), edge: t.clientX <= 24, bad: isBad(ev.target), target: ev.target }; };
+    const onStart = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } st = { x: t.clientX, y: t.clientY, t: Date.now(), edgeR: t.clientX >= (window.innerWidth - 24), bad: isBad(ev.target), target: ev.target }; };
     const onEnd = (ev) => { const s0 = st; st = null; if (!s0) return; const t = ev.changedTouches && ev.changedTouches[0]; if (!t) return;
       const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return;
       const h = (typeof getHandlers === 'function' ? getHandlers() : getHandlers) || {};
-      if (s0.edge && dx > 0) { if (h.onEdgeRight) h.onEdgeRight(); return; }
+      if (s0.edgeR && dx < 0) { if (h.onEdgeLeft) h.onEdgeLeft(); return; }
       if (s0.bad) return; if (dx < 0) { if (h.onLeft) h.onLeft(s0.target); } else if (h.onRight) h.onRight(s0.target); };
     document.addEventListener('touchstart', onStart, { passive: true }); document.addEventListener('touchend', onEnd, { passive: true }); document.addEventListener('touchcancel', () => { st = null; }, { passive: true });
     return () => { document.removeEventListener('touchstart', onStart); document.removeEventListener('touchend', onEnd); };
@@ -23121,7 +23122,7 @@ export default function App() {
   React.useEffect(() => { const on = _pairOn; try { document.documentElement.classList.toggle('tsu-nohdr', on); document.documentElement.classList.toggle('tsu-pair', on); } catch {} return () => { try { document.documentElement.classList.remove('tsu-nohdr'); document.documentElement.classList.remove('tsu-pair'); } catch {} }; }, [_pairOn, _tabBarTick]);
   const [_phoneMenuOpen, _setPhoneMenuOpen] = useState(false);
   const [_tabPickOpen, _setTabPickOpen] = useState(false);
-  // ★ trial546: 横スワイプ。提供記録で左へ=連絡帳・連絡帳で右へ=提供記録(X と同じ向き)。左端から右へ=縦のメニュー(Safari では iPhone の「戻る」に取られる・ホーム画面のアプリ版で効く)
+  // ★ trial546: 横スワイプ。提供記録で左へ=連絡帳・連絡帳で右へ=提供記録(X と同じ向き)。右端から左へ=縦のメニュー(trial558・Safari では iPhone の「進む」に取られることがある・ホーム画面のアプリ版で効く)
   const _goPair = (v) => { if (v !== currentView) navigateTo(v); };
   const _swipeFx = () => { try { if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; const el = document.getElementById('tsuContentScroller'); if (!el) return; el.classList.remove('tsu-swap'); void el.offsetWidth; el.classList.add('tsu-swap'); setTimeout(() => { try { el.classList.remove('tsu-swap'); } catch {} }, 260); } catch {} };
   const _swipeGo = (dir, tgt) => {
@@ -23138,7 +23139,7 @@ export default function App() {
     //   切り替わるときは中身を一瞬うすくしてから出す(tsu-swap・160ms・透明度だけなので軽い)。合図を受けた画面は detail.handled=true を立てる(受け手が無ければ何も起きない)
     onLeft: (tgt) => _swipeGo('left', tgt),
     onRight: (tgt) => _swipeGo('right', tgt),
-    onEdgeRight: () => { if (!isSidebarOpen && !_phoneMenuOpen && !_tabPickOpen) setIsSidebarOpen(true); },
+    onEdgeLeft: () => { if (!isSidebarOpen && !_phoneMenuOpen && !_tabPickOpen) setIsSidebarOpen(true); }, // ★ trial558: 右端から左へ
   };
   useTsuSwipe(!!_tabBarOn, () => _swipeRef.current);
   React.useEffect(() => { if (!_tabBarOn) _setPhoneMenuOpen(false); }, [_tabBarOn]);
