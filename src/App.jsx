@@ -23214,6 +23214,7 @@ export default function App() {
   const [_tabBarTick, _setTabBarTick] = useState(0);
   React.useEffect(() => { const h = () => _setTabBarTick(t => t + 1); window.addEventListener('tsumugi-tabbar-change', h); const iv = setInterval(h, 5 * 60 * 1000); /* ★ trial539: 午前→午後の切り替わり(12:30)で印を数え直す */ return () => { window.removeEventListener('tsumugi-tabbar-change', h); clearInterval(iv); }; }, []);
   const _tabBarOn = _phoneW && tsuTabBarOn(); // _tabBarTick が変わるたびに描き直されて読み直す
+  const _gestOn = _phoneW; // ★ 2026-11-11 trial565(ユーザー「下のバーを切るとスワイプも使えなくなる。バーの有無にかかわらず使えるように」): スマホ幅ならスワイプ(右端=サイドバー・左端=戻る・上端から下=今日の予定)は常に有効
   // ★ 2026-11-11 trial560(ユーザー「左端から右へスワイプしたら前の画面に戻る」): 開いた画面の履歴(最大20)。戻るで開いた分は積まない。履歴が無ければホームへ
   const _viewStackRef = useRef([]); const _backNavRef = useRef(false);
   const _phoneBack = () => { if (tsuCloseTopOverlay()) return; const st = _viewStackRef.current; let v = null; while (st.length) { const x = st.pop(); if (x && x !== currentView) { v = x; break; } } if (!v) v = currentView === 'dashboard' ? null : 'dashboard'; if (!v) return; _backNavRef.current = true; navigateTo(v); };
@@ -23221,12 +23222,12 @@ export default function App() {
   const [_todaySheetOpen, _setTodaySheetOpen] = useState(false);
   // ★ trial563(ユーザー「提供記録や連絡帳のように上の帯が無い画面でも、上から下にスワイプで出るように。全ての画面で」): 画面の上端 56px から始めた下向きのスワイプを document で受ける
   React.useEffect(() => {
-    if (!_tabBarOn) return; let st = null;
+    if (!_gestOn) return; let st = null;
     const onS = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } const tg = ev.target; const tag = tg && tg.tagName; if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (tg && tg.isContentEditable)) { st = null; return; } st = t.clientY <= 56 ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
     const onE = (ev) => { const s0 = st; st = null; if (!s0 || (ev && ev._tsuConsumed)) return; const t = ev.changedTouches && ev.changedTouches[0]; if (!t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dy < 60 || Math.abs(dy) < Math.abs(dx) * 2) return; if (tsuTopOverlay()) return; /* 小窓が出ているときは出さない */ _setTodaySheetOpen(true); };
     document.addEventListener('touchstart', onS, { passive: true }); document.addEventListener('touchend', onE, { passive: true });
     return () => { document.removeEventListener('touchstart', onS); document.removeEventListener('touchend', onE); };
-  }, [_tabBarOn]);
+  }, [_gestOn]);
   // ★ trial559: スマホの右のサイドバーは、その上で左→右へスワイプすると閉じる(メニューと同じ向き)
   const _sideSwRef = useRef(null);
   const _sideTS = (e) => { const t = e.touches && e.touches[0]; _sideSwRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
@@ -23258,7 +23259,7 @@ export default function App() {
     onEdgeLeft: () => { if (!isSidebarOpen && !_phoneMenuOpen && !_tabPickOpen) setIsSidebarOpen(true); }, // ★ trial558: 右端から左へ
     onEdgeRight: () => { _phoneBack(); }, // ★ trial560: 左端から右へ=前の画面 ★ trial562: 開いている重なり(サイドバー・メニュー・小窓)があればまずそれを閉じる
   };
-  useTsuSwipe(!!_tabBarOn, () => _swipeRef.current);
+  useTsuSwipe(!!_gestOn, () => _swipeRef.current);
   React.useEffect(() => { if (!_tabBarOn) _setPhoneMenuOpen(false); }, [_tabBarOn]);
   React.useEffect(() => { const h = () => _setTabPickOpen(true); window.addEventListener('tsumugi-tabpick-open', h); return () => window.removeEventListener('tsumugi-tabpick-open', h); }, []); // ★ trial548: 各種設定→システム の「選ぶ」から
   // 下のバー「提供記録」の印: 今日来る予定(基本利用日)で、まだ提供記録が1件も無い方の数。休業日・定休日は0。午前/午後は今の時刻で切り替え(trial539)
@@ -25730,10 +25731,10 @@ export default function App() {
           スマホ幅は常に幅256pxのまま画面の左外から滑り込ませる(transform)。iPad・PC(md以上)は従来どおり幅の開閉 */}
       {/* ★ 2026-11-11 trial559(ユーザー「スマホのサイドバーもスワイプに合わせて右から出るように」): 下のバーの端末(スマホ)は右端から滑り込む(right-0・translate-x-full)。
           閉じるのは幕を押す／サイドバーの上で左→右へスワイプ。iPad(横)・PC は今までどおり左 */}
-      <div data-testid="app-sidebar" data-side={_tabBarOn ? 'right' : 'left'} onTouchStart={_tabBarOn ? _sideTS : undefined} onTouchEnd={_tabBarOn ? _sideTE : undefined} className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl ${
+      <div data-testid="app-sidebar" data-side={_gestOn ? 'right' : 'left'} onTouchStart={_gestOn ? _sideTS : undefined} onTouchEnd={_gestOn ? _sideTE : undefined} className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl ${
         isSidebarOpen
-          ? `w-64 fixed inset-y-0 ${_tabBarOn ? 'right-0' : 'left-0'} z-[58] translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:flex-shrink-0 lg:z-auto lg:opacity-100`
-          : `w-64 fixed inset-y-0 ${_tabBarOn ? 'right-0 translate-x-full' : 'left-0 -translate-x-full'} z-[58] invisible lg:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:translate-x-0 lg:w-0 lg:opacity-0 lg:overflow-hidden lg:flex-shrink-0 lg:z-auto`
+          ? `w-64 fixed inset-y-0 ${_gestOn ? 'right-0' : 'left-0'} z-[58] translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:flex-shrink-0 lg:z-auto lg:opacity-100`
+          : `w-64 fixed inset-y-0 ${_gestOn ? 'right-0 translate-x-full' : 'left-0 -translate-x-full'} z-[58] invisible lg:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:translate-x-0 lg:w-0 lg:opacity-0 lg:overflow-hidden lg:flex-shrink-0 lg:z-auto`
       }`}>
           <div className="w-64 h-full flex flex-col">
             <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
@@ -26001,7 +26002,7 @@ export default function App() {
       </div>
 
       <div id="appMainArea" className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative min-w-0">
-          <header key={`hdr${_hdrKey}`} className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0" data-tsu-noswipe={_tabBarOn ? '1' : undefined}>{/* ★ trial560: スマホは上の帯を下へ引くと今日の予定(trial563: 判定は画面の上端 56px で document が受ける=見出しの無い画面でも効く) */}
+          <header key={`hdr${_hdrKey}`} className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0" data-tsu-noswipe={_gestOn ? '1' : undefined}>{/* ★ trial560: スマホは上の帯を下へ引くと今日の予定(trial563: 判定は画面の上端 56px で document が受ける=見出しの無い画面でも効く) */}
             <div className="flex items-center min-w-0 flex-1">
               {/* ★ 2026-11-10 trial536: スマホで下のバーを使っている間は左上の3本線を出さない(メニューは下の「メニュー」から) */}
               {!_tabBarOn && <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>}
@@ -26240,10 +26241,10 @@ export default function App() {
           {_pairOn && <TsuPhonePairTabs items={[{ key: 'record', label: '提供記録' }, { key: 'print', label: '連絡帳' }]} active={currentView} onPick={_goPair} />}
           <TsuPhoneTabBar items={tabs} hidden={isSidebarOpen} />
           <TsuPhoneMenu open={_phoneMenuOpen} onClose={() => _setPhoneMenuOpen(false)} groups={groups} footer={footer} />
-          <TsuPhoneTodaySheet open={_todaySheetOpen} onClose={() => _setTodaySheetOpen(false)} appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} />
           <TsuPhoneTabPicker open={_tabPickOpen} onClose={() => _setTabPickOpen(false)} groups={groups} current={_customKey} onPick={_pickTab} />
         </>);
       })()}
+      {_gestOn && <TsuPhoneTodaySheet open={_todaySheetOpen} onClose={() => _setTodaySheetOpen(false)} appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} />}{/* ★ trial565: 下のバーを切っていても上端から下のスワイプで出す */}
       {/* ★ サイドバーのスタッフ追加モーダル */}
       {staffAddModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">{/* ★ 外側タップでは閉じない 2026-09-27 */}
@@ -50661,7 +50662,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               {/* ★ 2026-11-10 trial536: スマホの下のバー(この端末だけ) */}
               <label className="flex items-start gap-2 cursor-pointer mb-3" data-testid="tabbar-setting">
                 <input type="checkbox" data-testid="tabbar-toggle" defaultChecked={tsuTabBarOn()} onChange={e=>{ try { localStorage.setItem(TSU_TABBAR_KEY, e.target.checked ? '1' : '0'); } catch {} try { window.dispatchEvent(new Event('tsumugi-tabbar-change')); } catch {} }} className="mt-1 accent-blue-600"/>
-                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表（または日誌）・提供記録（連絡帳と一組）・自由枠・メニューを下に置きます。提供記録と連絡帳は上の見出しか横スワイプで行き来。左端から右へスワイプで縦のメニュー（ホーム画面のアプリ版）。外すと左上の3本線に戻ります。iPad・パソコンは変わりません。</TsuHint></span>
+                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表（または日誌）・提供記録（連絡帳と一組）・自由枠・メニューを下に置きます。提供記録と連絡帳は上の見出しか横スワイプで行き来。外すと左上の3本線に戻ります。スワイプ（右端から左=メニュー・左端から右=前の画面・上端から下=今日の予定）はバーの有無にかかわらず使えます（Android のジェスチャー操作では端のスワイプは OS に取られます）。iPad・パソコンは変わりません。</TsuHint></span>
               </label>
               {typeof window !== 'undefined' && window.innerWidth < 768 && tsuTabBarOn() && (
                 <div className="mb-3 pl-6 flex items-center gap-2 flex-wrap" data-testid="tabcustom-setting">{/* ★ trial548: 自由枠の入口(長押しに気づかなかった) */}
