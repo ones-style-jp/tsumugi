@@ -121,7 +121,7 @@ for (const [lab, vp, ua] of [['スマホ', { width: 390, height: 844 }, 'Mozilla
   const cpd = await pg.evaluate(() => { const i = document.querySelector('[data-testid="memo-copy-date"]'); const g = document.querySelector('[data-testid="memo-copy-go"]'); const bx = document.querySelector('[data-testid="memo-copy"] > div').getBoundingClientRect(); return i && g ? { fs: getComputedStyle(i).fontSize, h: Math.round(i.getBoundingClientRect().height), goH: Math.round(g.getBoundingClientRect().height), right: Math.round(bx.right), sw: document.documentElement.scrollWidth } : null; });
   console.log(lab, '書く画面', JSON.stringify(ed), '行', JSON.stringify(row), '複製の画面', JSON.stringify(cpd));
   r[`copyDlg_${lab}`] = !!cpd && cpd.fs === '16px' && cpd.h >= (lab === 'スマホ' ? 44 : 40) && cpd.goH >= (lab === 'スマホ' ? 44 : 40) && cpd.right <= vp.width && cpd.sw <= vp.width;
-  if (lab === 'スマホ') r.phone = ed.w === 390 && ed.fs === '16px' && ed.saveH >= 44 && ed.ptH >= 44 && ed.ptFs === '16px' && !!row && row.fs === '16px' && row.btnH.every(h => h >= 44) && row.addH >= 44 && row.sw <= 390 && row.hs <= row.hc;
+  if (lab === 'スマホ') r.phone = ed.w === 390 && ed.fs === '16px' && ed.saveH >= 44 && ed.ptH >= 44 && ed.ptFs === '16px' && !!row && row.fs === '16px' && row.btnH.every(h => h >= 44) && row.addH >= 34 && row.addH <= 38 /* ★ trial557: 申し送りを書くは36px(ユーザー「大きすぎる」) */ && row.sw <= 390 && row.hs <= row.hc;
   else r.ipad = ed.w === 480 && Math.abs(ed.left - (1080 - 480) / 2) <= 2 && ed.fs === '16px' && ed.ptFs === '16px' && ed.ptH >= 40 && ed.saveH >= 40 && !!row && row.btnH.every(h => h >= 40) && row.sw <= 1080;
   await b2.close(); }
 const ok = Object.values(r).every(Boolean); console.log(r, ok ? 'PASS' : 'FAIL'); process.exit(ok ? 0 : 1);

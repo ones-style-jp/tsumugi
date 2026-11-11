@@ -12286,9 +12286,13 @@ function TsuPhoneTabBar({ items, hidden }) {
 // 「メニュー」: 下から全画面。グループごとに四角い札を並べる(サイドバーと同じ項目・同じ出し分け)
 function TsuPhoneMenu({ open, onClose, groups, footer }) {
   React.useEffect(() => { if (!open) return; const h = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
+  // ★ 2026-11-11 trial557(ユーザー要望「メニューを開いたとき、左から右にスワイプしたら閉じる」): 指を左から右へ(60px 以上・縦より横・0.9秒以内)で閉じる
+  const _swRef = React.useRef(null);
+  const _onTS = (e) => { const t = e.touches && e.touches[0]; _swRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
+  const _onTE = (e) => { const s0 = _swRef.current; _swRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dx >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) onClose(); };
   if (!open) return null;
   return ReactDOM.createPortal(
-    <div data-testid="tsu-phone-menu" className="tsu-phone-menu no-print" role="dialog" aria-modal="true" aria-label="メニュー">
+    <div data-testid="tsu-phone-menu" className="tsu-phone-menu no-print" role="dialog" aria-modal="true" aria-label="メニュー" onTouchStart={_onTS} onTouchEnd={_onTE} onTouchCancel={() => { _swRef.current = null; }}>
       <div className="tsu-phone-menu-head">
         <button type="button" data-testid="tsu-phone-menu-close" onClick={onClose} aria-label="閉じる"><X size={22} /></button>
         <div className="ttl">メニュー</div>
@@ -13495,7 +13499,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           );
           const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
-                      {[['tpNotice','送迎の時間が変わった方（連絡が要る）※「本日だけ」=明日の分は出さない'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をパソコン・iPadにも出す（スマホは常に出ます）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                      {[['tpNotice','送迎の時間が変わった方（連絡が要る）※「本日だけ」=明日の分は出さない'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
                           <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={k === 'shortcuts' ? !!c.on : c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
                           {['tpNotice','tasks','fitness','keikaku','monitoring'].includes(k) && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
@@ -13668,7 +13672,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           </Card>)}
         </div>
         {/* ★ 2026-11-04 trial517(ユーザー): 近道は左のメニューと同じなのでスマホだけ。表示設定でパソコン・iPadにも出せる */}
-        {(_narrowHome || _hcfg.shortcuts?.on === true) && (<div data-testid="home-shortcuts" style={{display:'flex',flexDirection:'column',gap:16}}>
+        {/* ★ 2026-11-11 trial557(ユーザー「スマホはメニューに同じ項目があるので、ホームの下の近道は不要」): スマホも表示設定で出したときだけ */}
+        {_hcfg.shortcuts?.on === true && (<div data-testid="home-shortcuts" style={{display:'flex',flexDirection:'column',gap:16}}>
         {/* 記録類 */}
         <Card>
           <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:12}}>記録・入力</div>
@@ -14001,7 +14006,7 @@ function TsuHomeMemos({ appData, onSave, isRead, markRead }) {
   // 見たら既読(サイドバーの「ホーム」の新着の数から外す)
   const _ids = todayL.map(m => m.id).join('|');
   React.useEffect(() => { if (!markRead || !isRead) return; const ids = todayL.filter(m => !isRead(m.id)).map(m => m.id); if (!ids.length) return; const t = setTimeout(() => ids.forEach(id => markRead(id)), 1200); return () => clearTimeout(t); }, [_ids]);
-  const hb = { minHeight: _ph ? 44 : _tp ? 36 : 28, fontSize: _ph ? 14 : 12, fontWeight: 'bold', borderRadius: 8, padding: '0 12px', cursor: 'pointer', whiteSpace: 'nowrap' };
+  const hb = { minHeight: _ph ? 36 : _tp ? 32 : 28, fontSize: _ph ? 13 : 12, fontWeight: 'bold', borderRadius: 8, padding: '0 10px', cursor: 'pointer', whiteSpace: 'nowrap' }; // ★ 2026-11-11 trial557(ユーザー「申し送りを書くのボタンが大きすぎる」): 44→36(スマホ)・36→32(iPad)
   const groups = []; upcoming.forEach(m => { const g = groups[groups.length - 1]; if (g && g.date === m.date) g.list.push(m); else groups.push({ date: m.date, list: [m] }); });
   return (
     <div data-testid="home-memos" style={{ flex: '1 1 100%', minWidth: 0 }}>
@@ -39106,6 +39111,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (t !== undefined && _tplReflectCfg.pickup) { const x = hm(t); if (x) { const val = `${String(x[0]).padStart(2, '0')}:${x[1]}`; const arr = [...(Array.isArray(pt.pickupTimes) ? pt.pickupTimes : [])]; while (arr.length < 7) arr.push(''); const cur = hm(arr[dow]); if (!cur || cur[0] !== x[0] || cur[1] !== x[1] || !(pt.pickupType === 'fixed' || pt.pickupType === 'partial')) { arr[dow] = val; np = { ...np, pickupTimes: arr, pickupType: (pt.pickupType === 'fixed' || pt.pickupType === 'partial') ? pt.pickupType : 'fixed' }; } } }
       if (dropAt !== undefined && _tplReflectCfg.drop) { const x = hm(dropAt); if (x) { const val = `${x[0]}:${x[1]}`; const arr = [...(Array.isArray(pt.dropTimes) ? pt.dropTimes : [])]; while (arr.length < 7) arr.push(''); const cur = hm(arr[dow]); if (!pt.dropTimeOn || !cur || cur[0] !== x[0] || cur[1] !== x[1]) { arr[dow] = val; np = { ...np, dropTimes: arr, dropTimeOn: true }; } } }
       if (np === pt) return null;
+      try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `✓ ${pt.name} 様の利用者マスタの${t !== undefined ? '基本のお迎え時間' : '基本の送り時間'}にも反映しました` } })); } catch {} // ★ trial557: 反映したことが分かるように
       return { patients: (appData.patients || []).map(p => p && p.id === pid ? np : p) };
     } catch { return null; }
   };
@@ -41393,9 +41399,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       </div>
         {_tpTemplate && (
           <div data-testid="tp-base-banner" className="bg-emerald-50 border-b border-emerald-200 px-3 py-2 text-[13px] text-emerald-900 leading-relaxed">
-            <b>基本の送迎表</b>＝曜日ごとの「いつもの並び」です。まだ作っていない曜日は、今の送迎表の並び（車・順番・時間・運転者）を写して入れてあります。基本利用曜日の方だけで、振替で来た方は入りません（休み・退所の方は関係ありません）。
-            名前を長押しして車へ入れるか「自動計算」で並べ、運転者・座席表・送りの時間も決めておけます。
-            新しい週を開くと、この並びにその日来る方を当てはめて自動で下書きを作ります（「コピー → 基本の送迎表からコピー」でも写せます）。基本利用曜日を変えた方は、ここを開いたときに自動で外れます。
+            {/* ★ 2026-11-11 trial557(ユーザー「説明文が長い。前のようにタップしたら出るように」): 1行＋ⓘ */}
+            <span className="inline-flex items-center gap-1"><b>基本の送迎表</b>＝曜日ごとの「いつもの並び」。新しい週はこの並びから自動で下書きを作ります。<TsuHint>まだ作っていない曜日は、今の送迎表の並び（車・順番・時間・運転者）を写して入れてあります。基本利用曜日の方だけで、振替で来た方は入りません（休み・退所の方は関係ありません）。名前を長押しして車へ入れるか「自動計算」で並べ、運転者・座席表・送りの時間も決めておけます。新しい週を開くと、この並びにその日来る方を当てはめて自動で下書きを作ります（「コピー → 基本の送迎表からコピー」でも写せます）。基本利用曜日を変えた方は、ここを開いたときに自動で外れます。</TsuHint></span>
             {/* ★ 2026-11-11 trial556: ここで入れた時間を利用者マスタの基本の時間へも反映(どれを反映するかはチェック・店舗の設定) */}
             <div className="mt-1.5 pt-1.5 border-t border-emerald-200 flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="tp-base-reflect">
               <span className="font-bold">ここで入れた時間を利用者マスタ（月間スケジュールの基本の時間）にも反映:</span>

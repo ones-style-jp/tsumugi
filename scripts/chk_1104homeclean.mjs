@@ -39,7 +39,7 @@ const open = async (page) => {
   await page.context().close(); }
 { const page = await (await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' })).newPage(); page.on('dialog', d => d.accept());
   await open(page);
-  r.phone_shortcuts = (await page.getByTestId('home-shortcuts').count()) === 1;
+  r.phone_shortcuts = (await page.getByTestId('home-shortcuts').count()) === 0; // ★ trial557: スマホも設定で出したときだけ
   await page.screenshot({ path: '/tmp/chk_1104homeclean_phone.png', fullPage: true }).catch(() => {});
   await page.context().close(); }
 await b.close();
