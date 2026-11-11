@@ -12213,6 +12213,7 @@ function TsuPhonePairTabs({ items, active, onPick }) {
 }
 // 横スワイプ(指の動き)を document で受ける。入力欄・横に動く表・画面全体の幕の上では反応しない。右端(24px)からの左スワイプは onEdgeLeft
 // ★ 2026-11-11 trial558(ユーザー「右利きが多いので、サイドバーは右から左のスワイプで」): 左端からの右スワイプ(onEdgeRight)はやめ、右端からの左スワイプに
+// ★ 2026-11-11 trial560(ユーザー「左端から右へスワイプしたら前の画面に戻る」): 左端(24px)からの右スワイプは onEdgeRight=前の画面へ(App の _phoneBack)
 function useTsuSwipe(enabled, getHandlers) {
   React.useEffect(() => {
     if (!enabled) return;
@@ -12224,11 +12225,12 @@ function useTsuSwipe(enabled, getHandlers) {
       if (e.scrollWidth > e.clientWidth + 2 && (cs.overflowX === 'auto' || cs.overflowX === 'scroll')) return true;
       if (cs.position === 'fixed' && !e.classList.contains('tsu-pin') && !e.classList.contains('tsu-pairtabs')) return true; // 小窓・幕・下のバーの上
     } } catch {} return false; };
-    const onStart = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } st = { x: t.clientX, y: t.clientY, t: Date.now(), edgeR: t.clientX >= (window.innerWidth - 24), bad: isBad(ev.target), target: ev.target }; };
-    const onEnd = (ev) => { const s0 = st; st = null; if (!s0) return; const t = ev.changedTouches && ev.changedTouches[0]; if (!t) return;
+    const onStart = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } st = { x: t.clientX, y: t.clientY, t: Date.now(), edgeL: t.clientX <= 24, edgeR: t.clientX >= (window.innerWidth - 24), bad: isBad(ev.target), target: ev.target }; };
+    const onEnd = (ev) => { const s0 = st; st = null; if (!s0) return; if (ev && ev._tsuConsumed) return; /* ★ trial562: 小窓・メニュー・サイドバーが自分で閉じたスワイプは、戻るに使わない */ const t = ev.changedTouches && ev.changedTouches[0]; if (!t) return;
       const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return;
       const h = (typeof getHandlers === 'function' ? getHandlers() : getHandlers) || {};
       if (s0.edgeR && dx < 0) { if (h.onEdgeLeft) h.onEdgeLeft(); return; }
+      if (s0.edgeL && dx > 0) { if (h.onEdgeRight) h.onEdgeRight(); return; } // ★ trial560: 左端から右へ=前の画面に戻る
       if (s0.bad) return; if (dx < 0) { if (h.onLeft) h.onLeft(s0.target); } else if (h.onRight) h.onRight(s0.target); };
     document.addEventListener('touchstart', onStart, { passive: true }); document.addEventListener('touchend', onEnd, { passive: true }); document.addEventListener('touchcancel', () => { st = null; }, { passive: true });
     return () => { document.removeEventListener('touchstart', onStart); document.removeEventListener('touchend', onEnd); };
@@ -12284,13 +12286,109 @@ function TsuPhoneTabBar({ items, hidden }) {
     </nav>
   );
 }
+// ★ 2026-11-11 trial560(ユーザー要望): 上の帯を下へ引くと出る「今日の予定」。この週の7日(予定の数の印)・今日の予定・済んでいないタスク・今日の申し送り。
+//   上へスワイプ／幕／×で閉じる。
+// ★ 2026-11-11 trial563(ユーザー): ①日を押すとカレンダーへ飛ばず、小窓の中でその日の予定を出す(「カレンダーを開く」で選んだ日のカレンダーへ)
+//   ②週／月を切り替えられる(端末が覚える tsumugiTodaySheetMode・既定は週)。月は ◀ ▶ で前後の月へ。trial564: 日曜はじまり
+function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
+  const swRef = React.useRef(null);
+  const today = tsuTodayIso();
+  const [sel, setSel] = React.useState(today);
+  const [mode, setMode] = React.useState(() => { try { return localStorage.getItem('tsumugiTodaySheetMode') === 'month' ? 'month' : 'week'; } catch { return 'week'; } });
+  const [mon, setMon] = React.useState(() => today.slice(0, 7));
+  React.useEffect(() => { if (open) { setSel(today); setMon(today.slice(0, 7)); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (!open) return; const h = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
+  if (!open) return null;
+  const DOWJ = ['日','月','火','水','木','金','土'];
+  const evs = Array.isArray(appData && appData.scheduleEvents) ? appData.scheduleEvents : [];
+  const pname = (pid) => { const p = (pid !== '' && pid != null) ? ((appData.patients || []).find(x => x.id === pid)) : null; return p ? `${p.name} 様` : ''; };
+  const evOn = (iso) => evs.filter(e => e && e.date && !tsuIsMemo(e) && !tsuIsTask(e) && (e.date === iso || (tsuEvMulti(e) && e.date < iso && iso <= String(e.endDate)))).sort((a, b) => String(a.start || '99').localeCompare(String(b.start || '99')));
+  const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const sd = new Date(`${sel}T00:00:00`);
+  const dayEv = evOn(sel);
+  let tasks = []; try { tasks = tsuTaskOpenOccurrences(appData, tsuIsoAdd(sel, -31), sel, today).filter(x => x.iso === sel || (sel === today && x.iso < today)); } catch {}
+  const memos = evs.filter(e => tsuIsMemo(e) && e.date === sel).sort(tsuMemoSort);
+  // 週(選んだ日の週・月曜はじまり)
+  // ★ trial564(ユーザー「ふつうのカレンダーは日曜はじまりなので、ここも日曜から」): 週・月とも日曜はじまり
+  const wkMon = new Date(sd); wkMon.setDate(sd.getDate() - sd.getDay());
+  const week = Array.from({ length: 7 }, (_, i) => { const d = new Date(wkMon); d.setDate(wkMon.getDate() + i); const iso = isoOf(d); return { d, iso, n: evOn(iso).length }; });
+  // 月(表示中の月・月曜はじまり・6週まで)
+  const [my, mm] = mon.split('-').map(Number); const m1 = new Date(my, mm - 1, 1); const lead = m1.getDay(); const dim = new Date(my, mm, 0).getDate();
+  const cells = []; for (let i = 0; i < lead; i++) cells.push(null); for (let d = 1; d <= dim; d++) { const dt = new Date(my, mm - 1, d); const iso = isoOf(dt); cells.push({ d: dt, iso, n: evOn(iso).length }); } while (cells.length % 7) cells.push(null);
+  const moveMon = (n) => { const d = new Date(my, mm - 1 + n, 1); setMon(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); };
+  const setMode2 = (m) => { setMode(m); try { localStorage.setItem('tsumugiTodaySheetMode', m); } catch {} if (m === 'month') setMon(sel.slice(0, 7)); };
+  const pick = (iso) => { setSel(iso); if (mode === 'month' && iso.slice(0, 7) !== mon) setMon(iso.slice(0, 7)); };
+  const goCal = (iso) => { try { sessionStorage.setItem('tsumugiSchDay', iso); } catch {} onClose(); navigateTo && navigateTo('schedule'); };
+  const onTS = (e) => { const t = e.touches && e.touches[0]; swRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
+  const onTE = (e) => { const s0 = swRef.current; swRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dy <= -60 && Math.abs(dy) >= Math.abs(dx) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} onClose(); } };
+  const timeOf = (e) => tsuEvMulti(e) ? tsuEvRangeLabel(e) : (e.start ? `${e.start}${e.end ? `〜${e.end}` : ''}` : '終日');
+  const row = (key, color, left, main, sub, onClick) => (
+    <button key={key} type="button" onClick={onClick} style={{ textAlign: 'left', width: '100%', display: 'flex', alignItems: 'baseline', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderLeft: `4px solid ${color}`, borderRadius: 8, padding: '8px 10px', minHeight: 44 }}>
+      {left ? <span style={{ fontSize: 13, fontWeight: 'bold', color: '#475569', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{left}</span> : null}
+      <span style={{ fontSize: 15, fontWeight: 'bold', color: '#1e293b', flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{main}{sub ? <span style={{ fontSize: 11, fontWeight: 'bold', color: '#4338ca', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 4, padding: '0 5px', marginLeft: 6 }}>{sub}</span> : null}</span>
+    </button>);
+  const dayBtn = (w, small) => { if (!w) return <span key={`e${Math.random()}`} />; const isT = w.iso === today, isS = w.iso === sel; const dow = w.d.getDay(); return (
+    <button key={w.iso} type="button" data-testid={`tsu-today-day-${w.iso}`} data-sel={isS ? '1' : '0'} onClick={() => pick(w.iso)} style={{ minHeight: small ? 40 : 48, borderRadius: 10, border: isS ? '2px solid #059669' : isT ? '2px solid #a7f3d0' : '1px solid #e2e8f0', background: isS ? '#ecfdf5' : '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, padding: 0 }}>
+      {!small && <span style={{ fontSize: 10, fontWeight: 'bold', color: dow === 0 ? '#dc2626' : dow === 6 ? '#2563eb' : '#64748b' }}>{DOWJ[dow]}</span>}
+      <span style={{ fontSize: small ? 14 : 15, fontWeight: 'bold', color: isS ? '#065f46' : isT ? '#047857' : dow === 0 ? '#dc2626' : dow === 6 ? '#2563eb' : '#1e293b', lineHeight: 1 }}>{w.d.getDate()}</span>
+      <span style={{ fontSize: 10, color: '#4338ca', fontWeight: 'bold', minHeight: 12, lineHeight: '12px' }}>{w.n ? (small ? '●' : `${w.n}件`) : ''}</span>
+    </button>); };
+  const selLabel = `${sd.getMonth() + 1}/${sd.getDate()}（${DOWJ[sd.getDay()]}）`;
+  return ReactDOM.createPortal(
+    <div data-testid="tsu-today-sheet-wrap" className="no-print" style={{ position: 'fixed', inset: 0, zIndex: 100000 }}>
+      <div onClick={onClose} aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.45)' }} />
+      <div data-testid="tsu-today-sheet" data-mode={mode} role="dialog" aria-modal="true" aria-label="予定" onTouchStart={onTS} onTouchEnd={onTE} style={{ position: 'absolute', top: 0, left: 0, right: 0, maxHeight: '86vh', overflowY: 'auto', background: '#f8fafc', borderRadius: '0 0 18px 18px', boxShadow: '0 12px 32px rgba(0,0,0,0.3)', paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px 6px' }}>
+          <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid #cbd5e1' }} data-testid="tsu-today-mode">
+            {[['week', '週'], ['month', '月']].map(([m, l]) => <button key={m} type="button" data-testid={`tsu-today-mode-${m}`} onClick={() => setMode2(m)} style={{ minHeight: 36, padding: '0 12px', fontSize: 13, fontWeight: 'bold', border: 'none', background: mode === m ? '#059669' : '#fff', color: mode === m ? '#fff' : '#475569' }}>{l}</button>)}
+          </div>
+          {mode === 'month' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, justifyContent: 'center' }}>
+              <button type="button" data-testid="tsu-today-prevmon" onClick={() => moveMon(-1)} aria-label="前の月" style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 'bold' }}>◀</button>
+              <span style={{ fontSize: 15, fontWeight: 'bold', color: '#1e293b', minWidth: 90, textAlign: 'center' }}>{my}年{mm}月</span>
+              <button type="button" data-testid="tsu-today-nextmon" onClick={() => moveMon(1)} aria-label="次の月" style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 'bold' }}>▶</button>
+            </div>
+          ) : <div style={{ flex: 1 }} />}
+          {sel !== today && <button type="button" data-testid="tsu-today-today" onClick={() => { setSel(today); setMon(today.slice(0, 7)); }} style={{ minHeight: 36, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 'bold' }}>今日</button>}
+          <button type="button" data-testid="tsu-today-close" onClick={onClose} aria-label="閉じる" style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569' }}><X size={20} /></button>
+        </div>
+        {mode === 'week' ? (
+          <div data-testid="tsu-today-week" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, padding: '0 10px 6px' }}>{week.map(w => dayBtn(w, false))}</div>
+        ) : (
+          <div data-testid="tsu-today-month" style={{ padding: '0 10px 6px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 3 }}>{['日','月','火','水','木','金','土'].map((l, i) => <div key={l} style={{ textAlign: 'center', fontSize: 10, fontWeight: 'bold', color: i === 0 ? '#dc2626' : i === 6 ? '#2563eb' : '#64748b' }}>{l}</div>)}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>{cells.map((w, i) => w ? dayBtn(w, true) : <span key={`e${i}`} />)}</div>
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px 6px' }}>
+          <div data-testid="tsu-today-sel" style={{ fontSize: 15, fontWeight: 'bold', color: '#1e293b', flex: 1 }}>{sel === today ? '今日 ' : ''}{selLabel}の予定</div>
+          <button type="button" data-testid="tsu-today-cal" onClick={() => goCal(sel)} style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: '1px solid #a7f3d0', background: '#ecfdf5', color: '#065f46', fontSize: 13, fontWeight: 'bold', whiteSpace: 'nowrap' }}>カレンダーを開く</button>
+        </div>
+        <div style={{ padding: '0 12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }} data-testid="tsu-today-lists">
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 'bold', color: '#4338ca', marginBottom: 4 }}>予定 {dayEv.length ? `${dayEv.length}件` : ''}</div>
+            {dayEv.length ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{dayEv.map(e => row(`e${e.id}`, e.color || '#6366f1', timeOf(e), e.title || '予定', pname(e.patientId), () => goCal(sel)))}</div> : <div style={{ fontSize: 13, color: '#94a3b8' }}>予定はありません</div>}
+          </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 'bold', color: '#047857', marginBottom: 4 }}>タスク（済んでいないもの）{tasks.length ? `${tasks.length}件` : ''}</div>
+            {tasks.length ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{tasks.map(({ t, iso }) => row(`t${t.id}_${iso}`, TSU_TASK_COLOR, iso < sel ? `期限切れ ${tsuEvMd(iso)}` : (t.start || ''), t.title || 'タスク', pname(t.patientId), () => goCal(iso)))}</div> : <div style={{ fontSize: 13, color: '#94a3b8' }}>ありません</div>}
+          </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 'bold', color: '#c2410c', marginBottom: 4 }}>申し送り {memos.length ? `${memos.length}件` : ''}</div>
+            {memos.length ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{memos.map(m => row(`m${m.id}`, TSU_MEMO_COLOR, '', m.title || '', pname(m.patientId), () => { onClose(); navigateTo && navigateTo('dashboard'); }))}</div> : <div style={{ fontSize: 13, color: '#94a3b8' }}>ありません</div>}
+          </div>
+          <div className="tsu-hint-row"><TsuHint>画面の上の端から下へ引くと、どの画面でもこの小窓が出ます。日を押すとその日の予定がここに出ます。「カレンダーを開く」で選んだ日のカレンダーへ。上へ戻すか、暗い部分を押すと閉じます。</TsuHint></div>
+        </div>
+      </div>
+    </div>, document.body);
+}
 // 「メニュー」: 下から全画面。グループごとに四角い札を並べる(サイドバーと同じ項目・同じ出し分け)
 function TsuPhoneMenu({ open, onClose, groups, footer }) {
   React.useEffect(() => { if (!open) return; const h = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
   // ★ 2026-11-11 trial557(ユーザー要望「メニューを開いたとき、左から右にスワイプしたら閉じる」): 指を左から右へ(60px 以上・縦より横・0.9秒以内)で閉じる
   const _swRef = React.useRef(null);
   const _onTS = (e) => { const t = e.touches && e.touches[0]; _swRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
-  const _onTE = (e) => { const s0 = _swRef.current; _swRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dx >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) onClose(); };
+  const _onTE = (e) => { const s0 = _swRef.current; _swRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dx >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} onClose(); } };
   if (!open) return null;
   return ReactDOM.createPortal(
     <div data-testid="tsu-phone-menu" className="tsu-phone-menu no-print" role="dialog" aria-modal="true" aria-label="メニュー" onTouchStart={_onTS} onTouchEnd={_onTE} onTouchCancel={() => { _swRef.current = null; }}>
@@ -21929,6 +22027,7 @@ export default function App() {
   const _pendPushRef = React.useRef(false); // 直近の push 失敗を IndexedDB に控えているか
   const _pushWaitersRef = React.useRef([]);   // ★ 2026-10-02: 保存結果を待つ約束(「保存しました」の判定)
   const _saveToastSeqRef = React.useRef(0); const _saveToastTimerRef = React.useRef(null);
+  const _saveStageRef = React.useRef(null); // ★ trial561: 手で保存したときの段階の表示(最新の確かめ→送信・経過秒)
   React.useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId) return;
     const sid = staffSession.storeId; let stopped = false, busy = false;
@@ -23115,10 +23214,23 @@ export default function App() {
   const [_tabBarTick, _setTabBarTick] = useState(0);
   React.useEffect(() => { const h = () => _setTabBarTick(t => t + 1); window.addEventListener('tsumugi-tabbar-change', h); const iv = setInterval(h, 5 * 60 * 1000); /* ★ trial539: 午前→午後の切り替わり(12:30)で印を数え直す */ return () => { window.removeEventListener('tsumugi-tabbar-change', h); clearInterval(iv); }; }, []);
   const _tabBarOn = _phoneW && tsuTabBarOn(); // _tabBarTick が変わるたびに描き直されて読み直す
+  // ★ 2026-11-11 trial560(ユーザー「左端から右へスワイプしたら前の画面に戻る」): 開いた画面の履歴(最大20)。戻るで開いた分は積まない。履歴が無ければホームへ
+  const _viewStackRef = useRef([]); const _backNavRef = useRef(false);
+  const _phoneBack = () => { if (tsuCloseTopOverlay()) return; const st = _viewStackRef.current; let v = null; while (st.length) { const x = st.pop(); if (x && x !== currentView) { v = x; break; } } if (!v) v = currentView === 'dashboard' ? null : 'dashboard'; if (!v) return; _backNavRef.current = true; navigateTo(v); };
+  // ★ 2026-11-11 trial560(ユーザー「上のバー(ホーム・送迎表…)から下にスワイプしたら、カレンダーや今日の予定が出てくるように」): 上の帯を下へ引く(60px 以上・縦優先)と今日の予定の小窓
+  const [_todaySheetOpen, _setTodaySheetOpen] = useState(false);
+  // ★ trial563(ユーザー「提供記録や連絡帳のように上の帯が無い画面でも、上から下にスワイプで出るように。全ての画面で」): 画面の上端 56px から始めた下向きのスワイプを document で受ける
+  React.useEffect(() => {
+    if (!_tabBarOn) return; let st = null;
+    const onS = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } const tg = ev.target; const tag = tg && tg.tagName; if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (tg && tg.isContentEditable)) { st = null; return; } st = t.clientY <= 56 ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
+    const onE = (ev) => { const s0 = st; st = null; if (!s0 || (ev && ev._tsuConsumed)) return; const t = ev.changedTouches && ev.changedTouches[0]; if (!t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dy < 60 || Math.abs(dy) < Math.abs(dx) * 2) return; if (tsuTopOverlay()) return; /* 小窓が出ているときは出さない */ _setTodaySheetOpen(true); };
+    document.addEventListener('touchstart', onS, { passive: true }); document.addEventListener('touchend', onE, { passive: true });
+    return () => { document.removeEventListener('touchstart', onS); document.removeEventListener('touchend', onE); };
+  }, [_tabBarOn]);
   // ★ trial559: スマホの右のサイドバーは、その上で左→右へスワイプすると閉じる(メニューと同じ向き)
   const _sideSwRef = useRef(null);
   const _sideTS = (e) => { const t = e.touches && e.touches[0]; _sideSwRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
-  const _sideTE = (e) => { const s0 = _sideSwRef.current; _sideSwRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dx >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) setIsSidebarOpen(false); };
+  const _sideTE = (e) => { const s0 = _sideSwRef.current; _sideSwRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dx >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} setIsSidebarOpen(false); } };
   React.useEffect(() => { try { document.documentElement.classList.toggle('tsu-tabbar-on', !!_tabBarOn); } catch {} return () => { try { document.documentElement.classList.remove('tsu-tabbar-on'); } catch {} }; }, [_tabBarOn, _tabBarTick]);
   // ★ trial540: スマホで下のバーを使い提供記録を開いているときは、上の見出し(日付の行)を出さない(日付は操作の段にある)。帯は画面の上端から
   // ★ trial546: 連絡帳も同じ(提供記録⇄連絡帳の2つの見出しが上に出る)
@@ -23144,6 +23256,7 @@ export default function App() {
     onLeft: (tgt) => _swipeGo('left', tgt),
     onRight: (tgt) => _swipeGo('right', tgt),
     onEdgeLeft: () => { if (!isSidebarOpen && !_phoneMenuOpen && !_tabPickOpen) setIsSidebarOpen(true); }, // ★ trial558: 右端から左へ
+    onEdgeRight: () => { _phoneBack(); }, // ★ trial560: 左端から右へ=前の画面 ★ trial562: 開いている重なり(サイドバー・メニュー・小窓)があればまずそれを閉じる
   };
   useTsuSwipe(!!_tabBarOn, () => _swipeRef.current);
   React.useEffect(() => { if (!_tabBarOn) _setPhoneMenuOpen(false); }, [_tabBarOn]);
@@ -24532,8 +24645,13 @@ export default function App() {
           try {
             let cur = dataToPush;
             while (cur) {
-              await _pullIfStale('save'); // ★ trial545: 眠っていた端末はまず取り込む
+              // ★ trial561(ユーザー「保存に40秒かかるときと、すぐのときがある」): どの段階に時間がかかっているかを表示と診断ログに残す
+              const _t0 = Date.now(); const _stale = (Date.now() - Math.max(lastAppliedAtRef.current || 0, lastPullCheckOkAtRef.current || 0)) >= 60000;
+              try { if (_stale && _saveStageRef.current) _saveStageRef.current('pull'); } catch {}
+              const _pulled = await _pullIfStale('save'); // ★ trial545: 眠っていた端末はまず取り込む
+              const _t1 = Date.now(); try { if (_saveStageRef.current) _saveStageRef.current('push'); } catch {}
               const ok = await _retryPush(cur);
+              try { syncLog('push-time', { pullMs: _pulled ? _t1 - _t0 : 0, pushMs: Date.now() - _t1, ok: ok === true ? 1 : String(ok) }); } catch {}
               { const ws = _pushWaitersRef.current.splice(0); ws.forEach(r => { try { r(ok === true); } catch {} }); }
               if (ok === 'blocked') { // ★ 2026-11-02 水元店の事故: 関所で止めた保存は再送に積まない(その状態をクラウドへ送ると全店のデータが消える)。端末はまもなく最新を取り直す
                 // ★ trial545: 「減る」保存を止めたとき(blocked-shrink)は案内を変え、すぐ最新を取り込む
@@ -24551,22 +24669,30 @@ export default function App() {
             }
           } finally { _pushBusyRef.current = false; }
         };
+        // ★ 2026-10-02(店舗報告: 電波を切った状態で保存→「保存しました」→アプリを入れ直すと保存されていない):
+        //   「保存しました」はクラウド(店舗データとテーブル)に書けたときだけ出す。それまでは「保存しています…」、
+        //   失敗したら「保存できませんでした」(入力は端末に控えて通信が戻れば自動で送る)。通信が無いときは最初から失敗の案内。
+        // ★ trial561: 段階(最新の確かめ／送信)と経過秒を出す(保存が長いときに、どこで待っているか分かるように)
+        const _tid = options.manual ? ++_saveToastSeqRef.current : null;
+        const _show = (msg, ms) => { if (_tid == null || _saveToastSeqRef.current !== _tid) return; setToastMsg(msg); setShowToast(true); clearTimeout(_saveToastTimerRef.current); _saveToastTimerRef.current = setTimeout(() => { if (_saveToastSeqRef.current === _tid) setShowToast(false); }, ms); };
+        let _stageTimer = null; const _stageStop = () => { if (_stageTimer) { clearInterval(_stageTimer); _stageTimer = null; } _saveStageRef.current = null; };
+        if (options.manual && !(typeof navigator !== 'undefined' && navigator.onLine === false)) {
+          const _t0 = Date.now(); let _stage = 'push';
+          const _label = () => { const sec = Math.round((Date.now() - _t0) / 1000); const base = _stage === 'pull' ? '最新の内容を確かめています…（他の端末の変更を先に取り込みます）' : 'クラウドに保存しています…'; return sec >= 5 ? `${base}（${sec}秒）` : base; };
+          _saveStageRef.current = (st) => { _stage = st; _show(_label(), 60000); if (!_stageTimer) _stageTimer = setInterval(() => { if (_saveToastSeqRef.current !== _tid) { _stageStop(); return; } _show(_label(), 60000); }, 1000); };
+        }
         const _pushDone = _pumpPush(newData);
         if (options.manual) {
-          // ★ 2026-10-02(店舗報告: 電波を切った状態で保存→「保存しました」→アプリを入れ直すと保存されていない):
-          //   「保存しました」はクラウド(店舗データとテーブル)に書けたときだけ出す。それまでは「保存しています…」、
-          //   失敗したら「保存できませんでした」(入力は端末に控えて通信が戻れば自動で送る)。通信が無いときは最初から失敗の案内。
-          const _tid = ++_saveToastSeqRef.current;
-          const _show = (msg, ms) => { if (_saveToastSeqRef.current !== _tid) return; setToastMsg(msg); setShowToast(true); clearTimeout(_saveToastTimerRef.current); _saveToastTimerRef.current = setTimeout(() => { if (_saveToastSeqRef.current === _tid) setShowToast(false); }, ms); };
           if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             _show('⚠ 通信がないため保存できませんでした。入力は端末に控え、通信が戻ると自動で送ります（画面を閉じないでください）', 8000);
           } else {
             _show('クラウドに保存しています…', 60000);
             Promise.all([_pushDone, _rowsPromise || Promise.resolve({ ok: true })]).then(([okPush, rowsRes]) => {
+              _stageStop();
               const ok = okPush && !(rowsRes && rowsRes.ok === false);
               if (ok) _show(options.message || '✓ 保存しました', 3000);
               else _show('⚠ クラウドに保存できませんでした（通信を確認してください）。入力は端末に控えており、通信が戻ると自動で送ります', 8000);
-            }).catch(() => _show('⚠ クラウドに保存できませんでした（通信を確認してください）。入力は端末に控えています', 8000));
+            }).catch(() => { _stageStop(); _show('⚠ クラウドに保存できませんでした（通信を確認してください）。入力は端末に控えています', 8000); });
           }
         }
       } else if (isSupabaseEnabled && staffSession?.storeId && !options.allowEmpty && !_hasRealData) {
@@ -24799,6 +24925,7 @@ export default function App() {
         if (selectedDate !== iso) setSelectedDate(iso);
       } catch {}
     }
+    if (_backNavRef.current) _backNavRef.current = false; else { const st = _viewStackRef.current; if (st[st.length - 1] !== lastViewRef.current) st.push(lastViewRef.current); if (st.length > 20) st.splice(0, st.length - 20); } // ★ trial560: 戻る用の履歴
     prevViewRef.current = lastViewRef.current; lastViewRef.current = currentView; } }, [currentView]); // eslint-disable-line react-hooks/exhaustive-deps
   const navigateBack = (fallback = 'master') => navigateTo(prevViewRef.current && prevViewRef.current !== currentView ? prevViewRef.current : fallback);
 
@@ -25874,7 +26001,7 @@ export default function App() {
       </div>
 
       <div id="appMainArea" className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative min-w-0">
-          <header key={`hdr${_hdrKey}`} className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0">
+          <header key={`hdr${_hdrKey}`} className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0" data-tsu-noswipe={_tabBarOn ? '1' : undefined}>{/* ★ trial560: スマホは上の帯を下へ引くと今日の予定(trial563: 判定は画面の上端 56px で document が受ける=見出しの無い画面でも効く) */}
             <div className="flex items-center min-w-0 flex-1">
               {/* ★ 2026-11-10 trial536: スマホで下のバーを使っている間は左上の3本線を出さない(メニューは下の「メニュー」から) */}
               {!_tabBarOn && <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>}
@@ -26113,6 +26240,7 @@ export default function App() {
           {_pairOn && <TsuPhonePairTabs items={[{ key: 'record', label: '提供記録' }, { key: 'print', label: '連絡帳' }]} active={currentView} onPick={_goPair} />}
           <TsuPhoneTabBar items={tabs} hidden={isSidebarOpen} />
           <TsuPhoneMenu open={_phoneMenuOpen} onClose={() => _setPhoneMenuOpen(false)} groups={groups} footer={footer} />
+          <TsuPhoneTodaySheet open={_todaySheetOpen} onClose={() => _setTodaySheetOpen(false)} appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} />
           <TsuPhoneTabPicker open={_tabPickOpen} onClose={() => _setTabPickOpen(false)} groups={groups} current={_customKey} onPick={_pickTab} />
         </>);
       })()}
@@ -38386,6 +38514,57 @@ const tsuIsBlockingOverlay = (el) => {
 //   本体の画面そのもの(本体の箱 #tsuContentScroller や提供記録の表を中に持つ枠=外枠・提供記録の全画面)は小窓ではないので数えない。
 //   PC(マウス)は止めない(スクロールバーが消えて画面が横に揺れるため。ホイールは下の tsuInstallModalScrollGuard が止める)
 let _tsuAutoLockOn = false; let _tsuAutoLockInstalled = false; let _tsuAutoLockScan = null;
+// ★ 2026-11-11 trial562(ユーザー「スマホの戻る(左端から右)は、座席表を開いていたら送迎表に戻るなど、本当に1つ前へ。全てに対応を」):
+//   画面の上に重なっているもの(小窓・幕・引き出し・座席表・テンキー以外)があれば、まずそれを1つ閉じる。無ければ画面の履歴を1つ戻る。
+//   閉じ方: ①画面が登録した閉じ方(useTsuBackEntry) ②いちばん手前の fixed の重なり(tsuIsBlockingOverlay)の 閉じるボタン(data-testid …-close／aria-label 閉じる／文字が 閉じる・×・戻る・キャンセル)
+//   ③幕そのものを押す(多くの小窓は幕を押すと閉じる) ④Escape。テンキーなど data-tsu-nolock のものは対象外
+const _tsuBackStack = [];
+const tsuBackPush = (id, close) => { tsuBackRemove(id); _tsuBackStack.push({ id, close }); };
+const tsuBackRemove = (id) => { const i = _tsuBackStack.findIndex(x => x.id === id); if (i >= 0) _tsuBackStack.splice(i, 1); };
+function useTsuBackEntry(active, close) {
+  const idRef = React.useRef(null); if (!idRef.current) idRef.current = `bk_${Math.random().toString(36).slice(2, 9)}`;
+  const closeRef = React.useRef(close); closeRef.current = close;
+  React.useEffect(() => { if (!active) return; const id = idRef.current; tsuBackPush(id, () => { try { closeRef.current && closeRef.current(); } catch {} }); return () => tsuBackRemove(id); }, [active]);
+}
+const tsuIsOverlayShape = (el) => {
+  try {
+    if (!el || el.nodeType !== 1) return false;
+    const cs = getComputedStyle(el); if (cs.position !== 'fixed') return false;
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.pointerEvents === 'none' || parseFloat(cs.opacity || '1') < 0.05) return false;
+    const r = el.getBoundingClientRect(); const vw = window.innerWidth, vh = window.innerHeight;
+    if (r.width < vw * 0.9) return false;
+    if (r.height >= vh * 0.9) return true;
+    return r.height >= vh * 0.5 && r.top <= vh * 0.35 && r.bottom >= vh * 0.9;
+  } catch { return false; }
+};
+const tsuTopOverlay = () => {
+  try {
+    // class が fixed でも inline でもない重なり(.tsu-tabpick など CSS で fixed のもの)も拾うため、幅が画面の9割以上の要素だけ computedStyle を見る
+    const vw = window.innerWidth; const nodes = [...document.querySelectorAll('body *')].filter(el => { try { return el.offsetWidth >= vw * 0.9; } catch { return false; } }); let top = null, topZ = -1;
+    for (const el of nodes) {
+      // 背面を止めない透明の幕(data-tsu-nolock・自由枠の小窓など)も「閉じる対象」には含める(形だけで判定・tsuIsBlockingOverlay の nolock の除外は使わない)
+      if (!tsuIsOverlayShape(el)) continue;
+      if (el.getAttribute('data-testid') === 'digital-keypad' || el.closest('[data-testid="digital-keypad"]')) continue; // テンキーは戻るで閉じない(入力中)
+      if (el.querySelector('#tsuContentScroller,.record-view-scroll') || el.id === 'tsuContentScroller' || el.classList.contains('record-view-scroll')) continue;
+      if (el.classList.contains('tsu-pin') || el.classList.contains('tsu-pairtabs') || el.closest('.tsu-tabbar, .tsu-pin, .tsu-pairtabs')) continue;
+      let z = 0; try { z = parseInt(getComputedStyle(el).zIndex, 10) || 0; } catch {}
+      if (z >= topZ) { topZ = z; top = el; } }
+    return top;
+  } catch { return null; }
+};
+const tsuCloseTopOverlay = () => {
+  while (_tsuBackStack.length) { const e = _tsuBackStack.pop(); try { e.close(); return true; } catch {} }
+  const top = tsuTopOverlay(); try { if (window.__tsuBackDbg) console.log('BACKDBG top', top ? (top.getAttribute('data-testid') || top.className) : null); } catch {} if (!top) return false;
+  const txt = (b) => String(b.textContent || '').replace(/\s+/g, ' ').trim();
+  const btns = [...top.querySelectorAll('button, [role="button"]')].filter(b => !b.disabled);
+  const btn = top.querySelector('[data-testid$="-close"], [aria-label="閉じる"], [aria-label="Close"], [aria-label="閉じる（元の画面に戻る）"]')
+    || btns.find(b => /^(閉じる|×|✕|✖|戻る|キャンセル|あとで|とじる)$/.test(txt(b)))
+    || btns.find(b => /^(閉じる|戻る)[（(]/.test(txt(b)));
+  if (btn) { try { btn.click(); } catch {} return true; }
+  try { top.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); } catch {}
+  try { const ev = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }); document.dispatchEvent(ev); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape' })); } catch {}
+  return true;
+};
 // 小窓を閉じてすぐ画面を動かすとき(一覧から選んでその方へ移る など)に、止めを待たずに外す
 const tsuBackLockRescan = () => { try { if (_tsuAutoLockScan) _tsuAutoLockScan(); } catch {} };
 const tsuInstallAutoBackLock = () => {

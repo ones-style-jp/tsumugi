@@ -880,6 +880,43 @@ function _casSignal() {
   return undefined;
 }
 function _withSignal(q) { const sg = _casSignal(); return sg && q && typeof q.abortSignal === 'function' ? q.abortSignal(sg) : q; }
+// ★ 2026-11-11 trial562(ユーザー「データが増えるたびに保存が長くなる。対策を」): 店舗データ本体の書き込みを gzip で圧縮して /api/state-cas 経由で送る。
+//   ブラウザは送信(上り)を圧縮しないため、約2.5MB の JSON がそのまま流れていた(細い上りで 20〜40秒)。圧縮すると 1/6〜1/10。
+//   使う条件: 職員の証がある・ブラウザに CompressionStream がある・大きさが 120KB 以上。サーバーが無い/落ちている/証が通らないときは
+//   従来のブラウザ直接の update に自動で戻す(10分は圧縮経路を休む)。CAS の条件(version 一致の1行だけ)はサーバー側で同じ。
+// ★ 2026-11-11 実測(テスト店舗 330KB): 圧縮経路は 1.7秒・直接は 0.7秒(関数の起動と1段の寄り道で約1秒増える)。小さい店舗・速い回線では直接の方が速いので、
+//   400KB 以上のときだけ圧縮経路(実店舗は 1〜2.5MB)。検査用に localStorage tsumugiCasGzMin で下限を変えられる
+const CAS_GZ_MIN = 400 * 1024;
+const _casGzMin = () => { try { const v = Number(localStorage.getItem('tsumugiCasGzMin')); return v > 0 ? v : CAS_GZ_MIN; } catch { return CAS_GZ_MIN; } };
+let _casGzOffUntil = 0;
+export const casGzState = () => ({ offUntil: _casGzOffUntil, can: typeof CompressionStream !== 'undefined' && !!(_filesCtx && _filesCtx.staffToken) });
+async function _gzipText(text) {
+  const cs = new CompressionStream('gzip'); const stream = new Blob([text]).stream().pipeThrough(cs);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+// 戻り値: { ok:true, version } 書けた / { conflict:true } 他端末が先に書いた / null = この経路は使えない(呼び出し側は従来の update へ)
+async function _casUpdateViaApi(key, base, next) {
+  try {
+    if (typeof CompressionStream === 'undefined' || typeof fetch === 'undefined') return null;
+    const tok = _filesCtx && _filesCtx.staffToken; if (!tok) return null;
+    if (Date.now() < _casGzOffUntil) return null;
+    const text = JSON.stringify({ key, base, data: next });
+    if (text.length < _casGzMin()) return null;
+    const t0 = Date.now(); const gz = await _gzipText(text); const t1 = Date.now();
+    const sg = _casSignal();
+    const r = await fetch('/api/state-cas', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'x-tsu-token': tok }, body: gz, ...(sg ? { signal: sg } : {}) });
+    const rt = await r.text().catch(() => ''); let j = null; try { j = rt ? JSON.parse(rt) : null; } catch { j = null; }
+    if (r.status === 404 || (j == null && /<html/i.test(rt))) { _casGzOffUntil = Date.now() + 10 * 60 * 1000; syncLog('push-gz-off', { why: 'no-server' }); return null; }
+    if (r.status === 401 || r.status === 403) { _casGzOffUntil = Date.now() + 10 * 60 * 1000; syncLog('push-gz-off', { why: r.status }); return null; }
+    if (!r.ok || !j || j.ok !== true) { _casGzOffUntil = Date.now() + 10 * 60 * 1000; syncLog('push-gz-off', { why: r.status, err: j && j.error }); return null; }
+    syncLog('push-gz', { raw: text.length, gz: gz.length, zipMs: t1 - t0, sendMs: Date.now() - t1, conflict: !!j.conflict });
+    if (j.conflict) return { conflict: true };
+    return { ok: true, version: Number(j.version) || (base + 1) };
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw e; // 時間切れは従来どおり呼び出し側へ
+    syncLog('push-gz-off', { why: 'error', err: String((e && e.message) || e).slice(0, 80) }); _casGzOffUntil = Date.now() + 10 * 60 * 1000; return null;
+  }
+}
 async function supabaseCasUpdate(key, mutate, opts = {}) {
   if (!supabase || !key) return { ok: false, reason: 'no-supabase' };
   const prev = _casChain.get(key) || Promise.resolve();
@@ -923,6 +960,10 @@ async function _casUpdateInner(key, mutate, opts = {}) {
     // ★ 書き込むデータに「この時点での最大同期時刻」を刻む (次に読む端末がこれ以上へ時計を進める)
     try { next.__clock = Math.max(Number(row.data && row.data.__clock) || 0, syncNow()); } catch {}
     // ② 原子的CAS: WHERE key AND version=base の1行だけ更新(version+1)。 返り行で成否判定。
+    // ★ trial562: まず圧縮してサーバー経由で書く(条件が合わなければ null → 従来のブラウザ直接)
+    const _api = await _casUpdateViaApi(key, base, next);
+    if (_api && _api.ok) return { ok: true, data: next, version: _api.version };
+    if (_api && _api.conflict) { syncLog('cas-conflict', { attempt, base, via: 'api' }); await _casBackoff(attempt); continue; }
     const { data: upd, error: updErr } = await _withSignal(supabase
       .from('app_state').update({ data: next, version: base + 1 })
       .eq('key', key).eq('version', base).select('version'));

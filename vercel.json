@@ -51,6 +51,10 @@
     "api/pdf.js": {
       "maxDuration": 60,
       "memory": 1024
+    },
+    "api/state-cas.js": {
+      "maxDuration": 30,
+      "memory": 512
     }
   }
 }

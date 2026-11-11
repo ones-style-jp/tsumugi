@@ -1,0 +1,26 @@
+// api/state-cas.js の机上テスト: 証の確認・key の制限・gzip・CAS の成功/競合(Supabase は偽物)
+import crypto from 'node:crypto'; import zlib from 'node:zlib'; import { EventEmitter } from 'node:events';
+process.env.SUPABASE_URL = 'https://example.supabase.co'; process.env.SUPABASE_SERVICE_ROLE_KEY = 'svc_test_key';
+const { default: handler } = await import(process.argv[2]);
+const b64u = (s) => Buffer.from(s).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const sign = (p) => crypto.createHmac('sha256', 'tsumugi-staff-token|svc_test_key').update(p).digest('hex');
+const tok = (o) => { const p = b64u(JSON.stringify({ exp: Date.now() + 60000, ...o })); return `${p}.${sign(p)}`; };
+let calls = []; let nextRows = [{ version: 6 }];
+globalThis.fetch = async (url, init) => { calls.push({ url, init }); return { ok: true, status: 200, text: async () => JSON.stringify(nextRows) }; };
+const mkReq = (body, headers) => { const r = new EventEmitter(); r.method = 'POST'; r.headers = headers || {}; r.destroy = () => {}; process.nextTick(() => { if (body) r.emit('data', body); r.emit('end'); }); return r; };
+const mkRes = () => { const res = { code: 200, body: null, setHeader() {}, status(c) { res.code = c; return res; }, json(j) { res.body = j; return res; }, end() { return res; } }; return res; };
+const run = async (body, headers) => { const res = mkRes(); await handler(mkReq(body, headers), res); return res; };
+let fails = 0; const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'} ${m}`); if (!c) fails++; };
+const payload = (key, base) => zlib.gzipSync(Buffer.from(JSON.stringify({ key, base, data: { patients: [{ id: 1, name: '架空' }], __clock: 1 } })));
+let r = await run(payload('store_a', 5), {}); ok(r.code === 401, `証なし → 401 (${r.code})`);
+r = await run(payload('store_a', 5), { 'x-tsu-token': tok({ sid: 's1', role: 'staff', store_id: 'store_b' }) }); ok(r.code === 403, `他店の key → 403 (${r.code})`);
+r = await run(payload('store_a', 5), { 'x-tsu-token': tok({ sid: 's1', role: 'staff', store_id: 'store_a' }) }); ok(r.code === 200 && r.body.ok && r.body.version === 6, `自店 → 書けて version 6 (${JSON.stringify(r.body)})`);
+ok(/app_state\?key=eq\.store_a&version=eq\.5/.test(calls[calls.length - 1].url) && calls[calls.length - 1].init.method === 'PATCH' && JSON.parse(calls[calls.length - 1].init.body).version === 6, 'Supabase へは version=5 の1行を PATCH(version 6)');
+r = await run(payload('diag_store_a|x', 0), { 'x-tsu-token': tok({ sid: 's1', role: 'staff', store_id: 'store_a' }) }); ok(r.code === 200, `diag_<自店> も可 (${r.code})`);
+r = await run(payload('__tsumugi_global__', 2), { 'x-tsu-token': tok({ sid: 'hq', role: 'super_admin', store_id: null }) }); ok(r.code === 200, `本部は共通キーも可 (${r.code})`);
+nextRows = []; r = await run(payload('store_a', 5), { 'x-tsu-token': tok({ sid: 's1', role: 'staff', store_id: 'store_a' }) }); ok(r.code === 200 && r.body.conflict === true, `0行=競合 → conflict:true (${JSON.stringify(r.body)})`); nextRows = [{ version: 6 }];
+r = await run(Buffer.from('not gzip not json'), { 'x-tsu-token': tok({ sid: 's1', role: 'staff', store_id: 'store_a' }) }); ok(r.code === 400, `壊れた本文 → 400 (${r.code})`);
+const expired = (() => { const p = b64u(JSON.stringify({ sid: 's1', role: 'staff', store_id: 'store_a', exp: Date.now() - 1000 })); return `${p}.${sign(p)}`; })();
+r = await run(payload('store_a', 5), { 'x-tsu-token': expired }); ok(r.code === 401, `期限切れの証 → 401 (${r.code})`);
+r = await run(payload('store_a', 5), { 'x-tsu-token': tok({ sid: 's1', role: 'staff', store_id: 'store_a' }).slice(0, -2) + 'zz' }); ok(r.code === 401, `署名が違う証 → 401 (${r.code})`);
+console.log(fails ? `FAILS ${fails}` : 'ALL PASS'); process.exit(fails ? 1 : 0);
