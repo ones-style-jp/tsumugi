@@ -12287,20 +12287,37 @@ function TsuPhoneTabBar({ items, hidden }) {
   );
 }
 // ★ 2026-11-11 trial560(ユーザー要望): 上の帯を下へ引くと出る「今日の予定」。この週の7日(予定の数の印)・今日の予定・済んでいないタスク・今日の申し送り。
-//   上へスワイプ／幕／×で閉じる。日を押すとカレンダーのその日へ
+//   上へスワイプ／幕／×で閉じる。
+// ★ 2026-11-11 trial563(ユーザー): ①日を押すとカレンダーへ飛ばず、小窓の中でその日の予定を出す(「カレンダーを開く」で選んだ日のカレンダーへ)
+//   ②週／月を切り替えられる(端末が覚える tsumugiTodaySheetMode・既定は週)。月は ◀ ▶ で前後の月へ
 function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
   const swRef = React.useRef(null);
+  const today = tsuTodayIso();
+  const [sel, setSel] = React.useState(today);
+  const [mode, setMode] = React.useState(() => { try { return localStorage.getItem('tsumugiTodaySheetMode') === 'month' ? 'month' : 'week'; } catch { return 'week'; } });
+  const [mon, setMon] = React.useState(() => today.slice(0, 7));
+  React.useEffect(() => { if (open) { setSel(today); setMon(today.slice(0, 7)); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { if (!open) return; const h = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
   if (!open) return null;
-  const today = tsuTodayIso(); const td = new Date(`${today}T00:00:00`); const DOWJ = ['日','月','火','水','木','金','土'];
+  const DOWJ = ['日','月','火','水','木','金','土'];
   const evs = Array.isArray(appData && appData.scheduleEvents) ? appData.scheduleEvents : [];
   const pname = (pid) => { const p = (pid !== '' && pid != null) ? ((appData.patients || []).find(x => x.id === pid)) : null; return p ? `${p.name} 様` : ''; };
   const evOn = (iso) => evs.filter(e => e && e.date && !tsuIsMemo(e) && !tsuIsTask(e) && (e.date === iso || (tsuEvMulti(e) && e.date < iso && iso <= String(e.endDate)))).sort((a, b) => String(a.start || '99').localeCompare(String(b.start || '99')));
-  const todayEv = evOn(today);
-  let tasks = []; try { tasks = tsuTaskOpenOccurrences(appData, tsuIsoAdd(today, -31), today, today); } catch {}
-  const memos = evs.filter(e => tsuIsMemo(e) && e.date === today).sort(tsuMemoSort);
-  const mon = new Date(td); mon.setDate(td.getDate() - ((td.getDay() + 6) % 7)); const week = Array.from({ length: 7 }, (_, i) => { const d = new Date(mon); d.setDate(mon.getDate() + i); const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; return { d, iso, n: evOn(iso).length }; });
-  const goDay = (iso) => { try { sessionStorage.setItem('tsumugiSchDay', iso); } catch {} onClose(); navigateTo && navigateTo('schedule'); };
+  const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const sd = new Date(`${sel}T00:00:00`);
+  const dayEv = evOn(sel);
+  let tasks = []; try { tasks = tsuTaskOpenOccurrences(appData, tsuIsoAdd(sel, -31), sel, today).filter(x => x.iso === sel || (sel === today && x.iso < today)); } catch {}
+  const memos = evs.filter(e => tsuIsMemo(e) && e.date === sel).sort(tsuMemoSort);
+  // 週(選んだ日の週・月曜はじまり)
+  const wkMon = new Date(sd); wkMon.setDate(sd.getDate() - ((sd.getDay() + 6) % 7));
+  const week = Array.from({ length: 7 }, (_, i) => { const d = new Date(wkMon); d.setDate(wkMon.getDate() + i); const iso = isoOf(d); return { d, iso, n: evOn(iso).length }; });
+  // 月(表示中の月・月曜はじまり・6週まで)
+  const [my, mm] = mon.split('-').map(Number); const m1 = new Date(my, mm - 1, 1); const lead = (m1.getDay() + 6) % 7; const dim = new Date(my, mm, 0).getDate();
+  const cells = []; for (let i = 0; i < lead; i++) cells.push(null); for (let d = 1; d <= dim; d++) { const dt = new Date(my, mm - 1, d); const iso = isoOf(dt); cells.push({ d: dt, iso, n: evOn(iso).length }); } while (cells.length % 7) cells.push(null);
+  const moveMon = (n) => { const d = new Date(my, mm - 1 + n, 1); setMon(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); };
+  const setMode2 = (m) => { setMode(m); try { localStorage.setItem('tsumugiTodaySheetMode', m); } catch {} if (m === 'month') setMon(sel.slice(0, 7)); };
+  const pick = (iso) => { setSel(iso); if (mode === 'month' && iso.slice(0, 7) !== mon) setMon(iso.slice(0, 7)); };
+  const goCal = (iso) => { try { sessionStorage.setItem('tsumugiSchDay', iso); } catch {} onClose(); navigateTo && navigateTo('schedule'); };
   const onTS = (e) => { const t = e.touches && e.touches[0]; swRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
   const onTE = (e) => { const s0 = swRef.current; swRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dy <= -60 && Math.abs(dy) >= Math.abs(dx) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} onClose(); } };
   const timeOf = (e) => tsuEvMulti(e) ? tsuEvRangeLabel(e) : (e.start ? `${e.start}${e.end ? `〜${e.end}` : ''}` : '終日');
@@ -12309,37 +12326,57 @@ function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
       {left ? <span style={{ fontSize: 13, fontWeight: 'bold', color: '#475569', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{left}</span> : null}
       <span style={{ fontSize: 15, fontWeight: 'bold', color: '#1e293b', flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{main}{sub ? <span style={{ fontSize: 11, fontWeight: 'bold', color: '#4338ca', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 4, padding: '0 5px', marginLeft: 6 }}>{sub}</span> : null}</span>
     </button>);
+  const dayBtn = (w, small) => { if (!w) return <span key={`e${Math.random()}`} />; const isT = w.iso === today, isS = w.iso === sel; const dow = w.d.getDay(); return (
+    <button key={w.iso} type="button" data-testid={`tsu-today-day-${w.iso}`} data-sel={isS ? '1' : '0'} onClick={() => pick(w.iso)} style={{ minHeight: small ? 40 : 48, borderRadius: 10, border: isS ? '2px solid #059669' : isT ? '2px solid #a7f3d0' : '1px solid #e2e8f0', background: isS ? '#ecfdf5' : '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, padding: 0 }}>
+      {!small && <span style={{ fontSize: 10, fontWeight: 'bold', color: dow === 0 ? '#dc2626' : dow === 6 ? '#2563eb' : '#64748b' }}>{DOWJ[dow]}</span>}
+      <span style={{ fontSize: small ? 14 : 15, fontWeight: 'bold', color: isS ? '#065f46' : isT ? '#047857' : dow === 0 ? '#dc2626' : dow === 6 ? '#2563eb' : '#1e293b', lineHeight: 1 }}>{w.d.getDate()}</span>
+      <span style={{ fontSize: 10, color: '#4338ca', fontWeight: 'bold', minHeight: 12, lineHeight: '12px' }}>{w.n ? (small ? '●' : `${w.n}件`) : ''}</span>
+    </button>); };
+  const selLabel = `${sd.getMonth() + 1}/${sd.getDate()}（${DOWJ[sd.getDay()]}）`;
   return ReactDOM.createPortal(
     <div data-testid="tsu-today-sheet-wrap" className="no-print" style={{ position: 'fixed', inset: 0, zIndex: 100000 }}>
       <div onClick={onClose} aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.45)' }} />
-      <div data-testid="tsu-today-sheet" role="dialog" aria-modal="true" aria-label="今日の予定" onTouchStart={onTS} onTouchEnd={onTE} style={{ position: 'absolute', top: 0, left: 0, right: 0, maxHeight: '82vh', overflowY: 'auto', background: '#f8fafc', borderRadius: '0 0 18px 18px', boxShadow: '0 12px 32px rgba(0,0,0,0.3)', paddingTop: 'env(safe-area-inset-top, 0px)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px 6px' }}>
-          <div style={{ fontSize: 16, fontWeight: 'bold', color: '#1e293b', flex: 1, whiteSpace: 'nowrap' }}>{td.getMonth() + 1}/{td.getDate()}（{DOWJ[td.getDay()]}）の予定</div>
-          <button type="button" data-testid="tsu-today-cal" onClick={() => goDay(today)} style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: '1px solid #a7f3d0', background: '#ecfdf5', color: '#065f46', fontSize: 13, fontWeight: 'bold' }}>カレンダーを開く</button>
+      <div data-testid="tsu-today-sheet" data-mode={mode} role="dialog" aria-modal="true" aria-label="予定" onTouchStart={onTS} onTouchEnd={onTE} style={{ position: 'absolute', top: 0, left: 0, right: 0, maxHeight: '86vh', overflowY: 'auto', background: '#f8fafc', borderRadius: '0 0 18px 18px', boxShadow: '0 12px 32px rgba(0,0,0,0.3)', paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px 6px' }}>
+          <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid #cbd5e1' }} data-testid="tsu-today-mode">
+            {[['week', '週'], ['month', '月']].map(([m, l]) => <button key={m} type="button" data-testid={`tsu-today-mode-${m}`} onClick={() => setMode2(m)} style={{ minHeight: 36, padding: '0 12px', fontSize: 13, fontWeight: 'bold', border: 'none', background: mode === m ? '#059669' : '#fff', color: mode === m ? '#fff' : '#475569' }}>{l}</button>)}
+          </div>
+          {mode === 'month' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, justifyContent: 'center' }}>
+              <button type="button" data-testid="tsu-today-prevmon" onClick={() => moveMon(-1)} aria-label="前の月" style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 'bold' }}>◀</button>
+              <span style={{ fontSize: 15, fontWeight: 'bold', color: '#1e293b', minWidth: 90, textAlign: 'center' }}>{my}年{mm}月</span>
+              <button type="button" data-testid="tsu-today-nextmon" onClick={() => moveMon(1)} aria-label="次の月" style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 'bold' }}>▶</button>
+            </div>
+          ) : <div style={{ flex: 1 }} />}
+          {sel !== today && <button type="button" data-testid="tsu-today-today" onClick={() => { setSel(today); setMon(today.slice(0, 7)); }} style={{ minHeight: 36, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 'bold' }}>今日</button>}
           <button type="button" data-testid="tsu-today-close" onClick={onClose} aria-label="閉じる" style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569' }}><X size={20} /></button>
         </div>
-        <div data-testid="tsu-today-week" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, padding: '0 10px 8px' }}>
-          {week.map(w => { const isT = w.iso === today; return (
-            <button key={w.iso} type="button" data-testid={`tsu-today-day-${w.iso}`} onClick={() => goDay(w.iso)} style={{ minHeight: 48, borderRadius: 10, border: isT ? '2px solid #059669' : '1px solid #e2e8f0', background: isT ? '#ecfdf5' : '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-              <span style={{ fontSize: 10, fontWeight: 'bold', color: w.d.getDay() === 0 ? '#dc2626' : w.d.getDay() === 6 ? '#2563eb' : '#64748b' }}>{DOWJ[w.d.getDay()]}</span>
-              <span style={{ fontSize: 15, fontWeight: 'bold', color: isT ? '#065f46' : '#1e293b', lineHeight: 1 }}>{w.d.getDate()}</span>
-              <span style={{ fontSize: 10, color: '#4338ca', fontWeight: 'bold', minHeight: 12 }}>{w.n ? `${w.n}件` : ''}</span>
-            </button>); })}
+        {mode === 'week' ? (
+          <div data-testid="tsu-today-week" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, padding: '0 10px 6px' }}>{week.map(w => dayBtn(w, false))}</div>
+        ) : (
+          <div data-testid="tsu-today-month" style={{ padding: '0 10px 6px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 3 }}>{['月','火','水','木','金','土','日'].map((l, i) => <div key={l} style={{ textAlign: 'center', fontSize: 10, fontWeight: 'bold', color: i === 6 ? '#dc2626' : i === 5 ? '#2563eb' : '#64748b' }}>{l}</div>)}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>{cells.map((w, i) => w ? dayBtn(w, true) : <span key={`e${i}`} />)}</div>
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px 6px' }}>
+          <div data-testid="tsu-today-sel" style={{ fontSize: 15, fontWeight: 'bold', color: '#1e293b', flex: 1 }}>{sel === today ? '今日 ' : ''}{selLabel}の予定</div>
+          <button type="button" data-testid="tsu-today-cal" onClick={() => goCal(sel)} style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: '1px solid #a7f3d0', background: '#ecfdf5', color: '#065f46', fontSize: 13, fontWeight: 'bold', whiteSpace: 'nowrap' }}>カレンダーを開く</button>
         </div>
-        <div style={{ padding: '0 12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ padding: '0 12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }} data-testid="tsu-today-lists">
           <div>
-            <div style={{ fontSize: 12, fontWeight: 'bold', color: '#4338ca', marginBottom: 4 }}>今日の予定 {todayEv.length ? `${todayEv.length}件` : ''}</div>
-            {todayEv.length ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{todayEv.map(e => row(`e${e.id}`, e.color || '#6366f1', timeOf(e), e.title || '予定', pname(e.patientId), () => goDay(today)))}</div> : <div style={{ fontSize: 13, color: '#94a3b8' }}>予定はありません</div>}
+            <div style={{ fontSize: 12, fontWeight: 'bold', color: '#4338ca', marginBottom: 4 }}>予定 {dayEv.length ? `${dayEv.length}件` : ''}</div>
+            {dayEv.length ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{dayEv.map(e => row(`e${e.id}`, e.color || '#6366f1', timeOf(e), e.title || '予定', pname(e.patientId), () => goCal(sel)))}</div> : <div style={{ fontSize: 13, color: '#94a3b8' }}>予定はありません</div>}
           </div>
           <div>
             <div style={{ fontSize: 12, fontWeight: 'bold', color: '#047857', marginBottom: 4 }}>タスク（済んでいないもの）{tasks.length ? `${tasks.length}件` : ''}</div>
-            {tasks.length ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{tasks.map(({ t, iso }) => row(`t${t.id}_${iso}`, TSU_TASK_COLOR, iso < today ? `期限切れ ${tsuEvMd(iso)}` : (t.start || ''), t.title || 'タスク', pname(t.patientId), () => goDay(iso)))}</div> : <div style={{ fontSize: 13, color: '#94a3b8' }}>ありません</div>}
+            {tasks.length ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{tasks.map(({ t, iso }) => row(`t${t.id}_${iso}`, TSU_TASK_COLOR, iso < sel ? `期限切れ ${tsuEvMd(iso)}` : (t.start || ''), t.title || 'タスク', pname(t.patientId), () => goCal(iso)))}</div> : <div style={{ fontSize: 13, color: '#94a3b8' }}>ありません</div>}
           </div>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 'bold', color: '#c2410c', marginBottom: 4 }}>今日の申し送り {memos.length ? `${memos.length}件` : ''}</div>
+            <div style={{ fontSize: 12, fontWeight: 'bold', color: '#c2410c', marginBottom: 4 }}>申し送り {memos.length ? `${memos.length}件` : ''}</div>
             {memos.length ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{memos.map(m => row(`m${m.id}`, TSU_MEMO_COLOR, '', m.title || '', pname(m.patientId), () => { onClose(); navigateTo && navigateTo('dashboard'); }))}</div> : <div style={{ fontSize: 13, color: '#94a3b8' }}>ありません</div>}
           </div>
-          <div className="tsu-hint-row"><TsuHint>上の帯（画面の名前のところ）を下へ引くと、この小窓が出ます。上へ戻すか、暗い部分を押すと閉じます。</TsuHint></div>
+          <div className="tsu-hint-row"><TsuHint>画面の上の端から下へ引くと、どの画面でもこの小窓が出ます。日を押すとその日の予定がここに出ます。「カレンダーを開く」で選んだ日のカレンダーへ。上へ戻すか、暗い部分を押すと閉じます。</TsuHint></div>
         </div>
       </div>
     </div>, document.body);
@@ -23181,9 +23218,14 @@ export default function App() {
   const _phoneBack = () => { if (tsuCloseTopOverlay()) return; const st = _viewStackRef.current; let v = null; while (st.length) { const x = st.pop(); if (x && x !== currentView) { v = x; break; } } if (!v) v = currentView === 'dashboard' ? null : 'dashboard'; if (!v) return; _backNavRef.current = true; navigateTo(v); };
   // ★ 2026-11-11 trial560(ユーザー「上のバー(ホーム・送迎表…)から下にスワイプしたら、カレンダーや今日の予定が出てくるように」): 上の帯を下へ引く(60px 以上・縦優先)と今日の予定の小窓
   const [_todaySheetOpen, _setTodaySheetOpen] = useState(false);
-  const _hdrSwRef = useRef(null);
-  const _hdrTS = (e) => { const t = e.touches && e.touches[0]; _hdrSwRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
-  const _hdrTE = (e) => { const s0 = _hdrSwRef.current; _hdrSwRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dy >= 60 && Math.abs(dy) >= Math.abs(dx) * 2) _setTodaySheetOpen(true); };
+  // ★ trial563(ユーザー「提供記録や連絡帳のように上の帯が無い画面でも、上から下にスワイプで出るように。全ての画面で」): 画面の上端 56px から始めた下向きのスワイプを document で受ける
+  React.useEffect(() => {
+    if (!_tabBarOn) return; let st = null;
+    const onS = (ev) => { const t = ev.touches && ev.touches[0]; if (!t || ev.touches.length !== 1) { st = null; return; } const tg = ev.target; const tag = tg && tg.tagName; if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (tg && tg.isContentEditable)) { st = null; return; } st = t.clientY <= 56 ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
+    const onE = (ev) => { const s0 = st; st = null; if (!s0 || (ev && ev._tsuConsumed)) return; const t = ev.changedTouches && ev.changedTouches[0]; if (!t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dy < 60 || Math.abs(dy) < Math.abs(dx) * 2) return; if (tsuTopOverlay()) return; /* 小窓が出ているときは出さない */ _setTodaySheetOpen(true); };
+    document.addEventListener('touchstart', onS, { passive: true }); document.addEventListener('touchend', onE, { passive: true });
+    return () => { document.removeEventListener('touchstart', onS); document.removeEventListener('touchend', onE); };
+  }, [_tabBarOn]);
   // ★ trial559: スマホの右のサイドバーは、その上で左→右へスワイプすると閉じる(メニューと同じ向き)
   const _sideSwRef = useRef(null);
   const _sideTS = (e) => { const t = e.touches && e.touches[0]; _sideSwRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
@@ -25963,7 +26005,7 @@ export default function App() {
       </div>
 
       <div id="appMainArea" className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative min-w-0">
-          <header key={`hdr${_hdrKey}`} className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0" onTouchStart={_tabBarOn ? _hdrTS : undefined} onTouchEnd={_tabBarOn ? _hdrTE : undefined} data-tsu-noswipe={_tabBarOn ? '1' : undefined}>{/* ★ trial560: スマホは上の帯を下へ引くと今日の予定 */}
+          <header key={`hdr${_hdrKey}`} className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0" data-tsu-noswipe={_tabBarOn ? '1' : undefined}>{/* ★ trial560: スマホは上の帯を下へ引くと今日の予定(trial563: 判定は画面の上端 56px で document が受ける=見出しの無い画面でも効く) */}
             <div className="flex items-center min-w-0 flex-1">
               {/* ★ 2026-11-10 trial536: スマホで下のバーを使っている間は左上の3本線を出さない(メニューは下の「メニュー」から) */}
               {!_tabBarOn && <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>}

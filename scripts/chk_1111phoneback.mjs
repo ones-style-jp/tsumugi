@@ -13,6 +13,7 @@ const today = await page.evaluate(() => { const d = JSON.parse(localStorage.getI
   const pid = (d.patients.find(p => p.status === '利用中') || {}).id;
   d.scheduleEvents.push({ id: 'chk560_ev', date: iso, start: '10:30', end: '11:00', title: '検査の担当者会議', color: '#6366f1', patientId: pid, note: '' });
   d.scheduleEvents.push({ id: 'chk560_task', kind: 'task', date: iso, title: '検査のタスク（請求の確認）', color: '#059669', patientId: '', repeat: 'none', done: {} });
+  { const tm = new Date(t); tm.setDate(tm.getDate() + 1); const iso2 = `${tm.getFullYear()}-${String(tm.getMonth() + 1).padStart(2, '0')}-${String(tm.getDate()).padStart(2, '0')}`; d.scheduleEvents.push({ id: 'chk560_ev2', date: iso2, start: '14:00', end: '', title: '検査の明日の予定', color: '#6366f1', patientId: '', note: '' }); }
   d.scheduleEvents.push({ id: 'chk560_memo', kind: 'memo', date: iso, title: '検査の申し送り（午後は水分多め）', color: '#f97316', patientId: '', by: '検査', at: Date.now() });
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0'); localStorage.setItem('tsumugiTpDriveAck', String(Date.now()));
   sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'dashboard', pid: null, t: Date.now() })); return iso; });
@@ -48,33 +49,55 @@ await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(400); 
 { const had = (await page.getByTestId('tsu-tabpick').count()) === 1; const before = (await title()).trim();
   await swipe(8, 500, 160, 505); await page.waitForTimeout(600);
   ok(had && (await page.getByTestId('tsu-tabpick').count()) === 0 && (await title()).trim() === before, `自由枠の小窓を開いて戻る → 小窓だけ閉じて画面はそのまま(${before})`); }
-// ② 上の帯を下へ引く → 今日の予定
+// ② 上の帯を下へ引く → 今日の予定(trial563: 画面の上端 56px から下へ)
 const hdr = await page.locator('header.tsu-app-header').boundingBox();
 await swipe(200, Math.round(hdr.y + 20), 205, Math.round(hdr.y + 140)); await page.waitForTimeout(600);
 const sheet = page.getByTestId('tsu-today-sheet');
 ok((await sheet.count()) === 1, '上の帯を下へ引くと「今日の予定」の小窓が出る');
-const tx = await sheet.innerText();
-ok(/の予定/.test(tx) && (await page.locator('[data-testid^="tsu-today-day-"]').count()) === 7, '今日の日付と、この週の7日が出る');
+let tx = await sheet.innerText();
+ok(/今日 .*の予定/.test(tx) && (await page.locator('[data-testid^="tsu-today-day-"]').count()) === 7, '今日の日付と、この週の7日が出る(週)');
 ok(/検査の担当者会議/.test(tx) && /10:30〜11:00/.test(tx), '今日の予定(時間つき)が出る');
 ok(/検査のタスク/.test(tx), '済んでいないタスクが出る');
 ok(/検査の申し送り/.test(tx), '今日の申し送りが出る');
 ok(/1件/.test(await page.getByTestId(`tsu-today-day-${today}`).innerText()), '今日の日に予定の件数(1件)');
+// 日を押すと、小窓の中でその日の予定に変わる(カレンダーへは飛ばない)
+const tomorrow = await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+{ const b4 = (await title()).trim(); const dayBtn = page.locator(`[data-testid="tsu-today-day-${tomorrow}"]`);
+  if (await dayBtn.count()) { await dayBtn.click(); await page.waitForTimeout(300); tx = await sheet.innerText();
+    ok((await sheet.count()) === 1 && (await title()).trim() === b4 && (await dayBtn.getAttribute('data-sel')) === '1', '日を押すと小窓の中で選ばれる(カレンダーへは飛ばない)');
+    ok(/検査の明日の予定/.test(tx) && !/検査の担当者会議/.test(tx), 'その日の予定に切り替わる(明日の予定が出て、今日の予定は出ない)');
+    ok((await page.getByTestId('tsu-today-today').count()) === 1, '「今日」に戻るボタンが出る');
+    await page.getByTestId('tsu-today-today').click(); await page.waitForTimeout(200); ok(/検査の担当者会議/.test(await sheet.innerText()), '「今日」で今日に戻る'); }
+  else ok(false, '明日が今週の中にない(週またぎ)'); }
+// 月に切り替え
+await page.getByTestId('tsu-today-mode-month').click(); await page.waitForTimeout(300);
+ok((await page.getByTestId('tsu-today-month').count()) === 1 && (await page.locator('[data-testid^="tsu-today-day-"]').count()) >= 28, '「月」に切り替えると月のカレンダーが出る');
+ok(await page.evaluate(() => localStorage.getItem('tsumugiTodaySheetMode') === 'month'), '週／月の選択は端末が覚える');
+await page.getByTestId('tsu-today-nextmon').click(); await page.waitForTimeout(200); ok((await page.getByTestId(`tsu-today-day-${today}`).count()) === 0, '▶ で次の月(今日は無い)');
+await page.getByTestId('tsu-today-prevmon').click(); await page.waitForTimeout(200); ok((await page.getByTestId(`tsu-today-day-${today}`).count()) === 1, '◀ で戻る');
+await page.getByTestId('tsu-today-mode-week').click(); await page.waitForTimeout(200);
 await page.screenshot({ path: '/tmp/chk_1111phoneback_sheet.png' }).catch(() => {});
 // 左端からの戻るでも閉じる(画面は変わらない)
 { const before = (await title()).trim(); await swipe(8, 500, 160, 505); await page.waitForTimeout(600);
   ok((await sheet.count()) === 0 && (await title()).trim() === before, '今日の予定が出ているときの戻るは小窓を閉じるだけ');
   await swipe(200, Math.round(hdr.y + 20), 205, Math.round(hdr.y + 140)); await page.waitForTimeout(600); }
 // 上へ戻すと閉じる
-const sb = await sheet.boundingBox();
-await swipe(200, Math.round(sb.y + sb.height - 30), 205, Math.round(sb.y + 20)); await page.waitForTimeout(500);
-ok((await sheet.count()) === 0, '上へ戻すと閉じる');
+{ const sb = await sheet.boundingBox();
+  await swipe(200, Math.round(sb.y + sb.height - 30), 205, Math.round(sb.y + 20)); await page.waitForTimeout(500);
+  ok((await sheet.count()) === 0, '上へ戻すと閉じる'); }
 // 帯以外(本文)を下へ引いても出ない
 await swipe(200, 400, 205, 560); await page.waitForTimeout(500);
 ok((await sheet.count()) === 0, '本文を下へ引いても出ない');
-// 日を押すとカレンダーのその日へ
+// 「カレンダーを開く」で選んだ日のカレンダーへ
 await swipe(200, Math.round(hdr.y + 20), 205, Math.round(hdr.y + 140)); await page.waitForTimeout(600);
-await page.getByTestId(`tsu-today-day-${today}`).click(); await page.waitForTimeout(1000);
-ok(/カレンダー/.test(await title()), `日を押すとカレンダーへ(${(await title()).trim()})`);
+await page.getByTestId('tsu-today-cal').click(); await page.waitForTimeout(1000);
+ok(/カレンダー/.test(await title()), `「カレンダーを開く」でカレンダーへ(${(await title()).trim()})`);
 ok((await sheet.count()) === 0, '小窓は閉じている');
+// 見出しの無い画面(提供記録)でも、上端から下へ引くと出る
+await page.getByTestId('tsu-tab-record').click(); await page.waitForTimeout(1200);
+ok((await page.locator('header.tsu-app-header').isVisible().catch(() => false)) === false, '提供記録では上の帯(見出し)が無い');
+await swipe(200, 20, 205, 150); await page.waitForTimeout(600);
+ok((await sheet.count()) === 1, '提供記録でも、画面の上端から下へ引くと「今日の予定」が出る');
+await page.getByTestId('tsu-today-close').click(); await page.waitForTimeout(300);
 await ctx.close(); await b.close();
 console.log(fails ? `FAILS ${fails}` : 'ALL PASS'); process.exit(fails ? 1 : 0);
