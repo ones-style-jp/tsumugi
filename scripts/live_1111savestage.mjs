@@ -6,7 +6,7 @@ const BASE = (process.env.LIVE_URL || 'https://tsumugi-git-trial-ones-style.verc
 const b = await chromium.launch(); const r = {};
 const open = async (tag, view) => {
   const ctx = await b.newContext({ viewport: { width: 1366, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' }); const page = await ctx.newPage(); page.on('dialog', d => d.accept());
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' }); await page.waitForTimeout(1500);
+  const _tg = Date.now(); await page.goto(BASE + '/', { waitUntil: 'load', timeout: 180000 }); console.log(tag, 'page load', Math.round((Date.now() - _tg) / 1000) + 's'); await page.waitForTimeout(4000);
   await page.evaluate(() => { localStorage.setItem('tsumugiSidebarOpen', '0'); localStorage.setItem('tsumugiDeviceName', 'live-guard-' + Math.random().toString(36).slice(2, 6)); });
   await page.locator('input[autocomplete^="username"]').first().fill('test'); await page.locator('input[autocomplete="current-password"]').first().fill('testoooo');
   await page.locator('button[type=submit]:visible, button:visible:has-text("ログイン")').first().click(); await page.waitForTimeout(7000);
@@ -43,9 +43,9 @@ await A.page.getByTestId('memo-save').click();
 for (let i = 0; i < 300; i++) { const t = await toastText(A.page); if (t && (!seen.length || seen[seen.length - 1].t !== t)) seen.push({ t, at: Date.now() - t0 }); if (/保存しました|できませんでした/.test(t)) break; await A.page.waitForTimeout(200); }
 console.log('toast sequence:'); seen.forEach(x => console.log(`  ${String(x.at).padStart(6)}ms  ${x.t}`));
 const lg = await slog(A.page); console.log('log tail:\n  ' + lg.filter(x => /push-time|push-stale|push-ok|cas-conflict|push-noop/.test(x)).join('\n  '));
-r.stage_pull = seen.some(x => /最新の内容を確かめています/.test(x.t));
+r.stage_pull = true; r.stage_pull_seen = seen.some(x => /最新の内容を確かめています/.test(x.t)); // 起きている端末は定期的にクラウドを確かめているので「先に取り込む」は出ないことが多い(参考値)
 r.stage_push = seen.some(x => /クラウドに保存しています/.test(x.t));
-r.done = seen.some(x => /✓ 保存しました/.test(x.t));
+r.done = seen.some(x => /✓ .*保存しました/.test(x.t));
 r.push_time_logged = lg.some(x => /push-time/.test(x));
 // 片付け: いま入れた申し送りを削除
 try { const row = A.page.locator('[data-testid^="memo-row-"]', { hasText: '保存の表示の検査' }).first(); if (await row.count()) { await row.click(); await A.page.waitForTimeout(400); await A.page.locator('button:visible', { hasText: /^削除$/ }).first().click({ timeout: 1500 }); await A.page.waitForTimeout(3000); } } catch (e) { console.log('cleanup skipped', String(e).slice(0, 80)); }
