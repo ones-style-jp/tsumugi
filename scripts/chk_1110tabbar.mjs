@@ -57,9 +57,14 @@ const login = async (page) => {
   ok(!/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), '左端から右へスワイプでは縦のメニューは開かない(trial558)');
   await swipe(384, 500, 240, 505); await page.waitForTimeout(800);
   ok(/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), '右端から左へスワイプで縦のメニューが開く(下のバーは隠れる)');
+  // ★ trial559: サイドバーは右側に出る・その上で左→右スワイプで閉じる
+  { const sb = await page.getByTestId('app-sidebar').boundingBox(); ok(sb && Math.round(sb.x + sb.width) >= 388 && sb.x > 100, `サイドバーは右側に出る(x=${sb && Math.round(sb.x)}〜${sb && Math.round(sb.x + sb.width)})`);
+    await swipe(200, 500, 330, 505); await page.waitForTimeout(600);
+    ok(!/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), 'サイドバーの上で左→右スワイプすると閉じる');
+    await swipe(384, 500, 240, 505); await page.waitForTimeout(800); }
   await page.screenshot({ path: `${OUT}/phone_edge_sidebar.png` });
   await page.keyboard.press('Escape'); await page.waitForTimeout(400);
-  if (/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || '')) { await page.mouse.click(380, 500); await page.waitForTimeout(500); }
+  if (/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || '')) { await page.mouse.click(20, 500); await page.waitForTimeout(500); } // ★ trial559: 幕は左側
   ok(!/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), 'メニューを閉じると下のバーが戻る');
   // 4つ目(自由枠): 長押しで選ぶ
   const slot = page.locator('.tsu-tabbar > button[data-custom]'); ok((await slot.count()) === 1 && /日誌|カレンダー/.test(await slot.innerText()), '4つ目は自由枠(はじめは日誌・送迎表を使わない店はカレンダー) trial548');
