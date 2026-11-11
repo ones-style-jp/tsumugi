@@ -21989,6 +21989,7 @@ export default function App() {
   const _pendPushRef = React.useRef(false); // 直近の push 失敗を IndexedDB に控えているか
   const _pushWaitersRef = React.useRef([]);   // ★ 2026-10-02: 保存結果を待つ約束(「保存しました」の判定)
   const _saveToastSeqRef = React.useRef(0); const _saveToastTimerRef = React.useRef(null);
+  const _saveStageRef = React.useRef(null); // ★ trial561: 手で保存したときの段階の表示(最新の確かめ→送信・経過秒)
   React.useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId) return;
     const sid = staffSession.storeId; let stopped = false, busy = false;
@@ -24606,8 +24607,13 @@ export default function App() {
           try {
             let cur = dataToPush;
             while (cur) {
-              await _pullIfStale('save'); // ★ trial545: 眠っていた端末はまず取り込む
+              // ★ trial561(ユーザー「保存に40秒かかるときと、すぐのときがある」): どの段階に時間がかかっているかを表示と診断ログに残す
+              const _t0 = Date.now(); const _stale = (Date.now() - Math.max(lastAppliedAtRef.current || 0, lastPullCheckOkAtRef.current || 0)) >= 60000;
+              try { if (_stale && _saveStageRef.current) _saveStageRef.current('pull'); } catch {}
+              const _pulled = await _pullIfStale('save'); // ★ trial545: 眠っていた端末はまず取り込む
+              const _t1 = Date.now(); try { if (_saveStageRef.current) _saveStageRef.current('push'); } catch {}
               const ok = await _retryPush(cur);
+              try { syncLog('push-time', { pullMs: _pulled ? _t1 - _t0 : 0, pushMs: Date.now() - _t1, ok: ok === true ? 1 : String(ok) }); } catch {}
               { const ws = _pushWaitersRef.current.splice(0); ws.forEach(r => { try { r(ok === true); } catch {} }); }
               if (ok === 'blocked') { // ★ 2026-11-02 水元店の事故: 関所で止めた保存は再送に積まない(その状態をクラウドへ送ると全店のデータが消える)。端末はまもなく最新を取り直す
                 // ★ trial545: 「減る」保存を止めたとき(blocked-shrink)は案内を変え、すぐ最新を取り込む
@@ -24625,22 +24631,30 @@ export default function App() {
             }
           } finally { _pushBusyRef.current = false; }
         };
+        // ★ 2026-10-02(店舗報告: 電波を切った状態で保存→「保存しました」→アプリを入れ直すと保存されていない):
+        //   「保存しました」はクラウド(店舗データとテーブル)に書けたときだけ出す。それまでは「保存しています…」、
+        //   失敗したら「保存できませんでした」(入力は端末に控えて通信が戻れば自動で送る)。通信が無いときは最初から失敗の案内。
+        // ★ trial561: 段階(最新の確かめ／送信)と経過秒を出す(保存が長いときに、どこで待っているか分かるように)
+        const _tid = options.manual ? ++_saveToastSeqRef.current : null;
+        const _show = (msg, ms) => { if (_tid == null || _saveToastSeqRef.current !== _tid) return; setToastMsg(msg); setShowToast(true); clearTimeout(_saveToastTimerRef.current); _saveToastTimerRef.current = setTimeout(() => { if (_saveToastSeqRef.current === _tid) setShowToast(false); }, ms); };
+        let _stageTimer = null; const _stageStop = () => { if (_stageTimer) { clearInterval(_stageTimer); _stageTimer = null; } _saveStageRef.current = null; };
+        if (options.manual && !(typeof navigator !== 'undefined' && navigator.onLine === false)) {
+          const _t0 = Date.now(); let _stage = 'push';
+          const _label = () => { const sec = Math.round((Date.now() - _t0) / 1000); const base = _stage === 'pull' ? '最新の内容を確かめています…（他の端末の変更を先に取り込みます）' : 'クラウドに保存しています…'; return sec >= 5 ? `${base}（${sec}秒）` : base; };
+          _saveStageRef.current = (st) => { _stage = st; _show(_label(), 60000); if (!_stageTimer) _stageTimer = setInterval(() => { if (_saveToastSeqRef.current !== _tid) { _stageStop(); return; } _show(_label(), 60000); }, 1000); };
+        }
         const _pushDone = _pumpPush(newData);
         if (options.manual) {
-          // ★ 2026-10-02(店舗報告: 電波を切った状態で保存→「保存しました」→アプリを入れ直すと保存されていない):
-          //   「保存しました」はクラウド(店舗データとテーブル)に書けたときだけ出す。それまでは「保存しています…」、
-          //   失敗したら「保存できませんでした」(入力は端末に控えて通信が戻れば自動で送る)。通信が無いときは最初から失敗の案内。
-          const _tid = ++_saveToastSeqRef.current;
-          const _show = (msg, ms) => { if (_saveToastSeqRef.current !== _tid) return; setToastMsg(msg); setShowToast(true); clearTimeout(_saveToastTimerRef.current); _saveToastTimerRef.current = setTimeout(() => { if (_saveToastSeqRef.current === _tid) setShowToast(false); }, ms); };
           if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             _show('⚠ 通信がないため保存できませんでした。入力は端末に控え、通信が戻ると自動で送ります（画面を閉じないでください）', 8000);
           } else {
             _show('クラウドに保存しています…', 60000);
             Promise.all([_pushDone, _rowsPromise || Promise.resolve({ ok: true })]).then(([okPush, rowsRes]) => {
+              _stageStop();
               const ok = okPush && !(rowsRes && rowsRes.ok === false);
               if (ok) _show(options.message || '✓ 保存しました', 3000);
               else _show('⚠ クラウドに保存できませんでした（通信を確認してください）。入力は端末に控えており、通信が戻ると自動で送ります', 8000);
-            }).catch(() => _show('⚠ クラウドに保存できませんでした（通信を確認してください）。入力は端末に控えています', 8000));
+            }).catch(() => { _stageStop(); _show('⚠ クラウドに保存できませんでした（通信を確認してください）。入力は端末に控えています', 8000); });
           }
         }
       } else if (isSupabaseEnabled && staffSession?.storeId && !options.allowEmpty && !_hasRealData) {
