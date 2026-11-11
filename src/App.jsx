@@ -23115,6 +23115,10 @@ export default function App() {
   const [_tabBarTick, _setTabBarTick] = useState(0);
   React.useEffect(() => { const h = () => _setTabBarTick(t => t + 1); window.addEventListener('tsumugi-tabbar-change', h); const iv = setInterval(h, 5 * 60 * 1000); /* ★ trial539: 午前→午後の切り替わり(12:30)で印を数え直す */ return () => { window.removeEventListener('tsumugi-tabbar-change', h); clearInterval(iv); }; }, []);
   const _tabBarOn = _phoneW && tsuTabBarOn(); // _tabBarTick が変わるたびに描き直されて読み直す
+  // ★ trial559: スマホの右のサイドバーは、その上で左→右へスワイプすると閉じる(メニューと同じ向き)
+  const _sideSwRef = useRef(null);
+  const _sideTS = (e) => { const t = e.touches && e.touches[0]; _sideSwRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
+  const _sideTE = (e) => { const s0 = _sideSwRef.current; _sideSwRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dx >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) setIsSidebarOpen(false); };
   React.useEffect(() => { try { document.documentElement.classList.toggle('tsu-tabbar-on', !!_tabBarOn); } catch {} return () => { try { document.documentElement.classList.remove('tsu-tabbar-on'); } catch {} }; }, [_tabBarOn, _tabBarTick]);
   // ★ trial540: スマホで下のバーを使い提供記録を開いているときは、上の見出し(日付の行)を出さない(日付は操作の段にある)。帯は画面の上端から
   // ★ trial546: 連絡帳も同じ(提供記録⇄連絡帳の2つの見出しが上に出る)
@@ -25597,10 +25601,12 @@ export default function App() {
       {/* ★ 2026-10-08(ユーザー報告「スマホ縦でサイドバーのメニューが消える。横にして縦に戻すと出る」): iPhone の WebKit は、
           幅0・透明から開く(幅と透明度のアニメーション)と、中のスクロール枠(メニュー)を描かないことがある。
           スマホ幅は常に幅256pxのまま画面の左外から滑り込ませる(transform)。iPad・PC(md以上)は従来どおり幅の開閉 */}
-      <div data-testid="app-sidebar" className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl ${
+      {/* ★ 2026-11-11 trial559(ユーザー「スマホのサイドバーもスワイプに合わせて右から出るように」): 下のバーの端末(スマホ)は右端から滑り込む(right-0・translate-x-full)。
+          閉じるのは幕を押す／サイドバーの上で左→右へスワイプ。iPad(横)・PC は今までどおり左 */}
+      <div data-testid="app-sidebar" data-side={_tabBarOn ? 'right' : 'left'} onTouchStart={_tabBarOn ? _sideTS : undefined} onTouchEnd={_tabBarOn ? _sideTE : undefined} className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl ${
         isSidebarOpen
-          ? `w-64 fixed inset-y-0 left-0 z-[58] translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:flex-shrink-0 lg:z-auto lg:opacity-100`
-          : `w-64 fixed inset-y-0 left-0 z-[58] -translate-x-full invisible lg:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:translate-x-0 lg:w-0 lg:opacity-0 lg:overflow-hidden lg:flex-shrink-0 lg:z-auto`
+          ? `w-64 fixed inset-y-0 ${_tabBarOn ? 'right-0' : 'left-0'} z-[58] translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:flex-shrink-0 lg:z-auto lg:opacity-100`
+          : `w-64 fixed inset-y-0 ${_tabBarOn ? 'right-0 translate-x-full' : 'left-0 -translate-x-full'} z-[58] invisible lg:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:translate-x-0 lg:w-0 lg:opacity-0 lg:overflow-hidden lg:flex-shrink-0 lg:z-auto`
       }`}>
           <div className="w-64 h-full flex flex-col">
             <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
