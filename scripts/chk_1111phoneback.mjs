@@ -35,6 +35,19 @@ ok((await page.getByTestId('app-sidebar').getAttribute('data-side')) === 'right'
 await page.getByTestId('tsu-tab-diary').click(); await page.waitForTimeout(900);
 await swipe(120, 500, 300, 505); await page.waitForTimeout(700);
 ok(/日誌/.test(await title()), '端ではない左→右スワイプでは戻らない(日誌のまま=日送り)');
+// ①b trial562: 重なりがあれば、まずそれを閉じる(画面は変わらない)
+await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(400);
+await swipe(8, 500, 160, 505); await page.waitForTimeout(600);
+ok((await page.getByTestId('tsu-phone-menu').count()) === 0 && /日誌/.test(await title()), 'メニューを開いていれば、左端からの戻るはメニューを閉じるだけ(日誌のまま)');
+await swipe(384, 500, 240, 505); await page.waitForTimeout(700);
+ok(/tsu-tabbar-hide/.test((await page.getByTestId('tsu-tabbar').getAttribute('class')) || ''), 'サイドバーを開く');
+await swipe(8, 500, 160, 505); await page.waitForTimeout(700);
+ok(!/tsu-tabbar-hide/.test((await page.getByTestId('tsu-tabbar').getAttribute('class')) || '') && /日誌/.test(await title()), 'サイドバーを開いていれば閉じるだけ(日誌のまま)');
+// 自由枠を選ぶ小窓(メニューの下のボタンから)を開いて戻る → 小窓だけ閉じて画面はそのまま
+await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(400); await page.getByTestId('tsu-phone-menu-tabpick').click(); await page.waitForTimeout(500);
+{ const had = (await page.getByTestId('tsu-tabpick').count()) === 1; const before = (await title()).trim();
+  await swipe(8, 500, 160, 505); await page.waitForTimeout(600);
+  ok(had && (await page.getByTestId('tsu-tabpick').count()) === 0 && (await title()).trim() === before, `自由枠の小窓を開いて戻る → 小窓だけ閉じて画面はそのまま(${before})`); }
 // ② 上の帯を下へ引く → 今日の予定
 const hdr = await page.locator('header.tsu-app-header').boundingBox();
 await swipe(200, Math.round(hdr.y + 20), 205, Math.round(hdr.y + 140)); await page.waitForTimeout(600);
@@ -47,6 +60,10 @@ ok(/検査のタスク/.test(tx), '済んでいないタスクが出る');
 ok(/検査の申し送り/.test(tx), '今日の申し送りが出る');
 ok(/1件/.test(await page.getByTestId(`tsu-today-day-${today}`).innerText()), '今日の日に予定の件数(1件)');
 await page.screenshot({ path: '/tmp/chk_1111phoneback_sheet.png' }).catch(() => {});
+// 左端からの戻るでも閉じる(画面は変わらない)
+{ const before = (await title()).trim(); await swipe(8, 500, 160, 505); await page.waitForTimeout(600);
+  ok((await sheet.count()) === 0 && (await title()).trim() === before, '今日の予定が出ているときの戻るは小窓を閉じるだけ');
+  await swipe(200, Math.round(hdr.y + 20), 205, Math.round(hdr.y + 140)); await page.waitForTimeout(600); }
 // 上へ戻すと閉じる
 const sb = await sheet.boundingBox();
 await swipe(200, Math.round(sb.y + sb.height - 30), 205, Math.round(sb.y + 20)); await page.waitForTimeout(500);
