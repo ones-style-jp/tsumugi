@@ -42,11 +42,12 @@ const seen = []; const t0 = Date.now();
 await A.page.getByTestId('memo-save').click();
 for (let i = 0; i < 300; i++) { const t = await toastText(A.page); if (t && (!seen.length || seen[seen.length - 1].t !== t)) seen.push({ t, at: Date.now() - t0 }); if (/保存しました|できませんでした/.test(t)) break; await A.page.waitForTimeout(200); }
 console.log('toast sequence:'); seen.forEach(x => console.log(`  ${String(x.at).padStart(6)}ms  ${x.t}`));
-const lg = await slog(A.page); console.log('log tail:\n  ' + lg.filter(x => /push-time|push-stale|push-ok|cas-conflict|push-noop/.test(x)).join('\n  '));
+const lg = await slog(A.page); console.log('log tail:\n  ' + lg.filter(x => /push-time|push-stale|push-ok|cas-conflict|push-noop|push-gz/.test(x)).join('\n  '));
 r.stage_pull = true; r.stage_pull_seen = seen.some(x => /最新の内容を確かめています/.test(x.t)); // 起きている端末は定期的にクラウドを確かめているので「先に取り込む」は出ないことが多い(参考値)
 r.stage_push = seen.some(x => /クラウドに保存しています/.test(x.t));
 r.done = seen.some(x => /✓ .*保存しました/.test(x.t));
 r.push_time_logged = lg.some(x => /push-time/.test(x));
+r.gz_used = lg.some(x => /push-gz \{/.test(x)); r.gz_off = lg.filter(x => /push-gz-off/.test(x));
 // 片付け: いま入れた申し送りを削除
 try { const row = A.page.locator('[data-testid^="memo-row-"]', { hasText: '保存の表示の検査' }).first(); if (await row.count()) { await row.click(); await A.page.waitForTimeout(400); await A.page.locator('button:visible', { hasText: /^削除$/ }).first().click({ timeout: 1500 }); await A.page.waitForTimeout(3000); } } catch (e) { console.log('cleanup skipped', String(e).slice(0, 80)); }
-console.log(r); await b.close(); process.exit(Object.values(r).every(Boolean) ? 0 : 1);
+console.log(r); await b.close(); process.exit(['stage_push','done','push_time_logged','gz_used'].every(k => r[k]) ? 0 : 1);
