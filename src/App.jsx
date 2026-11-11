@@ -12320,7 +12320,9 @@ function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
   const pick = (iso) => { setSel(iso); if (mode === 'month' && iso.slice(0, 7) !== mon) setMon(iso.slice(0, 7)); };
   const goCal = (iso) => { try { sessionStorage.setItem('tsumugiSchDay', iso); } catch {} onClose(); navigateTo && navigateTo('schedule'); };
   const onTS = (e) => { const t = e.touches && e.touches[0]; swRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
-  const onTE = (e) => { const s0 = swRef.current; swRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dy <= -60 && Math.abs(dy) >= Math.abs(dx) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} onClose(); } };
+  // ★ 2026-11-12 trial566(ユーザー「ここでも左右にスワイプすれば週や月が切り替わるように」): 左へ=次の週／次の月・右へ=前の週／前の月。後ろの画面の横スワイプ(画面の切り替え)には渡さない(_tsuConsumed)
+  const shift = (dir) => { if (mode === 'month') moveMon(dir); else { const n = tsuIsoAdd(sel, dir * 7); setSel(n); } };
+  const onTE = (e) => { const s0 = swRef.current; swRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dy <= -60 && Math.abs(dy) >= Math.abs(dx) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} onClose(); return; } if (Math.abs(dx) >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} shift(dx < 0 ? 1 : -1); } };
   const timeOf = (e) => tsuEvMulti(e) ? tsuEvRangeLabel(e) : (e.start ? `${e.start}${e.end ? `〜${e.end}` : ''}` : '終日');
   const row = (key, color, left, main, sub, onClick) => (
     <button key={key} type="button" onClick={onClick} style={{ textAlign: 'left', width: '100%', display: 'flex', alignItems: 'baseline', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderLeft: `4px solid ${color}`, borderRadius: 8, padding: '8px 10px', minHeight: 44 }}>
@@ -12350,7 +12352,7 @@ function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
             </div>
           ) : <div style={{ flex: 1 }} />}
           {sel !== today && <button type="button" data-testid="tsu-today-today" onClick={() => { setSel(today); setMon(today.slice(0, 7)); }} style={{ minHeight: 36, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 'bold' }}>今日</button>}
-          <button type="button" data-testid="tsu-today-close" onClick={onClose} aria-label="閉じる" style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569' }}><X size={20} /></button>
+          <button type="button" data-testid="tsu-today-close" onClick={onClose} aria-label="閉じる" style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flex: 'none' }}><X size={20} /></button>{/* ★ trial566: × が枠の左に寄っていた → 中央 */}
         </div>
         {mode === 'week' ? (
           <div data-testid="tsu-today-week" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, padding: '0 10px 6px' }}>{week.map(w => dayBtn(w, false))}</div>
@@ -12377,7 +12379,7 @@ function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
             <div style={{ fontSize: 12, fontWeight: 'bold', color: '#c2410c', marginBottom: 4 }}>申し送り {memos.length ? `${memos.length}件` : ''}</div>
             {memos.length ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{memos.map(m => row(`m${m.id}`, TSU_MEMO_COLOR, '', m.title || '', pname(m.patientId), () => { onClose(); navigateTo && navigateTo('dashboard'); }))}</div> : <div style={{ fontSize: 13, color: '#94a3b8' }}>ありません</div>}
           </div>
-          <div className="tsu-hint-row"><TsuHint>画面の上の端から下へ引くと、どの画面でもこの小窓が出ます。日を押すとその日の予定がここに出ます。「カレンダーを開く」で選んだ日のカレンダーへ。上へ戻すか、暗い部分を押すと閉じます。</TsuHint></div>
+          <div className="tsu-hint-row"><TsuHint>画面の上の端から下へ引くと、どの画面でもこの小窓が出ます。日を押すとその日の予定がここに出ます。左右にスワイプすると前後の週（月のときは前後の月）へ。「カレンダーを開く」で選んだ日のカレンダーへ。上へ戻すか、暗い部分を押すと閉じます。</TsuHint></div>
         </div>
       </div>
     </div>, document.body);
@@ -12392,9 +12394,9 @@ function TsuPhoneMenu({ open, onClose, groups, footer }) {
   if (!open) return null;
   return ReactDOM.createPortal(
     <div data-testid="tsu-phone-menu" className="tsu-phone-menu no-print" role="dialog" aria-modal="true" aria-label="メニュー" onTouchStart={_onTS} onTouchEnd={_onTE} onTouchCancel={() => { _swRef.current = null; }}>
-      <div className="tsu-phone-menu-head">
-        <button type="button" data-testid="tsu-phone-menu-close" onClick={onClose} aria-label="閉じる"><X size={22} /></button>
+      <div className="tsu-phone-menu-head">{/* ★ 2026-11-12 trial566(ユーザー「×は右上にあった方が押しやすい」): 題名を左・× を右端に */}
         <div className="ttl">メニュー</div>
+        <button type="button" data-testid="tsu-phone-menu-close" onClick={onClose} aria-label="閉じる"><X size={22} /></button>
       </div>
       <div className="tsu-phone-menu-body">
         {groups.filter(g => g.items.length).map(g => (
@@ -13332,6 +13334,55 @@ const DashTile = ({icon, label, sub, color, view, navigateTo}) => ( // eslint-di
 );
 // ★ 2026-11-04 trial514(ユーザー要望): ホームの「送迎の時間が変わった方(連絡が要る)」。今日と明日を、午前・午後に分けて出す。
 //   チェックを付けると送迎表の連絡済(_telDone)に入り、送迎表の赤枠と「要連絡 n件」も消える(同じデータ)。連絡済の方も薄く残す(外せる)
+// ★ 2026-11-12 trial566(ユーザー「ホームに休みが出たときに、本日の休み連絡をしたのかどうかが出るように。タップすれば休み連絡へ」):
+//   今日お休み(提供記録が欠席・または月間表のその時間帯が欠席)の方を並べ、休み連絡の状態(faxDataStore[日付_利用者].status: printed/both/faxed=連絡済・edited/pdf=作成中・なし=未連絡)を添える。
+//   押すとその方の送付状を開く(tsumugiOpenFax と同じ合図)。ホームの表示設定 homeTasks.absence で出す/出さない。お休みが居なければ枠ごと出さない
+function TsuHomeAbsence({ appData, navigateTo }) {
+  const [fold, setFold] = useState(() => { try { return localStorage.getItem('tsuFold_homeAbs') === '1'; } catch { return false; } });
+  const togFold = () => setFold(v => { const nv = !v; try { localStorage.setItem('tsuFold_homeAbs', nv ? '1' : '0'); } catch {} return nv; });
+  const cfg = ((appData.systemSettings || {}).homeTasks || {}).absence || {};
+  if (cfg.on === false) return null;
+  let rows = [];
+  try {
+    const now = new Date(); const iso = tsuTodayIso(); const dow = now.getDay(); const dayNum = now.getDate(); const mk = iso.slice(0, 7); const todayJ = `${now.getMonth() + 1}月${now.getDate()}日`;
+    const recs = (appData.ticketRecords || []).filter(r => r && recMatchesDateYear(r, todayJ, now.getFullYear()));
+    const fs = appData.faxDataStore || {};
+    (appData.patients || []).forEach(p => {
+      if (!p || !isPatientListable(p) || !isPatientActiveOnDate(p, iso)) return;
+      const rec = recs.find(r => r.patientId === p.id);
+      let abs = false;
+      if (rec) { abs = rec.status === '欠席'; }
+      else { const base = (getScheduleOnDate(p, iso) || {})[dow] || ''; if (!base) return; const sls = base === '1日' ? ['AM', 'PM'] : [base]; const sh = ((appData.monthlyShifts || {})[mk] || {})[p.id] || {}; abs = sls.some(sl => String(sh[`${dayNum}_${sl}`] ?? '') === '欠席'); }
+      if (!abs) return;
+      const st = String((fs[`${iso}_${p.id}`] || {}).status || 'none');
+      rows.push({ pid: p.id, name: p.name, st, done: st === 'printed' || st === 'both' || st === 'faxed', edited: st === 'edited' || st === 'pdf', cm: !!(p.cmName || p.cmOffice) });
+    });
+  } catch { rows = []; }
+  if (!rows.length) return null;
+  const iso = tsuTodayIso();
+  const pending = rows.filter(r => !r.done).length;
+  const open = (r) => { try { sessionStorage.setItem('tsumugiOpenFax', JSON.stringify({ type: 'absence', patientId: r.pid, date: iso })); } catch {} navigateTo && navigateTo('absence_fax'); };
+  const pill = (r) => r.done ? { t: '連絡済', c: '#047857', bg: '#ecfdf5', bd: '#a7f3d0' } : r.edited ? { t: '作成中', c: '#9a3412', bg: '#fff7ed', bd: '#fdba74' } : { t: '未連絡', c: '#fff', bg: '#ea580c', bd: '#ea580c' };
+  return (
+    <div data-testid="home-absence" data-pending={pending} data-collapsed={fold ? '1' : '0'} style={{ width: '100%', background: pending ? '#fff7ed' : '#f8fafc', border: `1px solid ${pending ? '#fdba74' : '#e2e8f0'}`, borderRadius: 12, padding: fold ? '6px 12px' : '10px 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: fold ? 0 : 6 }}>
+        <button type="button" data-testid="home-absence-fold" aria-expanded={!fold} onClick={togFold} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>
+          <span style={{ fontSize: 12, color: '#9a3412' }}>{fold ? '▶' : '▼'}</span>
+          <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>本日のお休み {rows.length}名</span>
+          {pending ? <span data-testid="home-absence-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px' }}>休み連絡 未 {pending}名</span> : <span style={{ fontSize: 12, fontWeight: 'bold', color: '#047857', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 999, padding: '0 8px' }}>休み連絡 すべて済</span>}
+        </button>
+        <TsuHint className="ml-1">今日お休みの方（提供記録の欠席・月間表の欠席）と、ケアマネへの休み連絡の状態です。押すとその方の休み連絡（送付状）を開きます。「作成中」は送付状を書いたが印刷・連絡済にしていない状態です。</TsuHint>
+        <button type="button" data-testid="home-absence-open" onClick={() => navigateTo && navigateTo('absence_fax')} style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 'bold', color: '#1d4ed8', background: '#fff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 10px' }}>休み連絡を開く</button>
+      </div>
+      {!fold && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {rows.map(r => { const pl = pill(r); return (
+          <button key={r.pid} type="button" data-testid={`home-absence-row-${r.pid}`} data-st={r.st} onClick={() => open(r)} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, padding: '6px 10px', background: '#fff', border: '1px solid #fed7aa', borderRadius: 10, cursor: 'pointer' }}>
+            <span style={{ fontSize: 14, fontWeight: 'bold', color: '#1e293b' }}>{r.name} 様</span>
+            <span style={{ fontSize: 11, fontWeight: 'bold', color: pl.c, background: pl.bg, border: `1px solid ${pl.bd}`, borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pl.t}</span>
+          </button>); })}
+      </div>}
+    </div>);
+}
 function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
   // ★ 2026-11-04 trial515(ユーザー): 未連絡が居なければ枠ごと出さない。折りたたみ(この端末で覚える)。フックは先頭に(条件分岐の前)
   const [fold, setFold] = useState(() => { try { return localStorage.getItem('tsuFold_homeTp') === '1'; } catch { return false; } });
@@ -13598,7 +13649,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           );
           const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
-                      {[['tpNotice','送迎の時間が変わった方（連絡が要る）※「本日だけ」=明日の分は出さない'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                      {[['tpNotice','送迎の時間が変わった方（連絡が要る）※「本日だけ」=明日の分は出さない'],['absence','本日のお休みと休み連絡の状態（未連絡・作成中・連絡済）'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
                           <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={k === 'shortcuts' ? !!c.on : c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
                           {['tpNotice','tasks','fitness','keikaku','monitoring'].includes(k) && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
@@ -13628,6 +13679,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               </div>
               <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd',position:'relative'}}>
                 <TsuHomeTpNotice appData={appData} onSave={onSave} navigateTo={navigateTo} />{/* ★ 2026-11-04 trial514: 送迎の時間が変わった方(連絡が要る)・今日と明日・午前/午後 */}
+                <TsuHomeAbsence appData={appData} navigateTo={navigateTo} />{/* ★ 2026-11-12 trial566: 本日のお休みと休み連絡の状態 */}
                 {_hcfg.memos?.on !== false && <TsuHomeMemos appData={appData} onSave={onSave} isRead={isRead} markRead={markRead} />}{/* ★ 2026-10-30: 今日の申し送り(本日の業務の上) ★ trial517: 表示設定で切替 */}
                 {section('today', '本日の業務', 'home-tasks-today', true)}
                 {section('week', '1週間の業務', 'home-tasks-week', true)}{/* ★ 2026-11-04 trial518(ユーザー): 今月の業務は廃止・1週間は今日から7日間 */}
