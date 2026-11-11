@@ -884,7 +884,10 @@ function _withSignal(q) { const sg = _casSignal(); return sg && q && typeof q.ab
 //   ブラウザは送信(上り)を圧縮しないため、約2.5MB の JSON がそのまま流れていた(細い上りで 20〜40秒)。圧縮すると 1/6〜1/10。
 //   使う条件: 職員の証がある・ブラウザに CompressionStream がある・大きさが 120KB 以上。サーバーが無い/落ちている/証が通らないときは
 //   従来のブラウザ直接の update に自動で戻す(10分は圧縮経路を休む)。CAS の条件(version 一致の1行だけ)はサーバー側で同じ。
-const CAS_GZ_MIN = 120 * 1024;
+// ★ 2026-11-11 実測(テスト店舗 330KB): 圧縮経路は 1.7秒・直接は 0.7秒(関数の起動と1段の寄り道で約1秒増える)。小さい店舗・速い回線では直接の方が速いので、
+//   400KB 以上のときだけ圧縮経路(実店舗は 1〜2.5MB)。検査用に localStorage tsumugiCasGzMin で下限を変えられる
+const CAS_GZ_MIN = 400 * 1024;
+const _casGzMin = () => { try { const v = Number(localStorage.getItem('tsumugiCasGzMin')); return v > 0 ? v : CAS_GZ_MIN; } catch { return CAS_GZ_MIN; } };
 let _casGzOffUntil = 0;
 export const casGzState = () => ({ offUntil: _casGzOffUntil, can: typeof CompressionStream !== 'undefined' && !!(_filesCtx && _filesCtx.staffToken) });
 async function _gzipText(text) {
@@ -898,7 +901,7 @@ async function _casUpdateViaApi(key, base, next) {
     const tok = _filesCtx && _filesCtx.staffToken; if (!tok) return null;
     if (Date.now() < _casGzOffUntil) return null;
     const text = JSON.stringify({ key, base, data: next });
-    if (text.length < CAS_GZ_MIN) return null;
+    if (text.length < _casGzMin()) return null;
     const t0 = Date.now(); const gz = await _gzipText(text); const t1 = Date.now();
     const sg = _casSignal();
     const r = await fetch('/api/state-cas', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'x-tsu-token': tok }, body: gz, ...(sg ? { signal: sg } : {}) });

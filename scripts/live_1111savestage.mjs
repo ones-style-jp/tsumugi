@@ -7,7 +7,7 @@ const b = await chromium.launch(); const r = {};
 const open = async (tag, view) => {
   const ctx = await b.newContext({ viewport: { width: 1366, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' }); const page = await ctx.newPage(); page.on('dialog', d => d.accept());
   const _tg = Date.now(); await page.goto(BASE + '/', { waitUntil: 'load', timeout: 180000 }); console.log(tag, 'page load', Math.round((Date.now() - _tg) / 1000) + 's'); await page.waitForTimeout(4000);
-  await page.evaluate(() => { localStorage.setItem('tsumugiSidebarOpen', '0'); localStorage.setItem('tsumugiDeviceName', 'live-guard-' + Math.random().toString(36).slice(2, 6)); });
+  await page.evaluate(() => { localStorage.setItem('tsumugiSidebarOpen', '0'); localStorage.setItem('tsumugiCasGzMin', '1024'); /* 検査: テスト店舗は小さいので圧縮経路を強制 */ localStorage.setItem('tsumugiDeviceName', 'live-guard-' + Math.random().toString(36).slice(2, 6)); });
   await page.locator('input[autocomplete^="username"]').first().fill('test'); await page.locator('input[autocomplete="current-password"]').first().fill('testoooo');
   await page.locator('button[type=submit]:visible, button:visible:has-text("ログイン")').first().click(); await page.waitForTimeout(7000);
   // 「どなたですか」→ 試験 管理者 → 管理者パスワード(出たら) を、画面が落ち着くまで繰り返す
