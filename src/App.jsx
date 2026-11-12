@@ -16441,8 +16441,11 @@ function FamilyView() {
     load();
     const t = setInterval(load, 60000);
     return () => { stopped = true; clearInterval(t); };
+    // ★ 2026-11-12 1112a(扇橋店 ケアマネ「切り替えた利用者の記録だけ更新されない」): 利用者を切り替えると手元の記録(ticketRecords)を空にするのに、
+    //   この取り直しは since(前回より新しい行だけ)のままだった → 切替先には「切替後に書かれた行」しか届かず、古い記録が穴のまま(10/5 の差分方式から)。
+    //   切替(authPid が変わる)でもこの効果をやり直し、since を 1970 に戻して見られる利用者の分を取り直す
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [familyStoreId, _famPidsKey]);
+  }, [familyStoreId, _famPidsKey, authPid]);
   const [loginForm, setLoginForm] = useState({ username:'', password:'', error:'', showPw:false });
   // ★ パスワードのメール自己リセット(2026-08-31 店舗要望): {step:1|2, username, code, n1, n2, busy, err, masked, done}
   //   コードは登録メール宛のみ・有効期限10分・試行5回まで(api/family-reset.js)
