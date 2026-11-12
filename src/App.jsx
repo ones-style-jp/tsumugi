@@ -12079,6 +12079,17 @@ function TsuPhonePin({ children, testId, z = 30, on = true }) {
     <div ref={ref} data-testid={testId} className="tsu-pin" style={{ position: 'fixed', top: 'var(--tsu-pin-top, 47px)', left: 0, right: 0, zIndex: z }}>{children}</div>{/* ★ trial540: 見出しを消す画面(html.tsu-nohdr)は 0 */}
   </>);
 }
+// ★ 2026-11-12 trial567(ユーザー報告「操作の小窓から印刷設定を開くと下に出て見えない」・他の画面も調査): 「操作」の小窓(下から出る)の中のボタンから開く
+//   小さなポップアップ(position:absolute で下に出るもの)は、小窓の下へはみ出して画面の外に出る。スマホ幅では画面の中央の小窓(portal)に出す。
+//   使い方: {open && <TsuPhonePop onClose={close}>{従来のポップアップ}</TsuPhonePop>}。iPad・PCは children をそのまま返す(従来どおり)。中の absolute は CSS .tsu-phone-pop で解く
+function TsuPhonePop({ children, onClose, testId }) {
+  const phone = typeof window !== 'undefined' && window.innerWidth < 768;
+  if (!phone) return children;
+  return ReactDOM.createPortal(
+    <div data-testid={testId || 'tsu-phone-pop'} className="no-print" style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }} onClick={onClose}>
+      <div className="tsu-phone-pop" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: 'calc(100vh - 80px)', overflowY: 'auto' }}>{children}</div>
+    </div>, document.body);
+}
 function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true, below = null, sheet = false }) {
   // ★ 2026-11-10 trial540(ユーザー「上部に固定されているものが大きすぎる」): sheet=true なら「操作」の中身を下に押し広げず、下から出る小窓(下のバーの上)に出す。開閉は覚えない
   const isPhone = useTsuIsPhone();
@@ -13355,7 +13366,8 @@ function TsuHomeAbsence({ appData, navigateTo }) {
       else { const base = (getScheduleOnDate(p, iso) || {})[dow] || ''; if (!base) return; const sls = base === '1日' ? ['AM', 'PM'] : [base]; const sh = ((appData.monthlyShifts || {})[mk] || {})[p.id] || {}; abs = sls.some(sl => String(sh[`${dayNum}_${sl}`] ?? '') === '欠席'); }
       if (!abs) return;
       const st = String((fs[`${iso}_${p.id}`] || {}).status || 'none');
-      rows.push({ pid: p.id, name: p.name, st, done: st === 'printed' || st === 'both' || st === 'faxed', edited: st === 'edited' || st === 'pdf', cm: !!(p.cmName || p.cmOffice) });
+      const done = st === 'printed' || st === 'both' || st === 'faxed'; if (done) return; // ★ trial567(ユーザー「連絡済だったら表示から外していい」): 未連絡・作成中だけ
+      rows.push({ pid: p.id, name: p.name, st, done: false, edited: st === 'edited' || st === 'pdf', cm: !!(p.cmName || p.cmOffice) });
     });
   } catch { rows = []; }
   if (!rows.length) return null;
@@ -13368,10 +13380,10 @@ function TsuHomeAbsence({ appData, navigateTo }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: fold ? 0 : 6 }}>
         <button type="button" data-testid="home-absence-fold" aria-expanded={!fold} onClick={togFold} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>
           <span style={{ fontSize: 12, color: '#9a3412' }}>{fold ? '▶' : '▼'}</span>
-          <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>本日のお休み {rows.length}名</span>
-          {pending ? <span data-testid="home-absence-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px' }}>休み連絡 未 {pending}名</span> : <span style={{ fontSize: 12, fontWeight: 'bold', color: '#047857', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 999, padding: '0 8px' }}>休み連絡 すべて済</span>}
+          <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>本日のお休み（休み連絡がまだ）</span>
+          <span data-testid="home-absence-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>未連絡 {pending}名</span>
         </button>
-        <TsuHint className="ml-1">今日お休みの方（提供記録の欠席・月間表の欠席）と、ケアマネへの休み連絡の状態です。押すとその方の休み連絡（送付状）を開きます。「作成中」は送付状を書いたが印刷・連絡済にしていない状態です。</TsuHint>
+        <TsuHint className="ml-1">今日お休みの方（提供記録の欠席・月間表の欠席）のうち、ケアマネへの休み連絡がまだの方です。押すとその方の休み連絡（送付状）を開きます。「作成中」は送付状を書いたが印刷・連絡済にしていない状態です。連絡済になるとここから消えます。</TsuHint>
         <button type="button" data-testid="home-absence-open" onClick={() => navigateTo && navigateTo('absence_fax')} style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 'bold', color: '#1d4ed8', background: '#fff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 10px' }}>休み連絡を開く</button>
       </div>
       {!fold && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -13415,7 +13427,7 @@ function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
           <div style={{ display: 'grid', gridTemplateColumns: narrow ? '1fr' : '1fr 1fr', gap: 8 }}>
             {['AM', 'PM'].map(sl => { const rows = x.rows.filter(r => r.sl === sl); return (
               <div key={sl} data-testid={`home-tp-notice-${x.iso}-${sl}`} style={{ background: '#fff', border: '1px solid #fed7aa', borderRadius: 10, padding: '6px 10px' }}>
-                <div style={{ fontSize: 12, fontWeight: 'bold', color: sl === 'AM' ? '#b45309' : '#4338ca', marginBottom: 2 }}>{sl === 'AM' ? '午前' : '午後'}{rows.length ? `（未連絡 ${rows.filter(r => !r.done).length}名）` : ''}</div>
+                <div style={{ fontSize: 12, fontWeight: 'bold', color: '#475569', marginBottom: 2 }}>{sl === 'AM' ? '午前' : '午後'}{rows.length ? `（未連絡 ${rows.filter(r => !r.done).length}名）` : ''}</div>
                 {!rows.length ? <div style={{ fontSize: 12, color: '#94a3b8' }}>なし</div> : rows.map(r => (
                   <label key={r.pid} data-testid={`home-tp-row-${x.iso}-${sl}-${r.pid}`} data-done={r.done ? '1' : '0'} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderTop: '1px solid #f1f5f9', cursor: 'pointer', opacity: r.done ? 0.6 : 1, minHeight: 40 }}>
                     <input type="checkbox" checked={!!r.done} onChange={e => mark(x.iso, sl, r.pid, e.target.checked)} style={{ width: 20, height: 20, accentColor: '#059669', flexShrink: 0 }} />
@@ -13475,7 +13487,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
     const pages = Math.ceil((total||0)/size);
     if (pages <= 1) return null;
     const p = Math.min(Math.max(0,page), pages-1);
-    const btn = (active,dim) => ({ minWidth:26, height:26, borderRadius:6, fontSize:12, fontWeight:'bold', border:'1px solid '+(active?'#4338ca':'#e2e8f0'), background:active?'#4338ca':'white', color:active?'white':'#475569', cursor:dim?'default':'pointer', padding:'0 6px', opacity:dim?0.4:1 });
+    const btn = (active,dim) => ({ minWidth:26, height:26, borderRadius:6, fontSize:12, fontWeight:'bold', border:'1px solid '+(active?'#2f7a3d':'#e2e8f0'), background:active?'#2f7a3d':'white', color:active?'white':'#475569', cursor:dim?'default':'pointer', padding:'0 6px', opacity:dim?0.4:1 });
     return (
       <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,marginTop:10,flexWrap:'wrap'}}>
         <button onClick={()=>setPage(Math.max(0,p-1))} disabled={p<=0} style={btn(false,p<=0)}>‹</button>
@@ -13493,7 +13505,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
       <div className="tsu-ph-cards tsu-wide" style={{maxWidth:1040,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:16}}>{/* ★ 2026-10-21: 大きい画面では広く(index.css tsu-wide) */}
         {/* ★ 2026-10-23(ユーザー要望「稼働率などもろもろ一目で分かるものをホームに」→「予定は午前/午後で分けて・本日/今週/今月の業務を」→「マス目状で見にくい。今日の予定など大元が分かるデザインに」):
               1枚の「今日」の板: 上の帯=日付・挨拶・今日の予定(午前/午後)・今月の稼働率、下=本日の業務(大)・今週/今月の業務(小) */}
-        {(() => { const _greet = <div style={{display:'flex',alignItems:'baseline',flexWrap:'wrap',gap:'4px 14px'}}><div style={{fontSize:20,fontWeight:'bold',whiteSpace:'nowrap'}}>{now.getFullYear()}年{now.getMonth()+1}月{now.getDate()}日（{dow}）</div><div style={{fontSize:13,opacity:0.9}}>{activeRecorder?.name ? `${activeRecorder.name} さん、今日もよろしくお願いします。` : 'ようこそ'}</div></div>;
+        {(() => { const _greet = <div data-testid="home-greet" style={{display:'flex',alignItems:'baseline',flexWrap:'wrap',gap:'4px 14px'}}>{/* ★ 2026-11-12 trial567(ユーザー「日付は見出しのホームの横に・挨拶は不要・誰が入っているかだけ」): 日付は上の見出し(ホーム 11月12日（木）)へ。ここは記録者だけ */}<div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',whiteSpace:'nowrap'}}>{activeRecorder?.name ? <><span style={{fontSize:11,color:'#64748b',marginRight:6}}>記録者</span>{activeRecorder.name}</> : <span style={{color:'#94a3b8'}}>記録者が選ばれていません</span>}</div></div>;
           try {
           const ss = appData.systemSettings || {};
           const pats = (appData.patients||[]).filter(p => p && p.status === '利用中');
@@ -13520,6 +13532,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             if (status === '欠席') abs++; else if (status === '休止') pause++; else if (status === '振替') { furi++; att++; } else if (status === '臨時') { rinji++; att++; } else att++;
           }); return { att, abs, furi, rinji, pause, n: att + abs + pause }; };
           const am = slotStats('AM'), pm = slotStats('PM');
+          const _subOf = (x) => [['欠席', x.abs], ['振替', x.furi], ['臨時', x.rinji], ['休止', x.pause]].filter(([, n]) => n > 0).map(([l, n]) => `${l} ${n}`).join('・'); // ★ trial567: 該当する数だけ(0 は出さない)
           // 今月の稼働率(定員ベース・今日まで): 延べ利用コマ ÷ (定員 × 営業コマ)。分析(稼働)の periodCapStats と同じ考え方の簡易版(1日利用=2コマ)
           const cap = Number(ss.facilityInfo?.capacity) || 10; const closed = ss.facilityInfo?.closedDays || [0];
           const holMap = new Map(); (appData.holidays||[]).forEach(h => { const d = String((h && (h.date||h)) || ''); if (d) holMap.set(d, (h && h.ampm && h.ampm !== '1日') ? h.ampm : '1日'); });
@@ -13602,7 +13615,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           }
           // ★ 2026-10-25(ユーザー): 「来週の送迎表 未作成」はホームに出さない(確定の廃止とあわせて)
           const _ph3 = tsuViewW() < 640;
-          const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'white',border:'1px solid rgba(255,255,255,0.6)',borderRadius:12,padding: _ph3 ? '6px 8px' : '6px 14px',color:'#1e293b',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto',boxShadow:'0 1px 3px rgba(0,0,0,0.15)'}}><div style={{fontSize:11,color:'#4f46e5',fontWeight:'bold',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</div><div style={{fontSize: _ph3 ? 20 : 22,fontWeight:'bold',lineHeight:1.15,color:'#1e293b'}}>{value}</div>{sub && <div style={{fontSize:10,color:'#64748b',whiteSpace: _ph3 ? 'normal' : 'nowrap',lineHeight:1.35}}>{sub}</div>}</button>; // ★ 2026-10-27: スマホは3つを1行に(下の小さい字は折り返す・文字はそのまま)
+          const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12,padding: _ph3 ? '6px 8px' : '6px 14px',color:'#1e293b',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto'}}><div style={{fontSize:11,color:'#2f7a3d',fontWeight:'bold',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</div><div style={{fontSize: _ph3 ? 20 : 22,fontWeight:'bold',lineHeight:1.15,color:'#1e293b'}}>{value}</div>{sub && <div style={{fontSize:10,color:'#64748b',whiteSpace: _ph3 ? 'normal' : 'nowrap',lineHeight:1.35}}>{sub}</div>}</button>; // ★ 2026-10-27: スマホは3つを1行に(下の小さい字は折り返す・文字はそのまま)
           const _taskBtnPlain = (t, big) => (
             <button key={t.key} type="button" data-testid={`home-task-${t.key}`} title={t.sub || ''} onClick={() => { if (t.onOpen) { t.onOpen(); return; } try { if (t.jump) sessionStorage.setItem('tsumugiTpJump', t.jump); if (t.ss) sessionStorage.setItem(t.ss[0], t.ss[1]); } catch {} navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',maxWidth:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>{/* ★ 2026-11-04 trial517: 本日の業務は横に並ぶ札 */}
               <span style={{fontSize: big ? 14 : 12.5,fontWeight:'bold',color:'#1e293b'}}>{t.label}</span>{/* ★ 2026-10-27(ユーザー): 「開く →」は不要(押せば飛ぶと分かる) */}
@@ -13619,18 +13632,18 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             </div>);
           const section = (tier, title, tid, big) => (
             <div key={tier} data-testid={tid} style={{flex: '1 1 320px',minWidth:0}}>{/* ★ 2026-11-04 trial518: 本日(左)と1週間(右)の2列 */}
-              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:6,paddingBottom:4,borderBottom:`2px solid ${tier === 'today' ? '#f59e0b' : tier === 'week' ? '#93c5fd' : '#cbd5e1'}`}}>
-                <span style={{fontSize: big ? 15 : 13,fontWeight:'bold',color: tier === 'today' ? '#b45309' : tier === 'week' ? '#1e40af' : '#475569'}}>{title}</span>
+              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:6,paddingBottom:4,borderBottom:'2px solid #e2e8f0'}}>{/* ★ trial567: 色を減らす */}
+                <span style={{fontSize: big ? 15 : 13,fontWeight:'bold',color: '#2f7a3d'}}>{title}</span>
                 <span style={{fontSize:11,color:'#94a3b8'}}>{tier === 'today' ? '期限が今日まで' : tier === 'week' ? `今日から7日間（〜${weekEnd.getMonth()+1}/${weekEnd.getDate()}）` : `〜${monthEnd.getMonth()+1}/${monthEnd.getDate()}`}</span>
-                {tier === 'today' && <span style={{marginLeft:'auto',display:'flex',gap:4}}>{todayEvents.some(e => !isRead(e.id)) && <button type="button" onClick={()=>{ todayEvents.forEach(e => { if (!isRead(e.id)) markRead(e.id); }); }} style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>全て既読</button>}</span>}{/* ★ 2026-10-27(ユーザー): 「カレンダー →」は不要 */}
+                {tier === 'today' && <span style={{marginLeft:'auto',display:'flex',gap:4}}>{todayEvents.some(e => !isRead(e.id)) && <button type="button" onClick={()=>{ todayEvents.forEach(e => { if (!isRead(e.id)) markRead(e.id); }); }} style={{fontSize:10,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>全て既読</button>}</span>}{/* ★ 2026-10-27(ユーザー): 「カレンダー →」は不要 */}
               </div>
               {tier === 'today' && _evOn && todayEvents.length > 0 && (
                 <div data-testid="home-today-events" style={{display:'flex',flexDirection:'column',gap:4,marginBottom:6}}>
                   {todayEvents.map(e => { const pt = e.patientId ? (appData.patients||[]).find(x=>x.id===e.patientId) : null; const _r = isRead(e.id); return (
                     <button key={e.id} type="button" data-testid={`home-today-event-${e.id}`} onClick={()=>openDetail({id:e.id,badge:'予定',badgeColor:e.color||'#6366f1',date:'',title:e.title,body:`時間：${tsuEvMulti(e) ? tsuEvRangeLabel(e) : e.start?`${e.start}${e.end?`〜${e.end}`:''}`:'終日'}${pt?`\n利用者：${pt.name} 様`:''}${e.note?`\n\n${e.note}`:''}`, patientId: e.patientId || undefined, view: 'schedule'})} /* ★ 2026-10-27(ユーザー): 予定を押したら担当者会議の記録・利用者マスタへ行ける(カレンダーと同じ) */
-                      style={{textAlign:'left',cursor:'pointer',width:'100%',display:'flex',alignItems:'baseline',gap:8,background:_r?'#f8fafc':'#eef2ff',border:`1px solid ${_r?'#e2e8f0':'#c7d2fe'}`,borderLeft:`4px solid ${e.color||'#6366f1'}`,borderRadius:8,padding:'6px 12px'}}>
-                      <span style={{fontSize:13,fontWeight:'bold',color:'#4338ca',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums'}}>{tsuEvMulti(e) ? tsuEvRangeLabel(e) : e.start?`${e.start}${e.end?`〜${e.end}`:''}`:'終日'}</span>
-                      <span style={{fontSize:14,fontWeight:'bold',color:_r?'#64748b':'#1e293b',flex:1,minWidth:0}}>{e.title}{pt && <span style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:4,padding:'0 5px',marginLeft:6}}>{pt.name} 様</span>}</span>
+                      style={{textAlign:'left',cursor:'pointer',width:'100%',display:'flex',alignItems:'baseline',gap:8,background:_r?'#f8fafc':'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${e.color||'#6366f1'}`,borderRadius:8,padding:'6px 12px'}}>
+                      <span style={{fontSize:13,fontWeight:'bold',color:'#475569',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums'}}>{tsuEvMulti(e) ? tsuEvRangeLabel(e) : e.start?`${e.start}${e.end?`〜${e.end}`:''}`:'終日'}</span>
+                      <span style={{fontSize:14,fontWeight:'bold',color:_r?'#64748b':'#1e293b',flex:1,minWidth:0}}>{e.title}{pt && <span style={{fontSize:10,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'0 5px',marginLeft:6}}>{pt.name} 様</span>}</span>
                       {_r && <span style={{fontSize:9,color:'#64748b'}}>既読</span>}
                     </button>); })}
                 </div>
@@ -13639,10 +13652,10 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 (() => { const L = tasks[tier].slice().sort((a, b) => { const _dated = (k) => String(k).startsWith('events_') || String(k).startsWith('task_'); const ea = (tier === 'week' && !_dated(a.key) && a._due >= weekEnd) ? 1 : 0, eb = (tier === 'week' && !_dated(b.key) && b._due >= weekEnd) ? 1 : 0; return (ea - eb) || (a._due - b._due) || 0; }); const LIM = 5; const more = L.length - LIM; const show = htMore[tier] || more <= 0 ? L : L.slice(0, LIM);
                   // ★ 2026-10-26(ユーザー「今週の業務は曜日ごとに分けると見やすい」): 今週は日付(曜日)ごとに見出しを付ける。期限が「今週中」(日曜)のもの(体力測定など)は最後に「今週中」
                   const _gk = (t) => (tier === 'week') ? ((!(String(t.key).startsWith('events_') || String(t.key).startsWith('task_')) && t._due >= weekEnd) ? '1週間以内' : `${t._due.getMonth()+1}/${t._due.getDate()}（${'日月火水木金土'[t._due.getDay()]}）`) : '';
-                  const _rows = []; let _lastG = null; show.forEach(t => { const g = _gk(t); if (g && g !== _lastG) { _rows.push(<div key={`g_${g}`} data-testid="home-week-day" style={{fontSize:11,fontWeight:'bold',color:'#1e40af',marginTop:_rows.length ? 4 : 0}}>{g}</div>); _lastG = g; } _rows.push(taskBtn(t, big)); });
+                  const _rows = []; let _lastG = null; show.forEach(t => { const g = _gk(t); if (g && g !== _lastG) { _rows.push(<div key={`g_${g}`} data-testid="home-week-day" style={{fontSize:11,fontWeight:'bold',color:'#475569',marginTop:_rows.length ? 4 : 0}}>{g}</div>); _lastG = g; } _rows.push(taskBtn(t, big)); });
                   return (
                 <div data-testid={`home-tasks-rows-${tier}`} data-chips="0" style={{display:'flex',flexDirection:'column',gap:6}}>{_rows}{/* ★ trial517 の横並びの札は見づらい(ユーザー)→ trial518 で縦の一覧に戻し、2列にした */}
-                  {more > 0 && <button type="button" data-testid={`home-tasks-more-${tier}`} onClick={() => setHtMore(m => ({ ...m, [tier]: !m[tier] }))} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>{htMore[tier] ? '少なく表示' : `他${more}件を見る`}</button>}
+                  {more > 0 && <button type="button" data-testid={`home-tasks-more-${tier}`} onClick={() => setHtMore(m => ({ ...m, [tier]: !m[tier] }))} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>{htMore[tier] ? '少なく表示' : `他${more}件を見る`}</button>}
                 </div>); })() /* ★ 2026-10-26(ユーザー「予定が多いと下に溜まる」): 期限が近い順・5件まで・残りは「他n件」 */
               )}
             </div>
@@ -13658,12 +13671,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                     </>);
           return (
             <div data-testid="home-hero" style={{background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',overflow:'hidden'}}>
-              <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',color:'white',padding:'14px 20px',display:'flex',flexDirection:'column',gap:10}}>
+              <div style={{background:'white',color:'#1e293b',padding:'12px 20px',display:'flex',flexDirection:'column',gap:10,borderBottom:'1px solid #e2e8f0'}}>{/* ★ trial567: 色を減らす(紫の帯→白) */}
                 {/* ★ 2026-10-26(ユーザー報告「表示設定とカレンダーの位置が被っている」): 表示設定は業務の欄に重ねず、上の帯の右端に置く */}
                 <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
                   <div style={{flex:1,minWidth:0}}>{_greet}</div>
                   {onSave && <div style={{position:'relative',flex:'none'}}>
-                    <button type="button" data-testid="home-tasks-cfg" onClick={() => setHtCfgOpen(v => !v)} title="ホームに出す業務の種類を選びます" style={{fontSize:11,fontWeight:'bold',color:'white',background:'rgba(255,255,255,0.18)',border:'1px solid rgba(255,255,255,0.55)',borderRadius:8,padding:'3px 10px',cursor:'pointer',whiteSpace:'nowrap'}}>表示設定</button>
+                    <button type="button" data-testid="home-tasks-cfg" onClick={() => setHtCfgOpen(v => !v)} title="ホームに出す業務の種類を選びます" style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'white',border:'1px solid #cbd5e1',borderRadius:8,padding:'3px 10px',cursor:'pointer',whiteSpace:'nowrap'}}>表示設定</button>
                     {htCfgOpen && (
                       <div data-testid="home-tasks-cfg-panel" style={{position:'absolute',right:0,top:30,zIndex:40,background:'white',color:'#1e293b',border:'1px solid #cbd5e1',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,0.18)',padding:12,width:300,textAlign:'left'}}>
                         {_htCfgBody}
@@ -13672,8 +13685,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                   </div>}
                 </div>
                 <div data-testid="home-today" style={tsuViewW() < 640 ? {display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:6} : {display:'flex',gap:8,flexWrap:'wrap'}}>{/* ★ 2026-10-27(ユーザー): スマホは3つを1行に */}
-                  {chip('home-today-am', '午前の出席者', `${am.att}名`, `欠席 ${am.abs}・振替 ${am.furi}・臨時 ${am.rinji}・休止 ${am.pause}`, 'record')}
-                  {chip('home-today-pm', '午後の出席者', `${pm.att}名`, `欠席 ${pm.abs}・振替 ${pm.furi}・臨時 ${pm.rinji}・休止 ${pm.pause}`, 'record')}
+                  {chip('home-today-am', '午前の出席者', `${am.att}名`, _subOf(am), 'record')}{/* ★ trial567(ユーザー「0のものは出さない」) */}
+                  {chip('home-today-pm', '午後の出席者', `${pm.att}名`, _subOf(pm), 'record')}
                   {chip('home-today-rate', '今月の稼働率', `${rate}%`, _rateSub, 'dash_operation')}
                 </div>
               </div>
@@ -13686,7 +13699,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               </div>
             </div>
           );
-        } catch { return <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',borderRadius:16,color:'white',padding:'12px 22px'}}>{_greet}</div>; } })()}
+        } catch { return <div style={{background:'white',border:'1px solid #e2e8f0',borderRadius:16,color:'#1e293b',padding:'12px 22px'}}>{_greet}</div>; } })()}
         {/* ★ 2026-10-23: つむぎ運営のお知らせは下(本日のスケジュールの場所)へ。来週の送迎表の未確定の赤い帯は「今週の業務」の1行に */}
         {/* 本日のスケジュール + お知らせ */}
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16,alignItems:'start'}}>{/* ★ trial517: 中身が無い札は低いまま(高さをそろえない) */}
@@ -13694,7 +13707,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
         {/* つむぎ運営(管理局)からのお知らせ = 管理局で追加したものが全店に配信される + 組み込み告知 */}
         {(() => {
           const nowT = Date.now();
-          const sevMeta = { info:{label:'お知らせ',emoji:'',color:'#0369a1',bg:'#f0f9ff'}, warning:{label:'メンテナンス',emoji:'',color:'#c2410c',bg:'#fff7ed'}, critical:{label:'重要',emoji:'',color:'#dc2626',bg:'#fef2f2'} };
+          const sevMeta = { info:{label:'お知らせ',emoji:'',color:'#2f7a3d',bg:'#f1f8ee'}, warning:{label:'メンテナンス',emoji:'',color:'#c2410c',bg:'#fff7ed'}, critical:{label:'重要',emoji:'',color:'#c2410c',bg:'#fff7ed'} };
           const fromHq = (notices||[]).filter(n=>!(n.ends_at && new Date(n.ends_at).getTime()<nowT)).map(n=>({ id:n.id, date:(n.created_at?String(n.created_at).slice(0,10):''), m: sevMeta[n.severity]||sevMeta.info, title:n.title, body:n.body }));
           const builtin = DEV_ANNOUNCEMENTS.map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body }; });
           // ★ update-notes.json からライブ取得した更新内容(再読み込みなしで反映)
@@ -13707,12 +13720,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const _devShown = [..._unreadL.slice(0, 10), ...(devOld ? _pageSlice(_readL, devPage, (tsuViewW() < 768 ? 5 : 10)) : [])];
           const _unread = _unreadL.length;
           return (
-            <Card style={{borderColor: _unread>0 ? '#c7d2fe' : '#e2e8f0', padding: devOpen ? 16 : 10}}>
+            <Card style={{borderColor: _unread>0 ? '#fdba74' : '#e2e8f0', padding: devOpen ? 16 : 10}}>
               {/* 閉じた状態=薄いバー。 新着があれば件数バッジで知らせる */}
               <button onClick={()=>setDevOpen(o=>!o)} style={{width:'100%',background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:10,padding:0,textAlign:'left'}}>
-                <span style={{fontSize:13,fontWeight:'bold',color:'#4338ca',whiteSpace:'nowrap'}}>つむぎ運営からのお知らせ</span>
+                <span style={{fontSize:13,fontWeight:'bold',color:'#2f7a3d',whiteSpace:'nowrap'}}>つむぎ運営からのお知らせ</span>
                 {_unread>0
-                  ? <span style={{fontSize:11,fontWeight:'bold',color:'white',background:'#dc2626',borderRadius:999,padding:'2px 10px',whiteSpace:'nowrap'}}>新着 {_unread}件</span>
+                  ? <span style={{fontSize:11,fontWeight:'bold',color:'white',background:'#ea580c',borderRadius:999,padding:'2px 10px',whiteSpace:'nowrap'}}>新着 {_unread}件</span>
                   : <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>新着なし</span>}
                 <span style={{marginLeft:'auto',fontSize:11,color:'#64748b',fontWeight:'bold',whiteSpace:'nowrap'}}>{devOpen?'閉じる ▲':'開く ▼'}</span>
               </button>
@@ -13722,7 +13735,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 {/* ★ まとめて既読にする(未読が残っているときだけ表示) */}
                 {all.some(x => !isRead(x.id)) && (
                   <button onClick={()=>{ all.forEach(x => { if (!isRead(x.id)) markRead(x.id); }); }}
-                    style={{marginLeft:'auto',fontSize:11,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'4px 10px',cursor:'pointer',whiteSpace:'nowrap'}}>
+                    style={{marginLeft:'auto',fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'4px 10px',cursor:'pointer',whiteSpace:'nowrap'}}>
                     全て既読
                   </button>
                 )}
@@ -13764,9 +13777,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               <Card style={_padCard}>
                 {/* ★ 2026-11-04 trial518(ユーザー): 運営からのお知らせと同じ「閉じた1行」。未読があれば件数の札 */}
                 <button type="button" data-testid="home-family-open" onClick={()=>setFamOpen(o=>!o)} style={{width:'100%',background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:10,padding:0,textAlign:'left'}}>
-                  <span style={{fontSize:13,fontWeight:'bold',color:'#b45309',whiteSpace:'nowrap'}}>家族・ケアマネからの更新</span>
-                  {_unread>0 ? <span style={{fontSize:11,fontWeight:'bold',color:'white',background:'#f59e0b',borderRadius:999,padding:'2px 10px',whiteSpace:'nowrap'}}>新着 {_unread}件</span> : <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>{_recent.length ? `7日以内 ${_recent.length}件` : '新着なし'}</span>}
-                  {_unread > 0 && famOpen && <span role="button" onClick={(e)=>{ e.stopPropagation(); ext.forEach(u => { if (!isRead(u.id)) markRead(u.id); }); }} style={{fontSize:11,fontWeight:'bold',color:'#b45309',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,padding:'3px 10px',whiteSpace:'nowrap'}}>全て既読</span>}
+                  <span style={{fontSize:13,fontWeight:'bold',color:'#2f7a3d',whiteSpace:'nowrap'}}>家族・ケアマネからの更新</span>
+                  {_unread>0 ? <span style={{fontSize:11,fontWeight:'bold',color:'white',background:'#ea580c',borderRadius:999,padding:'2px 10px',whiteSpace:'nowrap'}}>新着 {_unread}件</span> : <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>{_recent.length ? `7日以内 ${_recent.length}件` : '新着なし'}</span>}
+                  {_unread > 0 && famOpen && <span role="button" onClick={(e)=>{ e.stopPropagation(); ext.forEach(u => { if (!isRead(u.id)) markRead(u.id); }); }} style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #fde68a',borderRadius:8,padding:'3px 10px',whiteSpace:'nowrap'}}>全て既読</span>}
                   <span style={{marginLeft:'auto',fontSize:11,color:'#64748b',fontWeight:'bold',whiteSpace:'nowrap'}}>{famOpen?'閉じる ▲':'開く ▼'}</span>
                 </button>
                 {famOpen && (<div style={{marginTop:10}}>
@@ -13776,13 +13789,13 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 </>) : (<>
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>
                   {/* ★ 1行表示(2026-08-21): 利用者名・更新内容・日時のみ。 タップで詳細(更新者含む) */}
-                  {(extOld ? _extShown : _recent.slice(0, _homePer)).map(u=>{ const _r=isRead(u.id); const _c=u.by==='caremanager'?'#0891b2':'#7c3aed'; return (
+                  {(extOld ? _extShown : _recent.slice(0, _homePer)).map(u=>{ const _r=isRead(u.id); const _c=u.by==='caremanager'?'#2f7a3d':'#475569'; return (
                     <button key={u.id} onClick={()=>{ const _d = (u) => ({id:u.id,badge:u.by==='caremanager'?'ケアマネ':'ご家族',badgeColor:_c,date:_fmt(u.at),title:`利用者：${u._pname} 様`,body:`更新内容：${(u.items||[]).join('・')||'更新'}${docUpdateChangesText(u) ? `\n\n【変更の内容】\n${docUpdateChangesText(u)}` : ''}${u.byName?`\n更新者：${u.byName}`:''}`,patientId:u._pid}); openDetail(_d(u), ext.map(_d)); }}
                       style={{textAlign:'left',background:_r?'#f8fafc':'#fffbeb',border:`1px solid ${_r?'#e2e8f0':'#fde68a'}`,borderRadius:8,padding:'6px 10px',cursor:'pointer',opacity:_r?0.72:1,display:'flex',alignItems:'center',gap:8,minWidth:0,width:'100%'}}>
                       <span style={{fontSize:9,fontWeight:'bold',color:'white',background:_r?'#94a3b8':_c,borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{u.by==='caremanager'?'ケアマネ':'ご家族'}</span>
                       <span style={{fontSize:12.5,fontWeight:'bold',color:_r?'#64748b':'#1e293b',whiteSpace:'nowrap',flexShrink:0}}>{u._pname} 様</span>
                       <span style={{fontSize:11.5,color:_r?'#94a3b8':'#78350f',fontWeight:'bold',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',flex:1,minWidth:0}}>{(u.items||[]).join('・')||'更新'}</span>
-                      <span style={{fontSize:10,color:'#b45309',whiteSpace:'nowrap',flexShrink:0}}>{_fmt(u.at)}</span>
+                      <span style={{fontSize:10,color:'#94a3b8',whiteSpace:'nowrap',flexShrink:0}}>{_fmt(u.at)}</span>
                       <span style={{fontSize:9,color:'#94a3b8',flexShrink:0}}>{_r?'既読':'詳細 ›'}</span>
                     </button>
                   ); })}
@@ -13796,9 +13809,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           })()}
           {_hcfg.news?.on !== false && (<Card style={{padding: newsOpen ? 16 : 10}}>{/* ★ trial517: 表示設定・最新3件＋すべて見る ★ trial518: 閉じた1行が既定 */}
             <button type="button" data-testid="home-news-open" onClick={()=>setNewsOpen(o=>!o)} style={{width:'100%',background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:10,padding:0,textAlign:'left'}}>
-              <span style={{fontSize:13,fontWeight:'bold',color:'#0369a1',whiteSpace:'nowrap'}}>お知らせ</span>
+              <span style={{fontSize:13,fontWeight:'bold',color:'#2f7a3d',whiteSpace:'nowrap'}}>お知らせ</span>
               <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>{news.length ? `${news.length}件` : 'なし'}</span>
-              <span role="button" onClick={(e)=>{ e.stopPropagation(); navigateTo('family_admin'); }} style={{fontSize:11,fontWeight:'bold',color:'#0369a1',background:'#e0f2fe',borderRadius:8,padding:'3px 10px',whiteSpace:'nowrap'}}>投稿管理 →</span>
+              <span role="button" onClick={(e)=>{ e.stopPropagation(); navigateTo('family_admin'); }} style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',borderRadius:8,padding:'3px 10px',whiteSpace:'nowrap'}}>投稿管理 →</span>
               <span style={{marginLeft:'auto',fontSize:11,color:'#64748b',fontWeight:'bold',whiteSpace:'nowrap'}}>{newsOpen?'閉じる ▲':'開く ▼'}</span>
             </button>
             {newsOpen && (<div style={{marginTop:10}}>
@@ -13806,7 +13819,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               <div style={{display:'flex',flexDirection:'column',gap:6}}>
                 {/* ★ #4: 事業所からのお知らせは既読管理しない(投稿したら表示のみ)。 タップで詳細は見られるが既読は付けない。 */}
                 {/* ★ 1行表示(2026-08-21): バッジ+日付+題名(+写真枚数)。 タップで詳細モーダル(本文・写真) */}
-                {(newsAll ? _pageSlice(news, newsPage, (tsuViewW() < 768 ? 5 : 10)) : news.slice(0, 3)).map(a=>{ const _c=a._kind==='個別'?'#b45309':'#1d4ed8'; const _ph=(Array.isArray(a.photos)?a.photos.length:0); return (
+                {(newsAll ? _pageSlice(news, newsPage, (tsuViewW() < 768 ? 5 : 10)) : news.slice(0, 3)).map(a=>{ const _c=a._kind==='個別'?'#475569':'#2f7a3d'; const _ph=(Array.isArray(a.photos)?a.photos.length:0); return (
                   <button key={a.id} onClick={()=>{ const _d = (a) => ({ ...{id:a.id,badge:a._group==='mon' ? `個別・${a.members.length}名` : `${a._kind}${a.patientId?`・${patName(a.patientId)}`:''}`,badgeColor:_c,date:(a.postedAt?String(a.postedAt).slice(0,10):(a.date||'')),title:a.title||'(写真)',body:a.body,patientId:a.patientId,photos:a.photos}, _read: false }); openDetail(_d(a), news.map(_d)); }}
                     style={{textAlign:'left',width:'100%',cursor:'pointer',background:'#ffffff',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}} data-testid="home-news-row">{/* ★ 2026-10-22: ハイライトなし(店舗から送ったお知らせのため) */}
                     <span style={{fontSize:9,fontWeight:'bold',color:_c,background:(a._kind==='個別'?'#fef3c7':'#dbeafe'),borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{a._group==='mon' ? `個別・${a.members.length}名` : <>{a._kind}{a.patientId?`・${patName(a.patientId)}`:''}</>}</span>
@@ -13816,7 +13829,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                     <span style={{fontSize:9,color:'#94a3b8',flexShrink:0}}>詳細 ›</span>
                   </button>
                 ); })}
-                {newsAll ? renderPager(news.length, (tsuViewW() < 768 ? 5 : 10), newsPage, setNewsPage) : (news.length > 3 && <button type="button" data-testid="home-news-all" onClick={() => setNewsAll(true)} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#0369a1',background:'#e0f2fe',border:'1px solid #bae6fd',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>すべて見る（{news.length}件）</button>)}
+                {newsAll ? renderPager(news.length, (tsuViewW() < 768 ? 5 : 10), newsPage, setNewsPage) : (news.length > 3 && <button type="button" data-testid="home-news-all" onClick={() => setNewsAll(true)} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #bae6fd',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>すべて見る（{news.length}件）</button>)}
               </div>
             )}
             </div>)}
@@ -13884,7 +13897,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             </div>
             <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:10,lineHeight:1.4}}>{noticeDetail.title}</div>
             {Array.isArray(noticeDetail.items) && noticeDetail.items.length > 0 ? (() => { // ★ 2026-10-26(ユーザー要望): 変更点を「場所・原因→変更」で分かりやすく。文でだらだら書かない
-              const KINDS = [['bug','不具合の修正','#dc2626','#fef2f2'],['feat','新機能','#2563eb','#eff6ff'],['change','変更','#0f766e','#ecfdf5']];
+              const KINDS = [['bug','不具合の修正','#c2410c','#fff7ed'],['feat','新機能','#2f7a3d','#f1f8ee'],['change','変更','#0f766e','#ecfdf5']];
               const its = noticeDetail.items.filter(x => x && (x.change || x.what));
               const places = Array.from(new Set(its.map(x => x.where).filter(Boolean)));
               return (<div data-testid="notice-items">
@@ -13906,9 +13919,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               </div>
             )}
             <div style={{display:'flex',gap:8,marginTop:20,justifyContent:'flex-end'}}>
-              {noticeDetail.view === 'schedule' && <button data-testid="notice-to-calendar" onClick={()=>{ setNoticeDetail(null); navigateTo('schedule'); }} style={{padding:'9px 18px',borderRadius:10,border:'1px solid #c7d2fe',background:'#eef2ff',color:'#4338ca',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>カレンダーへ</button>}{/* ★ 2026-10-27 */}
+              {noticeDetail.view === 'schedule' && <button data-testid="notice-to-calendar" onClick={()=>{ setNoticeDetail(null); navigateTo('schedule'); }} style={{padding:'9px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'white',color:'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>カレンダーへ</button>}{/* ★ 2026-10-27 */}
               {noticeDetail.patientId && <button data-testid="notice-to-meeting" onClick={()=>{const pid=noticeDetail.patientId; try{sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({patientId:pid, tab:'cat_3', focus:'meeting'}));}catch{} setNoticeDetail(null); navigateTo('master',pid);}} style={{padding:'9px 18px',borderRadius:10,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>担当者会議を記録</button>}
-              {noticeDetail.patientId && <button onClick={()=>{const pid=noticeDetail.patientId;setNoticeDetail(null);navigateTo('master',pid);}} style={{padding:'9px 18px',borderRadius:10,border:'none',background:'#4338ca',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>利用者を開く</button>}
+              {noticeDetail.patientId && <button onClick={()=>{const pid=noticeDetail.patientId;setNoticeDetail(null);navigateTo('master',pid);}} style={{padding:'9px 18px',borderRadius:10,border:'none',background:'#2f7a3d',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>利用者を開く</button>}
               <button onClick={()=>setNoticeDetail(null)} style={{whiteSpace:'nowrap',padding:'9px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'#f8fafc',color:'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
             </div>
           </div>
@@ -14129,11 +14142,11 @@ function TsuMemoRow({ appData, onSave, m, onEdit, showDate }) {
   const meta = [m.by || '', m.copyOf && m.fromDate ? `${tsuMemoDayLabel(m.fromDate)}から` : '', m.spId ? '支援経過表に残しました' : ''].filter(Boolean).join('・');
   const del = () => { if (!window.confirm(`この申し送りを削除しますか？${m.spId ? '\n（支援経過表に残した行はそのまま残ります）' : ''}`)) return; tsuMemoDelete(appData, onSave, m.id); };
   return (
-    <div data-testid={`memo-row-${m.id}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: _ph ? 'wrap' : 'nowrap', background: '#fff7ed', border: '1px solid #fed7aa', borderLeft: `4px solid ${TSU_MEMO_COLOR}`, borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
+    <div data-testid={`memo-row-${m.id}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: _ph ? 'wrap' : 'nowrap', background: 'white', border: '1px solid #e2e8f0', borderLeft: `4px solid ${TSU_MEMO_COLOR}`, borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
       <div style={{ flex: '1 1 220px', minWidth: 0 }}>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 2 }}>
           {showDate && <span style={{ fontSize: 12, fontWeight: 'bold', color: '#9a3412', whiteSpace: 'nowrap' }}>{tsuMemoDayLabel(m.date, true)}</span>}
-          <span style={{ fontSize: 12, fontWeight: 'bold', color: pt ? '#9a3412' : '#475569', background: pt ? '#ffedd5' : '#f1f5f9', borderRadius: 6, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pt ? `${pt.name} 様` : '全体'}</span>
+          <span style={{ fontSize: 12, fontWeight: 'bold', color: '#475569', background: '#f1f5f9', borderRadius: 6, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pt ? `${pt.name} 様` : '全体'}</span>
           {meta && <span style={{ fontSize: 11, color: '#9a3412' }}>{meta}</span>}
         </div>
         <div data-testid={`memo-text-${m.id}`} style={{ fontSize: _ph ? 16 : 14, color: '#1e293b', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.5 }}>{m.title}</div>
@@ -14161,12 +14174,12 @@ function TsuHomeMemos({ appData, onSave, isRead, markRead }) {
   const groups = []; upcoming.forEach(m => { const g = groups[groups.length - 1]; if (g && g.date === m.date) g.list.push(m); else groups.push({ date: m.date, list: [m] }); });
   return (
     <div data-testid="home-memos" style={{ flex: '1 1 100%', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6, paddingBottom: 4, borderBottom: '2px solid #fb923c' }}>
-        <span style={{ fontSize: 15, fontWeight: 'bold', color: '#c2410c' }}>今日の申し送り</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6, paddingBottom: 4, borderBottom: '2px solid #e2e8f0' }}>
+        <span style={{ fontSize: 15, fontWeight: 'bold', color: '#2f7a3d' }}>今日の申し送り</span>
         {todayL.length > 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>{todayL.length}件</span>}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {upcoming.length > 0 && <button type="button" data-testid="home-memos-upcoming" onClick={() => setShowUp(v => !v)} style={{ ...hb, color: '#9a3412', background: 'white', border: '1px solid #fed7aa' }}>{showUp ? 'これからの分を閉じる' : `これからの申し送り ${upcoming.length}件`}</button>}
-          {onSave && <button type="button" data-testid="home-memo-add" onClick={() => setEd({ date: today })} style={{ ...hb, color: 'white', background: TSU_MEMO_COLOR, border: 'none' }}>＋ 申し送りを書く</button>}
+          {upcoming.length > 0 && <button type="button" data-testid="home-memos-upcoming" onClick={() => setShowUp(v => !v)} style={{ ...hb, color: '#475569', background: 'white', border: '1px solid #cbd5e1' }}>{showUp ? 'これからの分を閉じる' : `これからの申し送り ${upcoming.length}件`}</button>}
+          {onSave && <button type="button" data-testid="home-memo-add" onClick={() => setEd({ date: today })} style={{ ...hb, color: 'white', background: '#3c8d47', border: 'none' }}>＋ 申し送りを書く</button>}
         </span>
       </div>
       {todayL.length === 0
@@ -26064,7 +26077,7 @@ export default function App() {
               {/* ★ 2026-11-10 trial536: スマホで下のバーを使っている間は左上の3本線を出さない(メニューは下の「メニュー」から) */}
               {!_tabBarOn && <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>}
               <h1 className="text-base md:text-lg font-bold text-slate-700 truncate whitespace-nowrap">
-                {currentView === 'dashboard' ? 'ホーム' :
+                {currentView === 'dashboard' ? <span data-testid="hdr-home-title">ホーム<span className="ml-2 text-sm font-bold text-slate-500">{(() => { const d = new Date(); return `${d.getMonth() + 1}月${d.getDate()}日（${'日月火水木金土'[d.getDay()]}）`; })()}</span></span> : /* ★ trial567(ユーザー「日付はホームの横に」) */
                  currentView === 'record' ? <span data-testid="hdr-record-title">{/* ★ 2026-10-28(ユーザー要望「スマホは『2026年10月…』と切れる。画面を見ればサービス提供記録と分かるので日付だけで」) */}<span className="hidden sm:inline">サービス提供記録 入力　</span>{formatDateDisplay(selectedDate)}</span> :
                  currentView === 'ticket' ? 'サービス提供記録' :
                  currentView === 'print' ? '連絡帳 作成・印刷' :
@@ -36688,7 +36701,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   //   B6のPDFが左上に原寸で出る。ダウンロード直後に「用紙サイズを○○に」を出す(10秒・×で閉じる)
   const [cbPaperTip, setCbPaperTip] = useState(null);
   const _paperName = () => { const ss = appData.systemSettings || {}; return ss.renrakuMode === '1' ? (ss.renrakuPaper === 'b6port' ? 'B6（JIS）・縦' : 'B5（JIS）・横') : 'B5（JIS）・横'; };
-  const _showPaperTip = () => { const t = Date.now(); setCbPaperTip({ t, paper: _paperName() }); setTimeout(() => setCbPaperTip(v => (v && v.t === t) ? null : v), 12000); };
+  const _showPaperTip = () => {}; // ★ 2026-11-12 trial567(ユーザー「PDFを印刷するときは用紙サイズをB5に、は不要」): 出さない(部品は残す)
   const [mobileCardLimit, setMobileCardLimit] = useState(6); // ★ スマホは重いカードを少しずつ描画(メモリ対策)
   const [printingIds, setPrintingIds] = useState([]); // ★ 印刷時に描画する利用者ID(全員ではなく印刷対象だけ描画)
   const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
@@ -37448,17 +37461,15 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             印刷設定
           </button>
           {showPrintSettings && (()=>{
+            const _phonePS = (typeof window !== 'undefined' && window.innerWidth < 768); // ★ 2026-11-12 trial567(ユーザー報告「操作の小窓から印刷設定を開くと下に出て見えない・選べない」): スマホは画面の中央の小窓(portal)で出す
             const ss = appData.systemSettings || {};
             const mode = ss.renrakuMode === '1' ? '1' : '2'; // 既定はB5横2面
             const paper = ss.renrakuPaper === 'b6port' ? 'b6port' : 'b5land';
             const guideCut = ss.renrakuGuideCut !== false, guidePunch = ss.renrakuGuidePunch !== false;
             const setSS = (patch)=>onSave({ ...appData, systemSettings: { ...ss, ...patch } });
             const tabBtn = (on)=>`flex-1 px-2 py-1.5 rounded-lg text-xs font-bold border ${on?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`;
-            return (
-              <div ref={(n)=>{ /* ★ 2026-10-16(ユーザー報告「スマホで印刷設定の左が見切れる」): スマホ幅は画面の左右 8px に合わせて固定表示 */
-                     try { if (!n) return; if (window.innerWidth >= 768) { n.style.position=''; n.style.left=''; n.style.right=''; n.style.top=''; n.style.width=''; return; }
-                       const r = n.parentElement.getBoundingClientRect(); n.style.position='fixed'; n.style.left='8px'; n.style.right='8px'; n.style.width='auto'; n.style.top=`${Math.round(r.bottom+6)}px`; n.style.maxHeight=`calc(100vh - ${Math.round(r.bottom+6)}px - 12px)`; } catch {} }}
-                   className="absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3 overflow-y-auto" style={{maxHeight:'calc(100vh - 140px)'}} data-testid="cb-print-settings">
+            const _panel = (
+              <div className={_phonePS ? "bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-full text-left space-y-3 overflow-y-auto" : "absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3 overflow-y-auto"} style={{maxHeight: _phonePS ? 'calc(100vh - 80px)' : 'calc(100vh - 140px)'}} data-testid="cb-print-settings" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between"><span className="text-sm font-bold text-slate-700">印刷設定</span><button onClick={()=>setShowPrintSettings(false)} className="text-slate-400 hover:text-slate-700 text-lg leading-none">×</button></div>
                 {/* ★ 2026-10-16(ユーザー要望「店舗によって次回のお迎え時間を色付きで印刷したい」): 時刻の色(黒/赤/青)と太さ */}
                 <div>
@@ -37545,7 +37556,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 })()}
                 <label className="flex items-center gap-2 text-xs text-slate-700 py-0.5 cursor-pointer"><input type="checkbox" checked={ss.renrakuShowQr !== false} onChange={e=>setSS({renrakuShowQr:e.target.checked})}/>ご家族専用ページのQRコードを連絡帳に印字する</label>
               </div>
-            );
+            ); return _phonePS ? ReactDOM.createPortal(<div data-testid="cb-print-settings-wrap" className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-center justify-center p-3" onClick={()=>setShowPrintSettings(false)}>{_panel}</div>, document.body) : _panel;
           })()}
         </div>
         <button onClick={handlePrintBlank} data-testid="cb-blank" title="氏名・記録が空欄の連絡帳をPDFにします（手書き用）" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap shrink-0">
@@ -59065,7 +59076,7 @@ ${optionsDesc}
             style={{background:(searchQuery||monitorStatusFilter!=='all'||monitorDowFilter.length)?'#0284c7':'rgba(255,255,255,0.6)',border:'1px solid rgba(255,255,255,0.8)',color:(searchQuery||monitorStatusFilter!=='all'||monitorDowFilter.length)?'white':'#1e293b',borderRadius:10,padding:'7px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>
             絞り込み {(searchQuery||monitorStatusFilter!=='all'||monitorDowFilter.length) ? '(適用中)' : '▾'}
           </button>
-          {monFilterPop && (
+          {monFilterPop && (<TsuPhonePop onClose={()=>setMonFilterPop(false)}>
             <div style={{position:'absolute',top:'calc(100% + 6px)',left:0,zIndex:60,background:'white',border:'1px solid #bae6fd',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,0.2)',padding:12,width:300}}>
               <div style={{fontSize:10,fontWeight:'bold',color:'#64748b',marginBottom:4}}>氏名</div>
               <div style={{display:'flex',alignItems:'center',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'4px 8px',gap:5,marginBottom:8}}>
@@ -59101,7 +59112,7 @@ ${optionsDesc}
                 <button type="button" onClick={()=>setMonFilterPop(false)}
                   style={{padding:'6px 16px',borderRadius:8,fontSize:11,fontWeight:'bold',border:'none',background:'#0284c7',color:'white',cursor:'pointer'}}>閉じる</button>
               </div>
-            </div>
+            </div></TsuPhonePop>
           )}
         </div>
         {/* 並び替えポップアップ */}
@@ -59110,7 +59121,7 @@ ${optionsDesc}
             style={{background:'rgba(255,255,255,0.6)',border:'1px solid rgba(255,255,255,0.8)',color:'#1e293b',borderRadius:10,padding:'7px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>
             並び替え: {({kana:'名前',careLevel:'介護度',cmOffice:'事業所',schedule:'曜日'})[monitorSort]||'名前'}{monitorSortDir==='asc'?'▲':'▼'}
           </button>
-          {monSortPop && (
+          {monSortPop && (<TsuPhonePop onClose={()=>setMonSortPop(false)}>
             <div style={{position:'absolute',top:'calc(100% + 6px)',left:0,zIndex:60,background:'white',border:'1px solid #bae6fd',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,0.2)',padding:12,width:220}}>
               <div style={{fontSize:10,fontWeight:'bold',color:'#64748b',marginBottom:4}}>並び替えの基準</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5,marginBottom:8}}>
@@ -59128,7 +59139,7 @@ ${optionsDesc}
               <div style={{textAlign:'right',marginTop:8}}>
                 <button type="button" onClick={()=>setMonSortPop(false)} style={{whiteSpace:'nowrap',padding:'6px 16px',borderRadius:8,fontSize:11,fontWeight:'bold',border:'none',background:'#0284c7',color:'white',cursor:'pointer'}}>閉じる</button>
               </div>
-            </div>
+            </div></TsuPhonePop>
           )}
         </div>
         <span className="tsu-hide-phone" style={{fontSize:11,fontWeight:'bold',color:'#0c4a6e'}}>{attendedPats.length+absentPats.length}名表示</span>

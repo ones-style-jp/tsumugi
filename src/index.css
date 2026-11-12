@@ -757,3 +757,6 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
   .tsu-fold-sheet .tsu-diary-bar { justify-content: flex-start !important; position: static !important; }
   .tsu-fold-sheet .tsu-diary-bar > .flex-1, .tsu-fold-sheet .tsu-diary-bar > [class*="flex-1"] { display: none !important; }
 }
+
+/* ★ 2026-11-12 trial567: スマホの「操作」小窓から開くポップアップを画面中央の小窓に(TsuPhonePop)。中身の absolute 配置を解いて全幅に */
+.tsu-phone-pop > * { position: static !important; top: auto !important; left: auto !important; right: auto !important; bottom: auto !important; width: 100% !important; max-width: none !important; margin: 0 !important; transform: none !important; }
