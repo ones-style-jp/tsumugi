@@ -19,7 +19,7 @@ const login = async (page) => {
   await login(page);
   const bar = page.getByTestId('tsu-tabbar');
   ok(await bar.isVisible(), 'スマホ: 下のバーが出る');
-  ok(!(await page.locator('header.tsu-app-header svg.lucide-menu').count()), 'スマホ: 左上の3本線は出ない');
+  { const mb = await page.getByTestId('hdr-menu-btn').boundingBox(); ok(mb && mb.x > 300, `スマホ: 3本線は右上 (x=${mb && Math.round(mb.x)})(trial568)`); }
   const bb = await bar.boundingBox(); ok(bb && Math.abs((bb.y + bb.height) - 844) < 2, `下のバーは画面の下に固定 (y+h=${bb && Math.round(bb.y + bb.height)})`);
   ok((await bar.locator('button').count()) === 5, '下のバーは5つ');
   // ★ trial541: 真ん中は他と同じ形・名前は「提供記録」
@@ -82,25 +82,25 @@ const login = async (page) => {
   console.log('dbg bar class:', await bar.getAttribute('class'), 'active:', await page.evaluate(() => document.activeElement && document.activeElement.tagName + '.' + (document.activeElement.className || '').toString().slice(0, 40)), 'atPoint:', await page.evaluate(() => { const b = document.querySelector('[data-testid="tsu-tab-print"]'); const r = b.getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e ? e.tagName + '.' + String(e.className).slice(0, 60) + ' z=' + getComputedStyle(e).zIndex : 'none'; }), 'barBox:', JSON.stringify(await bar.boundingBox()));
   await page.getByTestId('tsu-tab-print').click({ timeout: 5000 }).catch(async () => { await page.screenshot({ path: `${OUT}/dbg_fail.png` }); throw new Error('tsu-tab-print click failed'); }); await page.waitForTimeout(1200);
   ok(/連絡帳/.test(await page.locator('h1').innerText()), '連絡帳へ');
-  // メニュー
-  await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(500);
-  const menu = page.getByTestId('tsu-phone-menu'); ok(await menu.isVisible(), 'メニューが下から全画面で出る');
-  const tiles = await menu.locator('.tiles > button').count(); ok(tiles >= 10, `メニューの札 ${tiles}個`);
+  // メニュー(trial568: 右上の3本線 → 右のサイドバー)
+  const openMenu = async () => { const hb = page.getByTestId('hdr-menu-btn'); if (await hb.isVisible().catch(() => false)) await hb.click(); else await page.getByTestId('tsu-pair-menu').click(); }; // 提供記録/連絡帳は見出しが無いので見出し代わりの帯の3本線
+  await openMenu(); await page.waitForTimeout(500);
+  const sbar = page.getByTestId('app-sidebar'); { const sbb = await sbar.boundingBox(); ok(sbb && sbb.x > 100, 'メニュー(3本線)でサイドバーが右から出る'); }
+  ok((await sbar.locator('button', { hasText: /^変更ログ$/ }).count()) === 1, 'サイドバーの下の方に「変更ログ」(trial568)');
+  ok(!(await page.locator('header.tsu-app-header button', { hasText: /^変更ログ$/ }).count()), '右上の「変更ログ」は無い');
   await page.screenshot({ path: `${OUT}/phone_menu.png` });
-  // 札の大きさ(44px 以上)
-  const tb = await menu.locator('.tiles > button').first().boundingBox(); ok(tb && tb.height >= 44 && tb.width >= 44, `札の大きさ ${tb && Math.round(tb.width)}x${tb && Math.round(tb.height)}`);
-  await page.getByTestId('tsu-menu-diary').click(); await page.waitForTimeout(1200);
-  ok(!(await menu.count()), 'メニューの札を押すと閉じる');
+  await sbar.locator('button', { hasText: /日誌/ }).first().click(); await page.waitForTimeout(1200);
+  { const sbb = await sbar.boundingBox(); ok(!sbb || sbb.x >= 389, 'サイドバーの項目を押すと閉じる'); }
   ok(/日誌/.test(await page.locator('h1').innerText()), '日誌へ');
   await page.screenshot({ path: `${OUT}/phone_diary.png` });
   // 文字を打っている間は隠れる
-  await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(300);
-  await page.getByTestId('tsu-menu-master').click(); await page.waitForTimeout(1200);
+  await page.getByTestId('tsu-tab-master').click(); await page.waitForTimeout(1200); // trial568: 4つ目は利用者
   const inp = page.locator('input[type="text"]:visible, input:not([type]):visible').first();
   if (await inp.count()) { await inp.focus(); await page.waitForTimeout(400); const cls = await bar.getAttribute('class'); ok(/tsu-tabbar-hide/.test(cls || ''), '入力中は下のバーが隠れる'); await page.keyboard.press('Tab'); await page.evaluate(() => document.activeElement && document.activeElement.blur()); await page.waitForTimeout(400); ok(!/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), '入力を終えると戻る'); }
   // 設定で切る → 3本線に戻る
-  await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(300);
-  await page.getByTestId('tsu-menu-settings').click(); await page.waitForTimeout(1200);
+  await page.getByTestId('tsu-tab-dashboard').click(); await page.waitForTimeout(800); // 利用者マスタは名簿の幕が見出しを覆うのでホームへ戻ってから
+  await openMenu(); await page.waitForTimeout(400);
+  await sbar.locator('button', { hasText: /各種設定/ }).first().click(); await page.waitForTimeout(1200);
   const sysTab = page.locator('button:visible', { hasText: /^システム$/ }).first(); if (await sysTab.count()) { await sysTab.click(); await page.waitForTimeout(600); }
   const tg = page.getByTestId('tabbar-toggle');
   ok(await tg.count() === 1, '設定→システムに切り替えがある');
@@ -112,8 +112,7 @@ const login = async (page) => {
   await tg.click(); await page.waitForTimeout(400);
   ok(await bar.isVisible(), 'もう一度入れると戻る');
   // 元のメニュー(サイドバー)を開く → バーは隠れる
-  await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(300);
-  await page.getByTestId('tsu-phone-menu-sidebar').click(); await page.waitForTimeout(500);
+  await openMenu(); await page.waitForTimeout(500);
   ok(/tsu-tabbar-hide/.test((await bar.getAttribute('class')) || ''), 'サイドバーを開いている間は下のバーが隠れる');
   await page.screenshot({ path: `${OUT}/phone_sidebar.png` });
   await ctx.close();

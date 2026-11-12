@@ -18,17 +18,9 @@ const open = async (page, view) => {
   ok((await page.getByTestId('home-shortcuts').count()) === 0, 'ホーム(スマホ): 近道(記録入力・計画書管理・分析)は出ない');
   const mb = page.getByTestId('home-memo-add'); await mb.scrollIntoViewIfNeeded().catch(() => {}); await page.waitForTimeout(200); const bb = await mb.boundingBox().catch(() => null);
   ok(bb && bb.height <= 38 && bb.height >= 30, `「＋ 申し送りを書く」は小さく(高さ ${bb && Math.round(bb.height)}px)`);
-  await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(400);
-  ok((await page.getByTestId('tsu-phone-menu').count()) === 1, 'メニューが開く');
-  await swipe(page, 300, 400, 120, 410); await page.waitForTimeout(400);
-  ok((await page.getByTestId('tsu-phone-menu').count()) === 1, '右→左のスワイプでは閉じない');
-  await swipe(page, 80, 400, 300, 405); await page.waitForTimeout(400);
-  ok((await page.getByTestId('tsu-phone-menu').count()) === 0, '左→右のスワイプで閉じる');
-  await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(400);
-  await swipe(page, 100, 400, 140, 405); await page.waitForTimeout(300);
-  ok((await page.getByTestId('tsu-phone-menu').count()) === 1, '短い動き(40px)では閉じない');
-  await page.getByTestId('tsu-phone-menu-close').click(); await page.waitForTimeout(300);
-  ok((await page.getByTestId('tsu-phone-menu').count()) === 0, '×でも閉じる');
+  await page.getByTestId('hdr-menu-btn').click(); await page.waitForTimeout(400);
+  { const sb = page.getByTestId('app-sidebar'); const bb = await sb.boundingBox(); ok(bb && bb.x > 100, '右上の3本線でサイドバー(右)が開く(trial568)');
+    await swipe(page, Math.round(bb.x + 40), 500, Math.round(bb.x + 200), 505); await page.waitForTimeout(600); const bb2 = await sb.boundingBox(); ok(!bb2 || bb2.x >= 389, 'サイドバーの上で左→右のスワイプで閉じる'); }
   await page.screenshot({ path: '/tmp/chk_1111phonemenu_home.png' }).catch(() => {});
   await page.context().close(); }
 // ---- PC: 基本の送迎表の説明 ----

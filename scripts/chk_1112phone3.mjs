@@ -27,7 +27,7 @@ const title = () => page.locator('header.tsu-app-header h1').innerText();
 const box = page.getByTestId('home-absence');
 ok(await box.count() === 1, 'ホームに「本日のお休み」の枠が出る');
 ok((await box.getAttribute('data-pending')) === '1', '休み連絡が未の方は1名');
-ok(/休み連絡がまだ/.test(await box.innerText()) && /未連絡 1名/.test(await box.innerText()), '見出しに「休み連絡がまだの方」・未連絡 1名');
+ok(/休み連絡がまだの方/.test(await box.innerText()) && /1名/.test(await page.getByTestId('home-absence-pending').innerText()), '見出しに「休み連絡がまだの方」・1名');
 const rowA = page.getByTestId(`home-absence-row-${info.a}`), rowB = page.getByTestId(`home-absence-row-${info.b}`);
 ok(/未連絡/.test(await rowA.innerText()) && (await rowB.count()) === 0, 'A=未連絡 の札・B(連絡済)は出ない(trial567)');
 await page.getByTestId('home-absence-fold').click(); await page.waitForTimeout(200);
@@ -72,13 +72,16 @@ await page.getByTestId('tsu-today-mode-week').click(); await page.waitForTimeout
   const dx = Math.abs((bb.x + bb.width / 2) - (sv.x + sv.width / 2)), dy = Math.abs((bb.y + bb.height / 2) - (sv.y + sv.height / 2));
   ok(dx <= 2 && dy <= 2, `小窓の × は枠の中央 (ずれ x=${dx.toFixed(1)} y=${dy.toFixed(1)})`);
   await btn.click(); await page.waitForTimeout(400); ok(!(await sheet.isVisible()), '× で閉じる'); }
-// ④ メニューの × は右上
-await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(500);
-{ const cb = await page.getByTestId('tsu-phone-menu-close').boundingBox(); const tb = await page.locator('.tsu-phone-menu-head .ttl').boundingBox();
-  ok(cb && cb.x + cb.width >= 390 - 16 && cb.y < 80, `メニューの × は右上 (x=${cb && Math.round(cb.x)} y=${cb && Math.round(cb.y)})`);
-  ok(tb && tb.x < cb.x, '題名「メニュー」は × より左');
-  await page.getByTestId('tsu-phone-menu-close').click(); await page.waitForTimeout(400);
-  ok((await page.getByTestId('tsu-phone-menu').count()) === 0, '× でメニューが閉じる'); }
+// ④ trial568: メニューは右上の3本線 → サイドバー(右)・右上に「変更ログ」は無い・サイドバーの下に「変更ログ」・下のバーは ホーム/送迎表/提供記録/利用者/自由枠
+{ const mb = await page.getByTestId('hdr-menu-btn').boundingBox(); ok(mb && mb.x + mb.width >= 390 - 20 && mb.y < 60, `3本線は右上 (x=${mb && Math.round(mb.x)})`);
+  ok(!(await page.locator('header.tsu-app-header button', { hasText: /^変更ログ$/ }).count()), '右上の「変更ログ」は無い');
+  await page.getByTestId('hdr-menu-btn').click(); await page.waitForTimeout(500);
+  const sb = page.getByTestId('app-sidebar'); const bb = await sb.boundingBox(); ok(bb && bb.x > 100, '3本線でサイドバーが右から出る');
+  ok((await sb.locator('button', { hasText: /^変更ログ$/ }).count()) === 1, 'サイドバーに「変更ログ」');
+  await sb.locator('button', { hasText: /^変更ログ$/ }).click(); await page.waitForTimeout(600);
+  ok(/変更ログ/.test(await page.locator('body').innerText()) && (!(await sb.boundingBox()) || (await sb.boundingBox()).x >= 389), '押すと変更ログが開きサイドバーは閉じる');
+  await page.keyboard.press('Escape'); await page.locator('button:visible', { hasText: /^(閉じる|×)$/ }).first().click({ timeout: 800 }).catch(() => {}); await page.waitForTimeout(300);
+  const labels = await page.locator('.tsu-tabbar > button .lbl').allInnerTexts(); ok(labels.length === 5 && labels[3] === '利用者' && !labels.includes('メニュー'), `下のバー: ${labels.join('/')}`); }
 // ⑥ 見出しの日付・挨拶なし・0は出さない(trial567)
 ok(/ホーム\s*\d{1,2}月\d{1,2}日（[日月火水木金土]）/.test((await title()).replace(/\n/g, ' ')), `見出しに日付 (${(await title()).replace(/\n/g, ' ').trim()})`);
 ok(!(await page.getByText('今日もよろしくお願いします', { exact: false }).count()), '挨拶の文は出ない');
@@ -88,9 +91,12 @@ ok(!(await page.evaluate(() => { const h = document.querySelector('[data-testid=
 await page.getByTestId('tsu-tab-record').click(); await page.waitForTimeout(900);
 await page.getByTestId('tsu-pair-print').click(); await page.waitForTimeout(1200);
 await page.getByTestId('fold-btn-renraku').click(); await page.waitForTimeout(400);
+{ const sh = await page.locator('.tsu-fold-sheet').boundingBox(); ok(sh && sh.y > 30 && sh.y < 200, `操作の小窓は上(帯のすぐ下)から出る (y=${sh && Math.round(sh.y)})(trial568)`);
+  ok((await page.getByTestId('tsu-pair-menu').count()) === 1, '提供記録/連絡帳の見出しにも右上の3本線'); }
 await page.locator('[data-testid="fold-body-renraku"] button', { hasText: /^印刷設定$/ }).click(); await page.waitForTimeout(500);
-{ const ps = page.getByTestId('cb-print-settings'); const bb = await ps.boundingBox();
+{ const ps = page.getByTestId('cb-print-settings'); const bb = await ps.boundingBox(); const sh = await page.locator('.tsu-fold-sheet').boundingBox();
   ok(bb && bb.y >= 0 && bb.y + bb.height <= 844 && bb.width > 300, `印刷設定が画面の中に出る (y=${bb && Math.round(bb.y)} h=${bb && Math.round(bb.height)})`);
+  ok(sh && bb && bb.y >= sh.y + sh.height - 2, `印刷設定は操作の小窓の下に続く (小窓の下端 ${sh && Math.round(sh.y + sh.height)} ≤ 印刷設定の上端 ${bb && Math.round(bb.y)})`);
   ok(await page.getByTestId('cb-timecolor-red').isVisible() && (await page.getByTestId('cb-timecolor-red').boundingBox()).y < 844, '印刷設定の中のボタンが押せる位置にある');
   await page.getByTestId('cb-print-settings-wrap').click({ position: { x: 10, y: 10 } }); await page.waitForTimeout(300); ok((await ps.count()) === 0, '外を押すと閉じる'); }
 // ⑧ モニタリング: 絞り込み/並び替えも画面の中

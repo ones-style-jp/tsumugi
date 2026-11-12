@@ -696,8 +696,11 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
   html.tsu-tabbar-on [data-testid="rec-act-fullscreen"] { display: none !important; }
   html.tsu-tabbar-on [data-testid="rec-actions"] { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
   .tsu-fold-sheet-back { position: fixed; inset: 0; z-index: 44; background: rgba(15, 23, 42, 0.35); }
-  .tsu-fold-sheet { position: fixed; left: 0; right: 0; bottom: var(--tsu-tabbar-h, 0px); z-index: 46; background: #fff; border-radius: 18px 18px 0 0;
-    box-shadow: 0 -8px 30px rgba(15, 23, 42, 0.18); padding: 4px 12px 14px; max-height: calc(100dvh - 120px); overflow-y: auto; animation: tsu-menu-up .2s ease-out; }
+  /* ★ 2026-11-12 trial568(ユーザー「操作は上に出して、印刷設定などはその下に」): 小窓は帯のすぐ下(上)から。top は TsuPhoneFold が帯の下端を測って入れる */
+  .tsu-fold-sheet { position: fixed; left: 0; right: 0; top: 95px; bottom: auto; z-index: 46; background: #fff; border-radius: 0 0 18px 18px;
+    box-shadow: 0 8px 30px rgba(15, 23, 42, 0.18); padding: 4px 12px 14px; max-height: calc(100dvh - 185px); overflow-y: auto; animation: tsu-menu-down .18s ease-out; }
+  @keyframes tsu-menu-down { from { transform: translateY(-14px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .tsu-pairtabs > button.tsu-pair-menu { flex: 0 0 44px; color: #475569; display: flex; align-items: center; justify-content: center; } /* ★ trial568: 見出しの無い画面の右上の3本線 */
   .tsu-fold-sheet-head { display: flex; align-items: center; justify-content: space-between; min-height: 44px; margin: 0 0 4px; font-size: 15px; font-weight: 700; color: #1e293b; }
   .tsu-fold-sheet-head > button { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; background: none; color: #475569; margin-right: -8px; }
   @media (prefers-reduced-motion: reduce) { .tsu-fold-sheet { animation: none; } }
@@ -710,8 +713,8 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
     background: rgba(255,255,255,0.97); -webkit-backdrop-filter: saturate(180%) blur(12px); backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid #e2e8f0; }
   .tsu-pairtabs > button { flex: 1 1 0; min-width: 0; border: 0; background: none; font-size: 15px; font-weight: 700; color: #64748b; position: relative; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: color .18s ease; }
   .tsu-pairtabs > button.on { color: #1e293b; }
-  .tsu-pairtabs::after { content: ''; position: absolute; left: calc(25% - 32px); bottom: 0; width: 64px; height: 3px; border-radius: 3px 3px 0 0; background: #3c8d47; transition: left .22s ease; }
-  .tsu-pairtabs[data-on="print"]::after { left: calc(75% - 32px); }
+  .tsu-pairtabs::after { content: ''; position: absolute; left: calc((100% - 44px) * 0.25 - 32px); bottom: 0; width: 64px; height: 3px; border-radius: 3px 3px 0 0; background: #3c8d47; transition: left .22s ease; }
+  .tsu-pairtabs[data-on="print"]::after { left: calc((100% - 44px) * 0.75 - 32px); }
   /* 横スワイプで切り替わるとき、中身を一瞬うすくしてから出す(透明度だけ=軽い。指に付いてくる動きは2画面を同時に描く必要があり重くなるので採らない) */
   #tsuContentScroller.tsu-swap { animation: tsuSwap .16s ease-out; }
   @keyframes tsuSwap { from { opacity: .3; } to { opacity: 1; } }

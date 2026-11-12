@@ -33,9 +33,8 @@ ok(/\bon\b/.test((await page.getByTestId('tsu-tab-record').getAttribute('class')
 const slot = page.locator('.tsu-tabbar > button[data-custom]'); ok(/日誌|カレンダー/.test(await slot.innerText()), `自由枠のはじめは日誌(送迎表を使わない店はカレンダー): ${(await slot.innerText()).trim()}`);
 ok((await page.locator('.tsu-tabbar > button', { hasText: '連絡帳' }).count()) === 0, '下のバーに「連絡帳」の札は無い');
 // 3) メニューの下・各種設定から自由枠を選べる
-await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(500);
-await page.getByTestId('tsu-phone-menu-tabpick').click(); await page.waitForTimeout(500);
-ok(await page.getByTestId('tsu-tabpick').isVisible(), 'メニューの下の「下のバーの4つ目の画面を選ぶ」で小窓が出る');
+await page.evaluate(() => window.dispatchEvent(new Event('tsumugi-tabpick-open'))); await page.waitForTimeout(500);
+ok(await page.getByTestId('tsu-tabpick').isVisible(), '自由枠を選ぶ小窓が出る(各種設定の「選ぶ」の合図)(trial568)');
 await page.getByTestId('tsu-tabpick-close').click(); await page.waitForTimeout(300);
 await go('settings');
 await page.locator('button, [role="tab"]', { hasText: /^システム$/ }).first().click({ timeout: 2000 }).catch(() => {}); await page.waitForTimeout(600);
