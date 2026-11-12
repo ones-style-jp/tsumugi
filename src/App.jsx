@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
+import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
 import { PATIENT_TEXT_FL } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL)
 import {
   isSupabaseEnabled,
@@ -58392,7 +58392,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             const vals = (d.fitnessItems||[]).map(it => r.values?.[it.id] ? `${it.name}:${r.values[it.id]}${it.unit||''}${r.notes?.[it.id] ? `（${r.notes[it.id]}）` : ''}` : null).filter(Boolean).join('、');
             return `${r.date}（${vals||'データあり'}）${r.memo ? `［測定時のメモ: ${String(r.memo).slice(0, FIT_MEMO_MAX)}］` : ''}`; // ★ 2026-10-20: 項目の備考とその日のメモも参考にする
           }).join(' / ')
-        : '記録なし';
+        : ''; // ★ trial570: 無いときは体力測定の行を出さない
 
       const prompt = `以下のデイサービス利用者データをもとに、ケアマネジャー向けモニタリング報告文を2文で作成してください。
 
@@ -58402,14 +58402,14 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 脈拍平均：${d.avgPulse||'不明'}回/分　体温平均：${d.avgTemp||'不明'}℃（最高${d.maxTemp||'不明'}℃）
 体調：平均${d.avgMoodLabel||'不明'}${d.moodDistText?`（内訳${d.moodDistText}）`:''}
 体調の理由（本人の様子・日付つき）：${d.kibunDetail&&d.kibunDetail.length?d.kibunDetail.join(' / '):'記録なし'}
-体力測定（直近）：${fitnessText}
-特記事項（日付つき全件）：${d.tokkiDetail&&d.tokkiDetail.length?d.tokkiDetail.join(' / '):'特になし'}
+${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項（日付つき全件）：${d.tokkiDetail&&d.tokkiDetail.length?d.tokkiDetail.join(' / '):'特になし'}
 
 出力ルール：
 ・報告文の本文2文のみ出力。前置き・補足・文字数・説明は一切不要
 ・1文目：「今月は〜でした。」で始める（バイタル・体調・特記を中心に）
 ・2文目：「前回と比べて〜」または「引き続き〜」で変化や継続状態を記述
-・専門的かつ丁寧な文体、具体的な数値を使用`;
+・専門的かつ丁寧な文体、具体的な数値を使用
+・上に書かれているデータだけを材料にする。書かれていないもの（体力測定・計画書・目標など）には一切触れず、「〜は行っていない」「〜が未作成」などの断り書きは書かない`;
 
       const data = await tsumugiCallAi(apiKey, {
         model: 'claude-haiku-4-5-20251001',
@@ -58417,7 +58417,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
         messages: [{role:'user', content: prompt}]
       }, staffSession?.storeId);
 
-      const text = data.content?.[0]?.text?.trim() || 'エラー：テキストが取得できませんでした';
+      const _raw = data.content?.[0]?.text?.trim() || '';
+      const text = (_raw && tsuMonScrub(_raw, { hasPlan: true, hasFitness: !!fitnessText })) || (_raw ? _raw : 'エラー：テキストが取得できませんでした'); // ★ trial570: 体力測定が無いのに触れた文は落とす(全部落ちたら元のまま)
       setResults(prev => ({...prev, [patient.id]: {text, loading:false, error:null}}));
     } catch(e) {
       setResults(prev => ({...prev, [patient.id]: {text:'', loading:false, error: String(e.message||e)}}));
@@ -58868,16 +58869,19 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 正式モニタリング表（1人1枚）: 自動下書き / 保管(個人ファイル) / FAX(ケアマネ宛先自動)
   const monthLabelStr = `${tY}年${tM}月`;
   const getSheetRecord = (pid) => (appData.monitoringRecords||[]).find(r => r.patientId===pid && r.period===monthLabelStr);
+  // ★ 2026-11-12 trial570(ユーザー: 計画書を作っていない方に「計画通りに沿えなかった」と出てケアマネが焦った): つむぎに計画書(通所介護計画書／個別機能訓練計画書)が
+  //   ある利用者だけ「計画」の言葉を使う。無い方は、本当にある記録(通所・運動・バイタル)だけで書く。体力測定も記録がある方だけ触れる
+  const _monHasPlan = (pid) => (appData.tsushoKeikakuRecords||[]).some(r=>r.patientId===pid) || (appData.kinouKeikakuRecords||[]).some(r=>r.patientId===pid);
   const buildAutoStatus = (patient) => {
-    // ①サービスの実施状況: 計画通りに提供できたか + 通所実績
+    // ①サービスの実施状況: (計画書があれば)計画通りに提供できたか + 通所実績
     try {
-      const d = buildPatientData(patient);
+      const d = buildPatientData(patient); const hp = _monHasPlan(patient.id);
       if (!d.attended) {
-        return `${d.month}は通所(利用)がなかったため、通所介護計画に基づくサービスを実施できなかった。`;
+        return `${d.month}は通所(利用)がなかったため、${hp ? '通所介護計画に基づく' : ''}サービスを実施できなかった。`;
       }
-      const parts = ['通所介護計画に基づき、個別機能訓練（運動プログラム）・健康チェック（バイタル測定）・送迎を提供。'];
-      if (d.planned!=null) parts.push(`${d.month}は計画${d.planned}回中${d.attended}回参加（出席率${d.rate!=null?d.rate+'%':'—'}）。`);
-      parts.push('概ね計画どおりサービスを実施できた。');
+      const parts = [`${hp ? '通所介護計画に基づき、' : ''}個別機能訓練（運動プログラム）・健康チェック（バイタル測定）・送迎を提供。`];
+      if (d.planned!=null) parts.push(`${d.month}は予定${d.planned}回中${d.attended}回参加（出席率${d.rate!=null?d.rate+'%':'—'}）。`);
+      parts.push(hp ? '概ね計画どおりサービスを実施できた。' : '概ね予定どおりサービスを実施できた。');
       return parts.join('');
     } catch { return ''; }
   };
@@ -58916,9 +58920,10 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     //   (従来は本部キーが使える場合でもここで落ちていた)
     if (window.__tsumugiSrvAi === false) throw new Error('AIが未設定です。つむぎ管理局の「外部サービス設定」でAPIキーを登録してください。');
     const d = buildPatientData(patient);
-    const fitnessText = (d.fitnessRecs && d.fitnessRecs.length)
+    const _hasFit = !!(d.fitnessRecs && d.fitnessRecs.length);
+    const fitnessText = _hasFit
       ? d.fitnessRecs.map(r => { const vals=(d.fitnessItems||[]).map(it=> r.values?.[it.id]?`${it.name}:${r.values[it.id]}${it.unit||''}`:null).filter(Boolean).join('、'); return `${r.date}（${vals||'データあり'}）`; }).join(' / ')
-      : '記録なし（体力測定を行わない事業所もあるため、運動の記録から評価してください）';
+      : ''; // ★ trial570: 無いときは体力測定の行そのものを出さない(「行っていませんが」と書かれないように)
     // ★ 運動の記録(運動メニュー)と前月からの変化を集計 (体力測定に依存せず評価できるように)
     const _exItems = effExerciseItems(appData.systemSettings);
     const _allInd = appData.systemSettings?.individualExerciseItems || [];
@@ -58958,7 +58963,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 ・評価は【厳しすぎず、やわらかく前向き】に。できていない点を断定・否定しすぎず、良い面や意欲にも触れてください。
 ・【分量・優先順位（重要）】変化・気づき・特筆すべき点（血圧が高めの日・体調の変化・特記の出来事・運動や体力の変化 等）を優先して記載し、変化のない項目は「大きな変化なし」程度に簡潔にまとめてよい。全項目を細かく埋めようとせず、ケアマネが2分程度でサッと読める分量に。各項目のtextは原則1〜3文以内。
 ・ただし機能訓練・生活支援の【専門用語を適度に】交え、専門職らしい所見にしてください（例: 下肢筋力の維持、立位・歩行バランス、関節可動域、活動意欲、生活リハビリ、離床機会、転倒予防 等を文脈に応じて自然に）。専門用語の多用や堅すぎる表現は避け、読みやすさを保つこと。
-・体力測定の数値が無くても構いません。運動の記録・通所の様子・体調・特記から柔軟に評価してください（体力測定にこだわらない）。
+・【最重要】下に書かれているデータだけを材料にする。書かれていないもの（体力測定・計画書・目標・評価表など）には一切触れない。「〜は行っていない」「〜が未作成」「〜が確認できない」「〜がないため」といった断り書きは絶対に書かない（ケアマネが「計画ができていないのか」と誤解するため）。
 ・【運動の変化を最優先で反映】「運動メニューの変化」に時間・回数・負荷の伸び(例: バイク3分→5分)や新しい種目があれば、②や④で必ず具体的に言及する。血圧など数値の羅列に偏らず、運動・生活機能の変化を主役にする。
 ・運動メニューの変更（マシンの増減等）があれば、その点に触れてください。運動機能・筋力・体調の観点を重視してください。
 ・通所が無い/少ない場合: ①②は「記録がなく評価が難しい」旨を無理なく記載し、断定しない。④⑤は【休みの量と理由】で柔軟に判断すること。
@@ -58977,10 +58982,9 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 通所時の体調: 平均${d.avgMoodLabel||'不明'}${d.moodDistText?`（内訳: ${d.moodDistText}）`:''}
 体調の理由（本人の様子・日付つき。同日の通所時→帰宅時の変化にも注目し、③満足度・④心身の変化・⑤今後の方向性に反映すること）:
 ${d.kibunDetail && d.kibunDetail.length ? '・'+d.kibunDetail.join('\n・') : 'なし'}
-体力測定(任意・行わない事業所もあり): ${fitnessText}
-特記（当月の記録・日付つき全件。体調・出来事・ご家族/職員の気づき等。③満足度・④心身の変化・⑤今後の方向性に反映すること）:
+${_hasFit ? `体力測定: ${fitnessText}\n` : ''}特記（当月の記録・日付つき全件。体調・出来事・ご家族/職員の気づき等。③満足度・④心身の変化・⑤今後の方向性に反映すること）:
 ${d.tokkiDetail && d.tokkiDetail.length ? '・'+d.tokkiDetail.join('\n・') : 'なし'}
-${_goalText ? `計画の目標（通所介護計画・個別機能訓練計画）:\n${_goalText}\n（②目標の達成・進捗は、これらの目標に対する取り組み状況・達成度を書いてください）` : '計画の目標: 未設定（※「目標が設定されていない」「計画書が確認できない」等の断り書きは絶対に書かないこと。今ある通所実績・運動・体調・特記だけを材料に、生活機能の維持・向上の観点で自然な所見として書く）'}
+${_goalText ? `計画の目標（通所介護計画・個別機能訓練計画）:\n${_goalText}\n（②目標の達成・進捗は、これらの目標に対する取り組み状況・達成度を書いてください）` : '（②目標の達成・進捗は、通所実績・運動・体調・特記だけを材料に、生活機能の維持・向上の観点で自然な所見として書く。「計画」「目標」という言葉は使わない）'}
 
 各項目で、必ず下記の選択肢から最も適切なものを1つ"sel"に選び、"text"に2〜3文の所見を上記の文体・観点で書いてください。当月に通所が無い場合は①を必ず「実施できなかった」にしてください。
 ${optionsDesc}
@@ -59001,7 +59005,7 @@ ${optionsDesc}
     MON_ITEMS.forEach(it => {
       const v = obj[it.key] || {};
       const sel = it.options.includes(v.sel) ? v.sel : '';
-      out[it.key] = { sel, text: typeof v.text==='string' ? v.text : '' };
+      out[it.key] = { sel, text: tsuMonScrub(typeof v.text==='string' ? v.text : '', { hasPlan: !!_goalText || _monHasPlan(patient.id), hasFitness: _hasFit }) }; // ★ trial570: 無いもの(計画書・体力測定)に触れた文は落とす
     });
     return out;
   };

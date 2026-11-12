@@ -381,7 +381,7 @@ describe('計画書の自立度をフェイスシートへ反映する(backfillF
   });
 });
 
-import { pushEmptyGuard, pushShrinkGuard } from './logic';
+import { pushEmptyGuard, pushShrinkGuard, tsuMonScrub } from './logic';
 describe('クラウドへ書く直前の関所(pushEmptyGuard・2026-11-02 水元店の事故)', () => {
   const cloud = { patients: Array.from({ length: 75 }, (_, i) => ({ id: i + 1 })) };
   it('起動直後の空の状態(利用者0・_sbStoreId なし)は書かない', () => {
@@ -453,5 +453,32 @@ describe('pushShrinkGuard', () => {
   });
   it('クラウドが空の配列なら見ない', () => {
     expect(pushShrinkGuard({ patients: [] }, { patients: [] }, {}, ['patients'])).toBeNull();
+  });
+});
+
+describe('tsuMonScrub(モニタリングの文から、無いものに触れた文を落とす・trial570)', () => {
+  it('計画書が無い: 計画に触れた文だけ落ち、ほかは残る', () => {
+    const r = tsuMonScrub('今回は計画通りに沿えなかった。運動プログラムには意欲的に取り組まれた。計画書が確認できないため目標の評価は難しい。', { hasPlan: false, hasFitness: true });
+    expect(r).toBe('運動プログラムには意欲的に取り組まれた。');
+  });
+  it('計画書がある: 計画の文は残す', () => {
+    const r = tsuMonScrub('通所介護計画に基づきサービスを提供した。概ね計画どおり実施できた。', { hasPlan: true, hasFitness: true });
+    expect(r).toBe('通所介護計画に基づきサービスを提供した。概ね計画どおり実施できた。');
+  });
+  it('体力測定が無い: 「行っていませんが」の文も、測定に触れた文も落ちる', () => {
+    const r = tsuMonScrub('体力測定は行っていませんが、歩行の様子は安定している。血圧は平均130mmHgで落ち着いていた。体力測定の数値は確認できなかった。', { hasPlan: true, hasFitness: false });
+    expect(r).toBe('血圧は平均130mmHgで落ち着いていた。');
+  });
+  it('体力測定がある: 残す', () => {
+    expect(tsuMonScrub('体力測定では握力が前回より伸びた。', { hasPlan: true, hasFitness: true })).toBe('体力測定では握力が前回より伸びた。');
+  });
+  it('目標が未設定という断り書きは、計画書の有無にかかわらず落ちる', () => {
+    expect(tsuMonScrub('目標が設定されていないため評価は困難。下肢筋力は維持されている。', { hasPlan: true, hasFitness: true })).toBe('下肢筋力は維持されている。');
+  });
+  it('全部落ちたら空・空は空', () => {
+    expect(tsuMonScrub('計画書が未作成。', { hasPlan: false })).toBe(''); expect(tsuMonScrub('', {})).toBe(''); expect(tsuMonScrub(null, {})).toBe('');
+  });
+  it('改行で区切った文も同じに扱う', () => {
+    expect(tsuMonScrub('体力測定は未実施\n運動は継続中', { hasFitness: false, hasPlan: true })).toBe('運動は継続中');
   });
 });
