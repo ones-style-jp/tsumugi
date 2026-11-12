@@ -763,3 +763,7 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
 
 /* ★ 2026-11-12 trial567: スマホの「操作」小窓から開くポップアップを画面中央の小窓に(TsuPhonePop)。中身の absolute 配置を解いて全幅に */
 .tsu-phone-pop > * { position: static !important; top: auto !important; left: auto !important; right: auto !important; bottom: auto !important; width: 100% !important; max-width: none !important; margin: 0 !important; transform: none !important; }
+/* ★ 2026-11-12 trial569: 「操作」の小窓の中に続けて出す小窓(印刷設定・各種入力・絞り込み・並び替え)。線で区切るだけ・影は付けない(1つの小窓に見せる) */
+.tsu-fold-panel { margin-top: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
+.tsu-fold-panel > * { box-shadow: none !important; }
+.tsu-fold-panel-host:empty { display: none; }

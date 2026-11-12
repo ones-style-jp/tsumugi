@@ -12084,9 +12084,23 @@ function TsuPhonePin({ children, testId, z = 30, on = true }) {
 //   使い方: {open && <TsuPhonePop onClose={close}>{従来のポップアップ}</TsuPhonePop>}。iPad・PCは children をそのまま返す(従来どおり)。中の absolute は CSS .tsu-phone-pop で解く
 // ★ trial568: 「操作」の小窓(上から出る)が開いていれば、その下に続けて出す(上から下へ)。無ければ中央
 const tsuPhonePopTop = () => { try { const el = document.querySelector('.tsu-fold-sheet'); const r = el && el.getBoundingClientRect(); return (r && r.bottom > 0 && r.bottom < window.innerHeight - 180) ? Math.round(r.bottom) + 8 : null; } catch { return null; } };
+// ★ 2026-11-12 trial569(ユーザー「操作を押してからの画面が分裂していてまとまりがない・後ろがスクロールできず下の操作ができない」):
+//   「操作」の小窓(TsuPhoneFold sheet)の中から開く小窓(印刷設定・各種入力・絞り込み・並び替え)は、別の幕を重ねず
+//   同じ小窓の中(ボタンの下)に続けて出す。小窓は1つ・幕は1枚・スクロールも1つ。小窓を閉じたら中の小窓も閉じる
+const TsuFoldPanelCtx = React.createContext(null);
 function TsuPhonePop({ children, onClose, testId }) {
   const phone = typeof window !== 'undefined' && window.innerWidth < 768;
+  const ctx = React.useContext(TsuFoldPanelCtx);
+  const host = phone && ctx && ctx.hostEl ? ctx.hostEl : null;
+  const onCloseRef = React.useRef(onClose); onCloseRef.current = onClose;
+  React.useEffect(() => {
+    if (!host || !ctx) return;
+    ctx.register(onCloseRef);
+    try { const sc = host.closest('.tsu-fold-sheet'); if (sc) { const hr = host.getBoundingClientRect(), cr = sc.getBoundingClientRect(); if (hr.top > cr.bottom - 120) sc.scrollTop += (hr.top - cr.top) - 52; } } catch {} // ボタンの下に見えていればそのまま。隠れているときだけ、頭が見えるところまで送る
+    return () => ctx.unregister(onCloseRef);
+  }, [host]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!phone) return children;
+  if (host) return ReactDOM.createPortal(<div data-testid={testId || 'tsu-phone-pop'} className="tsu-phone-pop tsu-fold-panel no-print">{children}</div>, host);
   const top = tsuPhonePopTop();
   return ReactDOM.createPortal(
     <div data-testid={testId || 'tsu-phone-pop'} className="no-print" style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: top != null ? 'flex-start' : 'center', justifyContent: 'center', padding: 12, paddingTop: top != null ? top : 12 }} onClick={onClose}>
@@ -12101,8 +12115,13 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
   // ★ 2026-11-12 trial568(ユーザー「操作を押したら上にそのまま出て、印刷設定などはその下に。上から下へ目を動かす形に統一」): 小窓は帯のすぐ下(上)から出す。帯の下端を測って top にする
   const [sheetTop, setSheetTop] = React.useState(95);
   React.useLayoutEffect(() => { if (!sheet || !open) return; try { const r = foldRef.current && foldRef.current.getBoundingClientRect(); if (r && r.bottom > 0) setSheetTop(Math.round(r.bottom)); } catch {} }, [sheet, open]);
+  // ★ trial569: 小窓の中の「続きの小窓」(TsuPhonePop)を受ける場所と、閉じるときに中の小窓も閉じる仕組み
+  const [hostEl, setHostEl] = React.useState(null);
+  const panelsRef = React.useRef(new Set());
+  const panelCtx = React.useMemo(() => ({ hostEl, register: (r) => { panelsRef.current.add(r); }, unregister: (r) => { panelsRef.current.delete(r); } }), [hostEl]);
+  const closePanels = () => { try { [...panelsRef.current].forEach(r => { try { r.current && r.current(); } catch {} }); } catch {} };
   if (!isPhone) return children;
-  const tog = () => { setOpen(v => { const nv = !v; if (!sheet) { try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} } return nv; }); };
+  const tog = () => { const nv = !open; if (!sheet) { try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} } if (!nv) closePanels(); setOpen(nv); };
   const _inner = (
     <div ref={foldRef} data-testid={`fold-${storageKey}`} className={`bg-white border-b border-slate-200 shadow-sm ${className}`}>
       <div className="flex items-center gap-1.5 px-2 py-1.5" style={{minHeight:48}}>
@@ -12113,10 +12132,14 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
         </button>
       </div>
       {/* 閉じているときも中身は消さずに高さ0で隠す(中にある確認の小窓=画面全体に出る窓 が開けなくならないように) */}
-      {sheet && open && <div data-testid={`fold-sheet-back-${storageKey}`} className="tsu-fold-sheet-back" onClick={tog} aria-hidden="true" />}
+      {/* ★ trial569: 幕の上で指を動かしたら(後ろをスクロールしようとしたら)小窓を閉じる。「閉じないと下が動かせない」の迷いをなくす */}
+      {sheet && open && <div data-testid={`fold-sheet-back-${storageKey}`} className="tsu-fold-sheet-back" onClick={tog} onTouchMove={tog} aria-hidden="true" />}
       <div data-testid={`fold-body-${storageKey}`} data-open={open ? '1' : '0'} aria-hidden={!open} className={open ? (sheet ? 'tsu-fold-sheet' : 'border-t border-slate-200') : ''} style={open ? (sheet ? { top: sheetTop, maxHeight: `calc(100dvh - ${sheetTop + 90}px)` } : undefined) : { height: 0, overflow: 'hidden' }}>
         {sheet && open && <div className="tsu-fold-sheet-head"><span>操作</span><button type="button" data-testid={`fold-sheet-close-${storageKey}`} onClick={tog} aria-label="閉じる"><X size={20} /></button></div>}
-        {children}
+        <TsuFoldPanelCtx.Provider value={sheet && open ? panelCtx : null}>
+          {children}
+          {sheet && open && <div ref={setHostEl} data-testid={`fold-panel-${storageKey}`} className="tsu-fold-panel-host" />}
+        </TsuFoldPanelCtx.Provider>
       </div>
       {/* ★ 2026-10-28: 帯のすぐ下に重ねて出す行(提供記録の「印」など)。帯の高さは変えない(下の表・カードの位置が動かない) */}
       {below ? <div className="relative" style={{ height: 0 }}><div className="absolute left-0 right-0 top-0">{below}</div></div> : null}
@@ -37425,9 +37448,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
               各種入力
               {miss > 0 && <span className="ml-1.5 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">次回未入力{miss}名</span>}
             </button>
-            {inputHub && ReactDOM.createPortal((
-              <div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-start justify-center p-4 pt-20" onClick={() => setInputHub(false)}>
-                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()} data-testid="cb-input-hub-modal">
+            {inputHub && (() => { const _hubPhone = (typeof window !== 'undefined' && window.innerWidth < 768); const _hubCard = (
+                <div className={_hubPhone ? "bg-white rounded-2xl border border-slate-300 shadow-xl w-full overflow-hidden" : "bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"} onClick={e => e.stopPropagation()} data-testid="cb-input-hub-modal">
                   <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
                     <div className="font-bold text-slate-800">各種入力 <span className="text-xs font-normal text-slate-500 ml-1">{selectedDate.replace(/-/g,'/')}・{displayRecords.length}名</span></div>
                     <button onClick={() => setInputHub(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><X size={18}/></button>
@@ -37457,8 +37479,9 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     {/* ★ 2026-10-26: 「次回の日付」カードは「次回予定」に統合(日付は各行の「月間で変える」から) */}
                   </div>
                 </div>
-              </div>
-            ), document.body)}
+              ); /* ★ trial569: スマホは「操作」の小窓の中(ボタンの下)に続けて出す。iPad/PC は従来どおり画面の上の方の小窓 */
+              return _hubPhone ? <TsuPhonePop testId="cb-input-hub-wrap" onClose={() => setInputHub(false)}>{_hubCard}</TsuPhonePop>
+                : ReactDOM.createPortal(<div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-start justify-center p-4 pt-20" onClick={() => setInputHub(false)}>{_hubCard}</div>, document.body); })()}
           </>);
         })()}
         {/* ★ 詳細設定: 面数(1面/2面)・用紙・補助線(カット線/パンチ点)をここで選ぶ */}
@@ -37475,7 +37498,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             const setSS = (patch)=>onSave({ ...appData, systemSettings: { ...ss, ...patch } });
             const tabBtn = (on)=>`flex-1 px-2 py-1.5 rounded-lg text-xs font-bold border ${on?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`;
             const _panel = (
-              <div className={_phonePS ? "bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-full text-left space-y-3 overflow-y-auto" : "absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3 overflow-y-auto"} style={{maxHeight: _phonePS ? `calc(100vh - ${(tsuPhonePopTop() || 60) + 20}px)` : 'calc(100vh - 140px)'}} data-testid="cb-print-settings" onClick={e => e.stopPropagation()}>
+              <div className={_phonePS ? "bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-full text-left space-y-3 overflow-y-auto" : "absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3 overflow-y-auto"} style={_phonePS ? undefined : {maxHeight: 'calc(100vh - 140px)'}} data-testid="cb-print-settings" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between"><span className="text-sm font-bold text-slate-700">印刷設定</span><button onClick={()=>setShowPrintSettings(false)} className="text-slate-400 hover:text-slate-700 text-lg leading-none">×</button></div>
                 {/* ★ 2026-10-16(ユーザー要望「店舗によって次回のお迎え時間を色付きで印刷したい」): 時刻の色(黒/赤/青)と太さ */}
                 <div>
@@ -37562,7 +37585,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 })()}
                 <label className="flex items-center gap-2 text-xs text-slate-700 py-0.5 cursor-pointer"><input type="checkbox" checked={ss.renrakuShowQr !== false} onChange={e=>setSS({renrakuShowQr:e.target.checked})}/>ご家族専用ページのQRコードを連絡帳に印字する</label>
               </div>
-            ); const _psTop = _phonePS ? tsuPhonePopTop() : null; return _phonePS ? ReactDOM.createPortal(<div data-testid="cb-print-settings-wrap" className="fixed inset-0 bg-slate-900/50 z-[9999] flex justify-center p-3" style={{ alignItems: _psTop != null ? 'flex-start' : 'center', paddingTop: _psTop != null ? _psTop : 12 }} onClick={()=>setShowPrintSettings(false)}>{_panel}</div>, document.body) : _panel; /* ★ trial568: 操作の小窓の下に */
+            ); return _phonePS ? <TsuPhonePop testId="cb-print-settings-wrap" onClose={()=>setShowPrintSettings(false)}>{_panel}</TsuPhonePop> : _panel; /* ★ trial569: スマホは「操作」の小窓の中(ボタンの下)に続けて出す(TsuPhonePop) */
           })()}
         </div>
         <button onClick={handlePrintBlank} data-testid="cb-blank" title="氏名・記録が空欄の連絡帳をPDFにします（手書き用）" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap shrink-0">

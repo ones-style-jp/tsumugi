@@ -87,30 +87,50 @@ ok(/ホーム\s*\d{1,2}月\d{1,2}日（[日月火水木金土]）/.test((await t
 ok(!(await page.getByText('今日もよろしくお願いします', { exact: false }).count()), '挨拶の文は出ない');
 { const sub = await page.getByTestId('home-today-am').innerText(); ok(!/[^\d]0(?!\d)/.test(sub.replace(/\d+名/, '')), `午前の内訳に 0 の項目がない (${sub.replace(/\n/g, ' ')})`); }
 ok(!(await page.evaluate(() => { const h = document.querySelector('[data-testid="home-hero"] > div'); return h && /gradient/.test(getComputedStyle(h).backgroundImage); })), '上の帯は紫のグラデーションではない');
-// ⑦ 連絡帳: 操作の小窓 → 印刷設定 が画面の中に見える
+// ⑦ 連絡帳: 操作の小窓 → 印刷設定/各種入力 は同じ小窓の中(ボタンの下)に続く(trial569)
 await page.getByTestId('tsu-tab-record').click(); await page.waitForTimeout(900);
 await page.getByTestId('tsu-pair-print').click(); await page.waitForTimeout(1200);
 await page.getByTestId('fold-btn-renraku').click(); await page.waitForTimeout(400);
 { const sh = await page.locator('.tsu-fold-sheet').boundingBox(); ok(sh && sh.y > 30 && sh.y < 200, `操作の小窓は上(帯のすぐ下)から出る (y=${sh && Math.round(sh.y)})(trial568)`);
   ok((await page.getByTestId('tsu-pair-menu').count()) === 1, '提供記録/連絡帳の見出しにも右上の3本線'); }
+const inSheet = async (tid) => page.evaluate((t) => { const el = document.querySelector(`[data-testid="${t}"]`); return !!(el && el.closest('.tsu-fold-sheet')); }, tid);
+const backdrops = async () => page.evaluate(() => [...document.querySelectorAll('body > div')].filter(d => { const cs = getComputedStyle(d); return cs.position === 'fixed' && /rgba\(15, 23, 42/.test(cs.backgroundColor) && d.getBoundingClientRect().height > 600; }).length + document.querySelectorAll('.tsu-fold-sheet-back').length);
 await page.locator('[data-testid="fold-body-renraku"] button', { hasText: /^印刷設定$/ }).click(); await page.waitForTimeout(500);
 { const ps = page.getByTestId('cb-print-settings'); const bb = await ps.boundingBox(); const sh = await page.locator('.tsu-fold-sheet').boundingBox();
-  ok(bb && bb.y >= 0 && bb.y + bb.height <= 844 && bb.width > 300, `印刷設定が画面の中に出る (y=${bb && Math.round(bb.y)} h=${bb && Math.round(bb.height)})`);
-  ok(sh && bb && bb.y >= sh.y + sh.height - 2, `印刷設定は操作の小窓の下に続く (小窓の下端 ${sh && Math.round(sh.y + sh.height)} ≤ 印刷設定の上端 ${bb && Math.round(bb.y)})`);
-  ok(await page.getByTestId('cb-timecolor-red').isVisible() && (await page.getByTestId('cb-timecolor-red').boundingBox()).y < 844, '印刷設定の中のボタンが押せる位置にある');
-  await page.getByTestId('cb-print-settings-wrap').click({ position: { x: 10, y: 10 } }); await page.waitForTimeout(300); ok((await ps.count()) === 0, '外を押すと閉じる'); }
-// ⑧ モニタリング: 絞り込み/並び替えも画面の中
+  ok(await inSheet('cb-print-settings'), '印刷設定は「操作」の小窓の中に出る(別の小窓を重ねない)(trial569)');
+  ok(bb && bb.y >= 0 && bb.width > 300 && bb.y > sh.y + 40, `印刷設定は操作のボタンの下に続く (小窓の上端 ${sh && Math.round(sh.y)} < 印刷設定の上端 ${bb && Math.round(bb.y)})`);
+  ok((await backdrops()) === 1, `幕は1枚だけ (${await backdrops()})`);
+  ok(await page.getByTestId('cb-timecolor-red').isVisible(), '印刷設定の中のボタンが見える');
+  await page.locator('.tsu-fold-sheet').evaluate(el => el.scrollTo(0, el.scrollHeight)); await page.waitForTimeout(200);
+  ok(await page.evaluate(() => { const el = document.querySelector('.tsu-fold-sheet'); return el.scrollTop > 0 && el.getBoundingClientRect().bottom <= window.innerHeight - 60; }), '小窓は1つのスクロールで下まで見られ、下のバーに重ならない');
+  await page.locator('[data-testid="cb-print-settings"] button', { hasText: /^×$/ }).click(); await page.waitForTimeout(300); ok((await ps.count()) === 0, '印刷設定の × で印刷設定だけ閉じる');
+  ok(!!(await page.locator('[data-testid="fold-body-renraku"][data-open="1"]').count()), '操作の小窓は開いたまま'); }
+await page.getByTestId('cb-input-hub').click(); await page.waitForTimeout(500);
+{ ok(await inSheet('cb-input-hub-modal'), '各種入力も「操作」の小窓の中に続けて出る(trial569)'); ok((await backdrops()) === 1, '各種入力でも幕は1枚');
+  // 操作の小窓を閉じると中の小窓も閉じる
+  await page.getByTestId('fold-sheet-close-renraku').click(); await page.waitForTimeout(400);
+  ok((await page.getByTestId('cb-input-hub-modal').count()) === 0, '操作を閉じると各種入力も閉じる');
+  ok((await page.locator('[data-testid="tsu-phone-pop"], [data-testid="cb-input-hub-wrap"]').count()) === 0, '閉じたあとに浮いた小窓が残らない');
+  await page.getByTestId('fold-btn-renraku').click(); await page.waitForTimeout(400);
+  ok((await page.getByTestId('cb-input-hub-modal').count()) === 0, '開き直すとボタンだけ(前の各種入力は出ない)'); }
+// 幕の上で指を動かす(後ろをスクロールしようとする)と小窓が閉じる
+{ const back = page.getByTestId('fold-sheet-back-renraku'); ok((await back.count()) === 1, '幕がある');
+  await back.evaluate(el => { const t = new Touch({ identifier: 1, target: el, clientX: 200, clientY: 700 }); el.dispatchEvent(new TouchEvent('touchmove', { touches: [t], changedTouches: [t], bubbles: true, cancelable: true })); }); await page.waitForTimeout(400);
+  ok((await page.locator('[data-testid="fold-body-renraku"][data-open="1"]').count()) === 0, '幕の上で指を動かすと操作の小窓が閉じる(後ろを動かせる)(trial569)'); }
+// ⑧ モニタリング: 絞り込み/並び替えも同じ小窓の中
 await page.evaluate(() => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'monitoring', pid: null, t: Date.now() })));
 await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(1500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 400 }).catch(() => {});
 await page.getByTestId('fold-btn-monitoring').click(); await page.waitForTimeout(400);
 await page.locator('[data-testid="fold-body-monitoring"] button', { hasText: /^絞り込み/ }).click(); await page.waitForTimeout(400);
-{ const pop = page.getByTestId('tsu-phone-pop'); const inner = pop.locator('.tsu-phone-pop > *').first(); const bb = await inner.boundingBox();
+{ const pop = page.getByTestId('tsu-phone-pop'); const inner = page.locator('[data-testid="tsu-phone-pop"] > *, [data-testid="tsu-phone-pop"] .tsu-phone-pop > *').first(); const bb = await inner.boundingBox();
   ok(bb && bb.y >= 0 && bb.y + bb.height <= 844, `モニタリングの絞り込みが画面の中に出る (y=${bb && Math.round(bb.y)} h=${bb && Math.round(bb.height)})`);
-  await pop.click({ position: { x: 10, y: 10 } }); await page.waitForTimeout(300); ok((await pop.count()) === 0, '外を押すと閉じる(絞り込み)'); }
+  ok(await inSheet('tsu-phone-pop'), '絞り込みは操作の小窓の中(trial569)');
+  await page.locator('[data-testid="fold-body-monitoring"] button', { hasText: /^絞り込み/ }).click(); await page.waitForTimeout(300); ok((await pop.count()) === 0, 'もう一度押すと閉じる(絞り込み)'); }
 await page.locator('[data-testid="fold-body-monitoring"] button', { hasText: /^並び替え/ }).click(); await page.waitForTimeout(400);
-{ const pop = page.getByTestId('tsu-phone-pop'); const bb = await pop.locator('.tsu-phone-pop > *').first().boundingBox();
+{ const pop = page.getByTestId('tsu-phone-pop'); const bb = await page.locator('[data-testid="tsu-phone-pop"] > *, [data-testid="tsu-phone-pop"] .tsu-phone-pop > *').first().boundingBox();
   ok(bb && bb.y >= 0 && bb.y + bb.height <= 844, `並び替えも画面の中 (y=${bb && Math.round(bb.y)} h=${bb && Math.round(bb.height)})`);
-  await pop.click({ position: { x: 10, y: 10 } }); await page.waitForTimeout(300); }
+  ok(await inSheet('tsu-phone-pop'), '並び替えも操作の小窓の中');
+  await page.getByTestId('fold-sheet-close-monitoring').click(); await page.waitForTimeout(300); ok((await pop.count()) === 0, '操作を閉じると並び替えも閉じる'); }
 // ⑤ 表示設定で消せる
 await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); d.systemSettings = d.systemSettings || {}; d.systemSettings.homeTasks = { ...(d.systemSettings.homeTasks || {}), absence: { on: false } }; localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'dashboard', pid: null, t: Date.now() })); });
 await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(1500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 400 }).catch(() => {});
