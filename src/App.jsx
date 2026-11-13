@@ -27006,7 +27006,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   };
   const _famHideBtn = (p, { big, testid } = {}) => { const f = _famTokkiOf(p); if (!f.canToggle) return null; const h = big ? 48 : 44; return (
     <button type="button" data-testid={testid} data-vis={f.isVisible ? '1' : '0'} onClick={f.toggle} title={f.isVisible ? '押すとご家族の画面に出しません（ケアマネには表示）' : '家族に非表示中。押すと表示に戻します'}
-      className="shrink-0" style={{height:h, minWidth: big ? 72 : 58, padding:'0 6px', border: f.isVisible ? '1px solid #cbd5e1' : '1.5px solid #dc2626', borderRadius: big ? 12 : 8, fontWeight:'bold', background: f.isVisible ? '#f8fafc' : '#dc2626', color: f.isVisible ? '#64748b' : '#fff', lineHeight:1.2, fontSize: big ? 13 : 11, whiteSpace:'nowrap'}}>
+      className="shrink-0" style={{height:h, minWidth: big ? 72 : 58, padding:'0 6px', border: f.isVisible ? '1px solid #cbd5e1' : '2px solid #dc2626', borderRadius: big ? 12 : 8, fontWeight:'bold', background: f.isVisible ? '#f8fafc' : '#fff', color: f.isVisible ? '#64748b' : '#dc2626', lineHeight:1.2, fontSize: big ? 13 : 11, whiteSpace:'nowrap'}}>
       {f.isVisible ? <>家族<br/>非表示</> : <>非表示中</>}
     </button> ); };
   const kpConfirmRef = React.useRef(false); // ★ PC Enter: 1回目=確定 / 2回目=右のセルへ移動
@@ -29722,7 +29722,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           {hasTokki && !isReadOnly && p.status !== '欠席' && p.status !== '休止' && (
                             <button type="button" onClick={toggleVisible}
                               title={isVisible ? "押すとご家族の画面に出しません（ケアマネには表示）" : "家族に非表示中。押すと表示に戻します"}
-                              style={{width:54,flexShrink:0,border:isVisible?'1px solid #cbd5e1':'1.5px solid #dc2626',borderRadius:6,fontWeight:'bold',cursor:'pointer',background:isVisible?'#f8fafc':'#dc2626',color:isVisible?'#64748b':'#fff',padding:'2px 3px',lineHeight:1.25,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                              style={{width:54,flexShrink:0,border:isVisible?'1px solid #cbd5e1':'2px solid #dc2626',borderRadius:6,fontWeight:'bold',cursor:'pointer',background:isVisible?'#f8fafc':'#fff',color:isVisible?'#64748b':'#dc2626',padding:'2px 3px',lineHeight:1.25,display:'flex',alignItems:'center',justifyContent:'center'}}>
                               {isVisible
                                 ? <span style={{fontSize:tsuFz(10),whiteSpace:'nowrap'}}>家族<br/>非表示</span>
                                 : <span style={{fontSize:tsuFz(8.5),whiteSpace:'nowrap'}}>非表示中</span>}
