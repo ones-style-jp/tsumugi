@@ -13970,6 +13970,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
 const TSU_MEMO_COLOR = '#f97316';
 const TSU_MEMO_MAX = 200;
 const tsuIsMemo = (e) => !!e && e.kind === 'memo';
+// ★ 2026-11-13 trial574(ユーザー「カレンダーからも申し送りを入れたい。予定と同じく いつからいつまで表示するかを」): endDate があれば その日まで毎日出す
+const tsuMemoEndOf = (m) => (m && m.endDate && String(m.endDate) > String(m.date)) ? m.endDate : (m ? m.date : '');
+const tsuMemoOnDay = (m, iso) => !!m && !!iso && String(m.date || '') <= String(iso) && String(iso) <= String(tsuMemoEndOf(m));
 const tsuIsoAdd = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return _isoOf(d); };
 const tsuNextOpenIso = (appData, iso) => forwardOpenDate(tsuIsoAdd(iso, 1), appData?.systemSettings?.facilityInfo?.closedDays || [0], appData?.holidays);
 // 'M/D（曜）'。rel=true なら今日・あすを前に付ける
@@ -13979,7 +13982,7 @@ const tsuMemosOf = (appData) => (Array.isArray(appData?.scheduleEvents) ? appDat
 // 提供記録入力の名前の印用: 日付ごとに 利用者ID → その日の申し送り(予定の配列が変わるまで覚えておく)
 const _tsuMemoIdxCache = new WeakMap();
 const tsuMemoIndex = (appData, iso) => { const arr = appData?.scheduleEvents; if (!Array.isArray(arr) || !iso) return null; let c = _tsuMemoIdxCache.get(arr); if (!c) { c = {}; _tsuMemoIdxCache.set(arr, c); }
-  if (!c[iso]) { const mp = new Map(); arr.forEach(e => { if (tsuIsMemo(e) && e.date === iso && e.patientId !== '' && e.patientId != null) { const L = mp.get(e.patientId) || []; L.push(e); mp.set(e.patientId, L); } }); mp.forEach(L => L.sort(tsuMemoSort)); c[iso] = mp; } return c[iso]; };
+  if (!c[iso]) { const mp = new Map(); arr.forEach(e => { if (tsuIsMemo(e) && tsuMemoOnDay(e, iso) && e.patientId !== '' && e.patientId != null) { const L = mp.get(e.patientId) || []; L.push(e); mp.set(e.patientId, L); } }); mp.forEach(L => L.sort(tsuMemoSort)); c[iso] = mp; } return c[iso]; };
 const tsuMemoSave = (appData, onSave, memo) => {
   const list = Array.isArray(appData.scheduleEvents) ? appData.scheduleEvents : [];
   const prev = memo.id ? list.find(e => e.id === memo.id) : null;
@@ -13988,6 +13991,7 @@ const tsuMemoSave = (appData, onSave, memo) => {
   const text = String(memo.title || '').trim().slice(0, TSU_MEMO_MAX);
   const ev = { ...(prev || {}), id, kind: 'memo', color: TSU_MEMO_COLOR, date: memo.date, title: text, patientId: memo.patientId ?? '', by: prev ? (prev.by || '') : me, at: prev ? (prev.at || nowIso) : nowIso, _savedAt: syncNow() };
   if (prev && me && me !== (prev.by || '')) ev.editedBy = me;
+  if (memo.endDate !== undefined) { if (memo.endDate && String(memo.endDate) > String(ev.date)) ev.endDate = memo.endDate; else delete ev.endDate; } // ★ trial574: いつまで表示(開始と同じ・空なら その日だけ)
   let patients = appData.patients, patChanged = false;
   if (memo.toSupport && ev.patientId !== '' && ev.patientId != null && !ev.spId) {
     const p = (appData.patients || []).find(x => x.id === ev.patientId);
@@ -14079,14 +14083,14 @@ function TsuMemoEditor({ appData, onSave, init, onClose }) {
   useTsuBackLock(true);
   const _ph = tsuViewW() < 640; const _touch = tsuTouchDev(); const today = tsuTodayIso();
   const prev = init && init.id ? (appData.scheduleEvents || []).find(e => e.id === init.id) : null;
-  const [d, setD] = React.useState(() => ({ id: prev ? prev.id : '', date: (prev && prev.date) || (init && init.date) || today, patientId: (prev && prev.patientId) || (init && init.patientId) || '', title: (prev && prev.title) || '', toSupport: false }));
+  const [d, setD] = React.useState(() => ({ id: prev ? prev.id : '', date: (prev && prev.date) || (init && init.date) || today, patientId: (prev && prev.patientId) || (init && init.patientId) || '', title: (prev && prev.title) || '', endDate: (prev && prev.endDate) || (init && init.endDate) || '', toSupport: false }));
   // ★ 2026-10-30(ユーザー要望「退所した方は名前の選択に出さない」): 利用者マスタの「退所済み」(利用終了日を過ぎた・退所/終了)は出さない。直すときに選んであった方だけは残す
   const pts = React.useMemo(() => (appData.patients || []).filter(p => String(p.name || '').trim() && (isPatientListable(p) || (prev && prev.patientId !== '' && prev.patientId != null && p.id === prev.patientId))).slice().sort((a, b) => String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja')), [appData.patients]);
   const fs = (_ph || _touch) ? 16 : 14; const hh = _ph ? 44 : _touch ? 40 : 38; // ★ 指で使う端末は16px(iPhone/iPad は16px未満の欄で拡大される)
   const field = { width: '100%', fontSize: fs, minHeight: hh, border: '1px solid #cbd5e1', borderRadius: 10, padding: '6px 10px', background: 'white', color: '#1e293b', boxSizing: 'border-box' };
   const lab = { fontSize: 12, fontWeight: 'bold', color: '#64748b', marginBottom: 4 };
   const chip = (on) => ({ minHeight: hh, fontSize: _ph ? 15 : 13, fontWeight: 'bold', borderRadius: 10, padding: '0 12px', cursor: 'pointer', whiteSpace: 'nowrap', border: `1px solid ${on ? '#fb923c' : '#e2e8f0'}`, background: on ? '#fff7ed' : 'white', color: on ? '#c2410c' : '#475569' });
-  const save = () => { const t = String(d.title || '').trim(); if (!t) { alert('申し送りの内容を入力してください'); return; } if (!d.date) { alert('表示する日を選んでください'); return; } tsuMemoSave(appData, onSave, { ...d, title: t }); onClose(); };
+  const save = () => { const t = String(d.title || '').trim(); if (!t) { alert('申し送りの内容を入力してください'); return; } if (!d.date) { alert('表示する日を選んでください'); return; } if (d.endDate && String(d.endDate) < String(d.date)) { alert('「いつまで」は、表示する日より後の日を選んでください'); return; } tsuMemoSave(appData, onSave, { ...d, title: t, endDate: d.endDate || '' }); onClose(); };
   const del = () => { if (!prev) return; if (!window.confirm(`この申し送りを削除しますか？${prev.spId ? '\n（支援経過表に残した行はそのまま残ります）' : ''}`)) return; tsuMemoDelete(appData, onSave, prev.id); onClose(); };
   return (
     <div data-testid="memo-editor" style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: _ph ? 'stretch' : 'center', justifyContent: 'center', padding: _ph ? 0 : 16 }}>
@@ -14115,7 +14119,12 @@ function TsuMemoEditor({ appData, onSave, init, onClose }) {
             <input type="date" data-testid="memo-date" value={d.date} onChange={e => { const v = e.target.value; setD(x => ({ ...x, date: v })); }} style={{ ...field, height: hh, width: 'auto', flex: '1 1 150px' }} />
             <button type="button" data-testid="memo-date-today" onClick={() => setD(x => ({ ...x, date: today }))} style={chip(d.date === today)}>今日</button>{/* ★ 2026-10-30(ユーザー): 次の営業日のボタンは不要(ほかの日は日付で選ぶ・あとから「複製」) */}
           </div>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>その日だけホームに出ます。日が過ぎたら、カレンダーのその日に残ります。</div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>{/* ★ trial574: 予定と同じく いつまで表示するか */}
+            <span style={{ fontSize: fs, color: '#1e293b', whiteSpace: 'nowrap' }}>いつまで</span>
+            <input type="date" data-testid="memo-end" value={d.endDate || ''} min={d.date || undefined} onChange={e => { const v = e.target.value; setD(x => ({ ...x, endDate: v })); }} style={{ ...field, height: hh, width: 'auto', flex: '1 1 150px' }} />
+            {d.endDate && <button type="button" data-testid="memo-end-clear" onClick={() => setD(x => ({ ...x, endDate: '' }))} style={chip(false)}>その日だけ</button>}
+          </div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{d.endDate && String(d.endDate) > String(d.date) ? `${tsuMemoDayLabel(d.date)}から${tsuMemoDayLabel(d.endDate)}まで、毎日ホームに出ます。` : 'その日だけホームに出ます。'}日が過ぎたら、カレンダーのその日に残ります。</div>
         </div>
         {d.patientId !== '' && d.patientId != null && (prev && prev.spId
           ? <div data-testid="memo-sp-done" style={{ fontSize: 13, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '8px 12px' }}>支援経過表に残しました{prev.spAt ? `（${tsuMemoDayLabel(prev.spAt)}）` : ''}。ここで直しても、支援経過表の行は変わりません。</div>
@@ -14169,7 +14178,7 @@ function TsuMemoRow({ appData, onSave, m, onEdit, showDate }) {
   const [cp, setCp] = React.useState(false);
   const pt = (m.patientId !== '' && m.patientId != null) ? (appData.patients || []).find(p => p.id === m.patientId) : null;
   const btn = { minHeight: _ph ? 44 : _tp ? 40 : 30, fontSize: _ph ? 14 : 12, fontWeight: 'bold', borderRadius: 8, padding: '0 10px', cursor: 'pointer', whiteSpace: 'nowrap' };
-  const meta = [m.by || '', m.copyOf && m.fromDate ? `${tsuMemoDayLabel(m.fromDate)}から` : '', m.spId ? '支援経過表に残しました' : ''].filter(Boolean).join('・');
+  const meta = [(m.endDate && String(m.endDate) > String(m.date)) ? `${tsuMemoDayLabel(m.date)}〜${tsuMemoDayLabel(m.endDate)}` : '', m.by || '', m.copyOf && m.fromDate ? `${tsuMemoDayLabel(m.fromDate)}から` : '', m.spId ? '支援経過表に残しました' : ''].filter(Boolean).join('・'); // ★ trial574: 期間つきは「いつからいつまで」を添える
   const del = () => { if (!window.confirm(`この申し送りを削除しますか？${m.spId ? '\n（支援経過表に残した行はそのまま残ります）' : ''}`)) return; tsuMemoDelete(appData, onSave, m.id); };
   return (
     <div data-testid={`memo-row-${m.id}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: _ph ? 'wrap' : 'nowrap', background: 'white', border: '1px solid #e2e8f0', borderLeft: `4px solid ${TSU_MEMO_COLOR}`, borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
@@ -14194,7 +14203,7 @@ function TsuMemoRow({ appData, onSave, m, onEdit, showDate }) {
 function TsuHomeMemos({ appData, onSave, isRead, markRead }) {
   const _ph = tsuViewW() < 640; const _tp = tsuTouchDev(); const today = tsuTodayIso();
   const all = tsuMemosOf(appData);
-  const todayL = all.filter(m => m.date === today).sort(tsuMemoSort);
+  const todayL = all.filter(m => tsuMemoOnDay(m, today)).sort(tsuMemoSort); // ★ trial574: 期間(date〜endDate)の中なら毎日出す
   const upcoming = all.filter(m => String(m.date || '') > today).sort(tsuMemoSort);
   const [ed, setEd] = React.useState(null); const [showUp, setShowUp] = React.useState(false);
   // 見たら既読(サイドバーの「ホーム」の新着の数から外す)
@@ -14280,7 +14289,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const _memoAll = (appData.scheduleEvents || []).filter(tsuIsMemo);
   const events = (appData.scheduleEvents || []).filter(e => !tsuIsMemo(e));
   const save = (list, msg) => onSave({ ...appData, scheduleEvents: [...list, ..._memoAll] }, msg ? { manual:true, message: msg } : undefined);
-  const _memoByDate = {}; _memoAll.forEach(m => { if (!_memoByDate[m.date]) _memoByDate[m.date] = []; _memoByDate[m.date].push(m); });
+  const _memoByDate = {}; _memoAll.forEach(m => { const _end = tsuMemoEndOf(m); let _d = m.date, _n = 0; while (_d && String(_d) <= String(_end) && _n < 62) { if (!_memoByDate[_d]) _memoByDate[_d] = []; _memoByDate[_d].push(m); _d = tsuIsoAdd(_d, 1); _n++; } }); // ★ trial574: いつまで表示 の各日に
   const memosOf = (ds) => (_memoByDate[ds] || []).slice().sort(tsuMemoSort);
   const [memoEd, setMemoEd] = useState(null);
   // ★ 色ラベル(カテゴリ): 色を押すとタイトルが自動で入る。 各種設定不要でここで編集・保存。
@@ -14688,7 +14697,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
               <button type="button" aria-label="閉じる" data-testid="sch-modal-close" onClick={()=>setModal(null)} style={{width:42,height:42,borderRadius:21,border:'1px solid #e2e8f0',background:'white',fontSize:22,lineHeight:1,color:'#334155',cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
               <div style={{flex:1,display:'flex',background:'#e2e5ea',borderRadius:21,padding:3,minWidth:0}}>
-                {[['', '予定'], ['task', 'タスク']].map(([k, l]) => { const on = (modal.kind || '') === k; return <button key={l} type="button" data-testid={`sch-kind-${k || 'event'}`} onClick={()=>setModal(m=>({ ...m, kind: k || undefined, ...(k === 'task' ? { end: '', notify: false, endDate: '', _allDay: undefined } : {}) }))} style={{flex:1,minWidth:0,padding:'8px 6px',borderRadius:18,border:on?`2px solid ${k?TSU_TASK_COLOR:'#6366f1'}`:'2px solid transparent',background:on?'white':'transparent',color:on?'#1e293b':'#64748b',fontWeight:'bold',fontSize:15,cursor:'pointer',boxShadow:on?'0 1px 3px rgba(0,0,0,0.12)':'none',whiteSpace:'nowrap'}}>{l}</button>; })}
+                {[['', '予定'], ['task', 'タスク'], ['memo', '申し送り']].map(([k, l]) => { const on = (modal.kind || '') === k; return <button key={l} type="button" data-testid={`sch-kind-${k || 'event'}`} onClick={()=>{ if (k === 'memo') { setMemoEd({ date: modal.date || selDay, endDate: modal.endDate || '' }); setModal(null); return; } /* ★ trial574: 申し送りは申し送りの入力画面へ(同じ日・終わりの日を引き継ぐ) */ setModal(m=>({ ...m, kind: k || undefined, ...(k === 'task' ? { end: '', notify: false, endDate: '', _allDay: undefined } : {}) })); }} style={{flex:1,minWidth:0,padding:'8px 6px',borderRadius:18,border:on?`2px solid ${k==='task'?TSU_TASK_COLOR:k==='memo'?TSU_MEMO_COLOR:'#6366f1'}`:'2px solid transparent',background:on?'white':'transparent',color:on?'#1e293b':'#64748b',fontWeight:'bold',fontSize:15,cursor:'pointer',boxShadow:on?'0 1px 3px rgba(0,0,0,0.12)':'none',whiteSpace:'nowrap'}}>{l}</button>; })}
               </div>
               <button data-testid="sch-modal-save" onClick={upsert} style={{whiteSpace:'nowrap',background:'#6366f1',border:'none',color:'white',borderRadius:21,padding:'10px 20px',fontWeight:'bold',fontSize:15,cursor:'pointer',flexShrink:0,minHeight:42}}>保存</button>
             </div>
