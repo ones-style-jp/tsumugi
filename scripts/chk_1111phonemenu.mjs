@@ -37,16 +37,8 @@ const open = async (page, view) => {
   if (await page.getByText('担当者を選択', { exact: false }).count()) { await page.locator('button', { hasText: /見本|例示|架空/ }).first().click().catch(() => {}); await page.waitForTimeout(900); }
   const pid = await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); d.systemSettings = d.systemSettings || {}; d.holidays = []; d.systemSettings.facilityInfo = { ...(d.systemSettings.facilityInfo || {}), closedDays: [] }; delete d.systemSettings.tpBaseReflect; const dow = new Date().getDay(); const ps = d.patients.filter(p => p.status === '利用中' && !p.endDate); ps.forEach((p, i) => { p.scheduleAmPm = ['', '', '', '', '', '', '']; if (i < 3) { p.scheduleAmPm[dow] = 'AM'; p.pickupType = 'fixed'; p.pickupTimes = ['', '', '', '', '', '', '']; p.pickupTimes[dow] = '08:30'; p.pauseHistory = []; p.startDate = '2025-01-01'; } }); d.diarySettings = d.diarySettings || {}; d.diarySettings.cars = [{ id: 'car1', name: '1号車', type: '' }]; d.transportPlans = {}; const tpl = (() => { const x = new Date('2099-01-05T00:00:00'); x.setDate(x.getDate() + (dow === 0 ? 6 : dow - 1)); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; })(); d.transportPlans[`${tpl}_AM`] = { cars: { car1: ps.slice(0, 3).map((p, i) => ({ pid: p.id, t: `8:${30 + i}`, mark: false })) }, walkers: [], others: [], un: [], memo: '', driver: {}, _savedAt: Date.now() }; localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0'); localStorage.setItem('tsumugiTpDriveAck', String(Date.now())); sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'transport', pid: null, date: '2099-01-05', t: Date.now(), ampm: 'AM' })); window.__tpl = tpl; return ps[0].id; });
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {});
-  const banner = page.getByTestId('tp-base-banner'); const txt = await banner.innerText();
-  ok(/いつもの並び/.test(txt) && !/今の送迎表の並び/.test(txt) && txt.length < 160, `帯の説明は1行(${txt.length}字)`);
-  ok((await banner.getByTestId('tsu-hint').count()) >= 1, 'ⓘがある');
-  await banner.getByTestId('tsu-hint').first().click(); await page.waitForTimeout(300);
-  ok((await page.locator('[data-tsu-hint-pop]').filter({ hasText: /今の送迎表の並び/ }).count()) === 1, 'ⓘを押すと残りの説明が出る');
-  await page.mouse.click(5, 890); await page.waitForTimeout(200);
-  ok((await page.getByTestId('tp-base-reflect-pickup').count()) === 1 && await page.getByTestId('tp-base-reflect-pickup').isChecked(), '反映のチェックは残っている');
-  const tpl = await page.evaluate(() => { const dow = new Date().getDay(); const x = new Date('2099-01-05T00:00:00'); x.setDate(x.getDate() + (dow === 0 ? 6 : dow - 1)); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; });
-  const inp = page.locator(`[data-tprow][data-tppid="${pid}"][data-tpiso="${tpl}"] input`).first(); await inp.click(); await inp.fill(''); await inp.type('8:55', { delay: 20 }); await inp.press('Enter'); await page.waitForTimeout(500);
-  ok(/基本のお迎え時間にも反映しました/.test(await page.evaluate(() => document.body.innerText)), '時間を入れると「利用者マスタの基本のお迎え時間にも反映しました」の知らせ');
+  // ★ trial573: 基本の送迎表の説明の帯(いつもの並び…ⓘ)と時間編集時の自動反映は廃止 → 帯が無いことだけ見る(反映は chk_1113tp572)
+  ok((await page.getByTestId('tp-base-banner').count()) === 0, '説明の帯は無い(trial573)');
   await page.screenshot({ path: '/tmp/chk_1111phonemenu_tp.png' }).catch(() => {});
   await page.context().close(); }
 await b.close();

@@ -39287,18 +39287,32 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   //   送りの時間を反映した方は「基本の送り時間も設定する」(dropTimeOn)を入にする(入でないと初期値に使われないため)。保存は送迎表のコマと同じ onSave で一緒に書く(mutate の extra)
   const _tplReflectCfg = (() => { const c = (appData.systemSettings || {}).tpBaseReflect || {}; return { pickup: c.pickup !== false, drop: c.drop !== false }; })();
   const _setTplReflect = (k, on) => { try { onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), tpBaseReflect: { ..._tplReflectCfg, [k]: !!on }, _updatedAt: syncNow() } }, { silent: true }); } catch {} };
-  const _tplReflectPatch = (iso, pid, { t, dropAt } = {}) => {
+  // ★ 2026-11-13 trial572(ユーザー「チェックしていても反映されない。反映ボタンを押したら『反映しますか』→利用者マスタの時間に入れる形に」):
+  //   自動(時間を編集したときだけ)はやめ、帯の「利用者マスタへ反映」ボタンで、保存済みの基本の送迎表の全員分(お迎え時間 t・送りの時間 dropAt)をまとめて書く。チェックは反映する項目の選択
+  const _tplReflectOne = (pt, dow, { t, dropAt } = {}) => {
     try {
-      if (!_isTplIso(iso)) return null;
-      const dow = new Date(`${iso}T00:00:00`).getDay(); const pt = (appData.patients || []).find(p => p && p.id === pid); if (!pt) return null;
       const hm = (v) => { const m = String(v || '').trim().match(/^(\d{1,2}):(\d{2})$/); return m && +m[1] <= 23 && +m[2] <= 59 ? [+m[1], m[2]] : null; };
-      let np = pt;
-      if (t !== undefined && _tplReflectCfg.pickup) { const x = hm(t); if (x) { const val = `${String(x[0]).padStart(2, '0')}:${x[1]}`; const arr = [...(Array.isArray(pt.pickupTimes) ? pt.pickupTimes : [])]; while (arr.length < 7) arr.push(''); const cur = hm(arr[dow]); if (!cur || cur[0] !== x[0] || cur[1] !== x[1] || !(pt.pickupType === 'fixed' || pt.pickupType === 'partial')) { arr[dow] = val; np = { ...np, pickupTimes: arr, pickupType: (pt.pickupType === 'fixed' || pt.pickupType === 'partial') ? pt.pickupType : 'fixed' }; } } }
-      if (dropAt !== undefined && _tplReflectCfg.drop) { const x = hm(dropAt); if (x) { const val = `${x[0]}:${x[1]}`; const arr = [...(Array.isArray(pt.dropTimes) ? pt.dropTimes : [])]; while (arr.length < 7) arr.push(''); const cur = hm(arr[dow]); if (!pt.dropTimeOn || !cur || cur[0] !== x[0] || cur[1] !== x[1]) { arr[dow] = val; np = { ...np, dropTimes: arr, dropTimeOn: true }; } } }
+      let np = pt; let pk = false, dr = false;
+      if (t !== undefined && _tplReflectCfg.pickup) { const x = hm(t); if (x) { pk = true; const val = `${String(x[0]).padStart(2, '0')}:${x[1]}`; const arr = [...(Array.isArray(pt.pickupTimes) ? pt.pickupTimes : [])]; while (arr.length < 7) arr.push(''); const cur = hm(arr[dow]); if (!cur || cur[0] !== x[0] || cur[1] !== x[1] || !(pt.pickupType === 'fixed' || pt.pickupType === 'partial')) { arr[dow] = val; np = { ...np, pickupTimes: arr, pickupType: (pt.pickupType === 'fixed' || pt.pickupType === 'partial') ? pt.pickupType : 'fixed' }; } } }
+      if (dropAt !== undefined && _tplReflectCfg.drop) { const x = hm(dropAt); if (x) { dr = true; const val = `${x[0]}:${x[1]}`; const arr = [...(Array.isArray(pt.dropTimes) ? pt.dropTimes : [])]; while (arr.length < 7) arr.push(''); const cur = hm(arr[dow]); if (!pt.dropTimeOn || !cur || cur[0] !== x[0] || cur[1] !== x[1]) { arr[dow] = val; np = { ...np, dropTimes: arr, dropTimeOn: true }; } } }
       if (np === pt) return null;
-      try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `✓ ${pt.name} 様の利用者マスタの${t !== undefined ? '基本のお迎え時間' : '基本の送り時間'}にも反映しました` } })); } catch {} // ★ trial557: 反映したことが分かるように
-      return { patients: (appData.patients || []).map(p => p && p.id === pid ? np : p) };
+      return { np, pk, dr };
     } catch { return null; }
+  };
+  const _tplReflectAll = () => {
+    try {
+      const byPid = new Map(); let nPk = 0, nDr = 0; const names = new Set();
+      for (let i = 0; i < 7; i++) { const d = new Date(`${TSU_TP_BASE_MON}T00:00:00`); d.setDate(d.getDate() + i); const iso = _iso(d); const dow = d.getDay();
+        ['AM', 'PM'].forEach(sl => { const pl = plans[`${iso}_${sl}`]; if (!pl || typeof pl !== 'object' || pl._draft) return;
+          const mem = [...Object.values(pl.cars || {}).flat(), ...(pl.un || [])];
+          mem.forEach(m => { if (!m || m.pid == null) return; const pt0 = byPid.get(m.pid) || (appData.patients || []).find(p => p && p.id === m.pid); if (!pt0) return;
+            const r = _tplReflectOne(pt0, dow, { t: m.t, dropAt: (pl.dropAt || {})[String(m.pid)] }); if (!r) return; byPid.set(m.pid, r.np); if (r.pk) nPk++; if (r.dr) nDr++; names.add(r.np.name || ''); }); }); }
+      if (!byPid.size) { try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '利用者マスタに反映する時間はありません（基本の送迎表が保存されていないか、すでに同じ時間です）' } })); } catch {} return; }
+      const what = [ (nPk && _tplReflectCfg.pickup) ? `基本のお迎え時間 ${nPk}件` : '', (nDr && _tplReflectCfg.drop) ? `基本の送り時間 ${nDr}件` : '' ].filter(Boolean).join('・');
+      if (!window.confirm(`基本の送迎表の時間を、利用者マスタ（月間スケジュールの基本の時間）に反映します。\n対象: ${byPid.size}名（${what}）\nマスタの今の時間は上書きされます。よろしいですか？`)) return;
+      const at = syncNow();
+      onSave({ ...appData, patients: (appData.patients || []).map(p => (p && byPid.has(p.id)) ? { ...byPid.get(p.id), _savedAt: at } : p) }, { manual: true, message: `✓ 利用者マスタに反映しました（${byPid.size}名・${what}）` });
+    } catch (e) { try { window.alert('反映できませんでした: ' + String(e && e.message || e)); } catch {} }
   };
   // ★ 2026-11-03 trial505(ユーザー報告「退所した方がスマホの送迎表で休みに出る」): 送迎表の利用者の判定。利用期間(isPatientActiveOnDate=利用終了日)に加えて、
   //   状態が退所・終了なのに利用終了日が空(入れ忘れ)の方は、今日以降の日には出さない(終了日があればその日まで出す・過去の週はそのまま)。他の画面(isPatientListable)との食い違い対策
@@ -39363,7 +39377,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         if (!attending) { const _ra = _recsOn(p.id, iso).find(r => (r.status === '振替' || r.status === '臨時') && _recSlot(r) === sl); if (_ra) { attending = true; furikae = _ra.status === '振替'; rinji = _ra.status === '臨時'; } }
       }
       if (!attending) return;
-      if (_isPausedOn(p, iso)) return;
+      // ★ 2026-11-13 trial572(ユーザー「基本の送迎表は休み・休止で変わらず全員を出す。休止は別の印で」): 基本の送迎表(2099の週)では休止中の方も外さない(印だけ付ける)。
+      //   これまでは休止の方が基本の送迎表から自動で外れ、休止明けに「未割当」へ戻るときマスタの時間(空・分なし)が入って時間が抜けていた
+      if (_isPausedOn(p, iso) && !_isTplIso(iso)) return;
+      const _pausedNow = _isTplIso(iso) && _isPausedOn(p, _iso(new Date()));
       // ★ 2026-09-12b: マスタのお迎え時間は「基本の時間帯と一致する時だけ」初期値に使う。
       //   午後へ振替した方に午前の8時が出るのを防ぐ(振替・帯違いは空欄=手入力かルート自動で決める)
       const _tOk = base === sl || (base === '1日' && sl === 'AM');
@@ -39371,13 +39388,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       // ★ 2026-09-12k: マスタで「徒歩」の方は最初から徒歩枠へ(車に混ざらない)
       const _isWalk = /徒歩/.test(String(getPickupTimeForDow(p, dow, appData) || '')) || /徒歩/.test(String(p.pickupTimes?.[dow] || '')) || String(p.pickupMinutes||'') === 'walk'; // ★ 2026-09-28: 乗車時間「徒歩」も徒歩欄へ
       const _cbT = ((((appData.transportPlans || {})[`${iso}_${sl}`] || {})._cbT || {})[p.id]) || ''; // ★ 2026-10-26: 連絡帳で入れた次回の時間があればそれを初期値に
-      out.push({ pid: p.id, name: p.name, furikae, rinji, walk: _isWalk, time: _isWalk ? '' : (_cbT || _tRaw) });
+      out.push({ pid: p.id, name: p.name, furikae, rinji, walk: _isWalk, time: _isWalk ? '' : (_cbT || _tRaw), ...(_pausedNow ? { paused: true } : {}) });
     });
     return out;
   };
+  const _tplPausedNow = (pid) => { try { const p = (appData.patients || []).find(x => x && x.id === pid); return !!p && _isPausedOn(p, _iso(new Date())); } catch { return false; } }; // ★ trial572: 基本の送迎表の「休止中」の印
 
   // ★ 2026-09-13e(店舗要望): その日お休みの方(基本利用日なのに欠席・振替・休止で来ない方)を下部に表示するためのリスト
   const _absentees = (iso, sl) => {
+    if (_isTplIso(iso)) return []; // ★ trial572: 基本の送迎表(型の週)に「休み」は無い(休止中の方も並びに残す)
     const d = new Date(iso); const dow = d.getDay(); const dayNum = d.getDate();
     const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso);
@@ -39821,7 +39840,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     Object.keys(pl.cars||{}).forEach(cid => { const arr = pl.cars[cid]; if (!Array.isArray(arr) || !arr.some(m => m.pid === pid)) return;
       const key = (m, i) => [_tMin(m.t) >= 99998 ? 1 : 0, _tMin(m.t), i];
       pl.cars[cid] = arr.map((m, i) => ({ m, k: key(m, i) })).sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2]).map(x => x.m); });
-  }, _tplReflectPatch(iso, pid, { t: val })); // ★ trial556: 基本の送迎表なら利用者マスタの基本のお迎え時間にも
+  }) /* ★ trial572: 利用者マスタへの反映は帯の「反映」ボタンで(自動反映はやめた) */; // ★ trial556: 基本の送迎表なら利用者マスタの基本のお迎え時間にも
   // ★ 2026-10-01(試験版・ユーザー要望「徒歩にしたら自動で開始時間に・あとから編集も可能」): 徒歩の時間は保存値「徒歩」=クラスの開始時刻(各種設定の提供時間)を表示。
   //   1人ずつ時刻を入れて変えられる。空にして欄から離れると「徒歩」(=開始時刻)に戻る。徒歩から車へ移すと時刻は空(乗車時間は別に決める)。
   const setWalkTime = (iso, sl, pid, val) => mutate(iso, sl, (pl) => { (pl.walkers||[]).forEach(m => { if (m.pid === pid) m.t = val; }); });
@@ -40009,7 +40028,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     mutate(iso, sl, (p2) => { if (!p2.drop) return; const dep = { ...(p2.drop.depart||{}) }; const au = { ...(p2.drop.departAuto||{}) }; todo.forEach(c => { const e = _dropDepartEst(p2, sl, c.id); if (e) { dep[c.id] = e.v; au[c.id] = true; } }); p2.drop.depart = dep; p2.drop.departAuto = au; }); return todo.length; };
   // ★ 2026-10-21(店舗要望「送りも何時ごろ着くかヘルパーに聞かれる」): 送りの一人ずつの「家に着く時間」。目安は atAuto
   const setDropAt = (iso, sl, cid, pid, v) => mutate(iso, sl, (pl) => { const k = String(pid); const a2 = { ...(pl.dropAt || {}) }, au = { ...(pl.dropAtAuto || {}) }; if (v) a2[k] = v; else delete a2[k]; delete au[k]; pl.dropAt = a2; pl.dropAtAuto = au;
-    if (pl.drop && pl.drop.cars) { const nc = {}; Object.keys(pl.drop.cars).forEach(c2 => { nc[c2] = (pl.drop.cars[c2] || []).map(m => { if (!m || m.pid !== pid || !('at' in m || 'atAuto' in m)) return m; const { at, atAuto, ...rest } = m; return rest; }); }); pl.drop.cars = nc; } }, _tplReflectPatch(iso, pid, { dropAt: v })); // ★ trial556: 基本の送迎表なら利用者マスタの基本の送り時間にも
+    if (pl.drop && pl.drop.cars) { const nc = {}; Object.keys(pl.drop.cars).forEach(c2 => { nc[c2] = (pl.drop.cars[c2] || []).map(m => { if (!m || m.pid !== pid || !('at' in m || 'atAuto' in m)) return m; const { at, atAuto, ...rest } = m; return rest; }); }); pl.drop.cars = nc; } }) /* ★ trial572: 利用者マスタへの反映は帯の「反映」ボタンで(自動反映はやめた) */; // ★ trial556: 基本の送迎表なら利用者マスタの基本の送り時間にも
   //   送りの順番: 座席表の日はその順、迎えと同じ日は迎えの逆順(座席表の下書きと同じ)
   const _dropListsOf = (pl) => { const out = {}; const custom = pl && pl.dropMode === 'custom' && pl.drop; cars.forEach(c => { const ms = custom ? tpDropSeatFirst(c, (pl.drop.cars || {})[c.id] || []) : [...(((pl && pl.cars) || {})[c.id] || [])].reverse(); const L = ms.filter(m => m && m.pid != null); if (L.length) out[c.id] = L; }); return out; };
   //   出発: 座席表で決めた出発 → 無ければ 終了時刻＋乗る方の「乗車にかかる時間」(未設定は1分)
@@ -40088,6 +40107,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   //   行の上半分=その行の前に割り込み/下半分=その行の後ろ。矢印より直感的に並べ替え・車またぎができる。
   const [dragMv, setDragMv] = useState(null); // {pid, name, iso, x, y}
   const _dragTimerRef = useRef(null);
+  const _dragGhostRef = React.useRef(null); // ★ trial572: ドラッグ中の名前の札は state を介さず直接動かす(毎移動の全体描き直しをやめる)
   const _dragDownRef = React.useRef(null); // ★ 2026-11-03 trial508: 長押しを始めた位置(少し動いても取り消さないため)
   const moveMemberAt = (iso, sl, pid, dest, beforePid) => mutate(iso, sl, (pl) => {
     let carried = null;
@@ -40129,9 +40149,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   useEffect(() => { try { document.body.classList.toggle('tsumugi-dragging', !!dragMv); } catch {} return () => { try { document.body.classList.remove('tsumugi-dragging'); } catch {} }; }, [dragMv]);
   useEffect(() => {
     if (!dragMv) return;
+    // ★ 2026-11-13 trial572(ユーザー「ドラッグして次の所まで持っていくと10〜15秒止まってから反映される」): これまでは指が動くたびに
+    //   落とす先の判定(elementFromPoint)と setDragMv(x,y,over)を行い、送迎表全体を毎回描き直していた。iPad と実店舗の量だと描き直しが追いつかず、
+    //   離した処理が後ろに並んで待たされる。→ 札の位置は DOM に直接書き、落とす先の判定は1フレームに1回、state は落とす先が変わったときだけ更新
+    const _sameT = (x, y) => (!x && !y) || (!!x && !!y && x.iso === y.iso && x.slot === y.slot && x.zone === y.zone && String(x.pid) === String(y.pid));
+    let _rafMv = 0;
     const mv = (e) => {
-      const t = _dropTarget(e); _lastPt = { x: e.clientX, y: e.clientY };
-      setDragMv(d => d ? { ...d, x: e.clientX, y: e.clientY, over: t } : d);
+      _lastPt = { x: e.clientX, y: e.clientY };
+      try { const g = _dragGhostRef.current; if (g) g.style.transform = `translate(${e.clientX + 10}px, ${e.clientY - 14}px)`; } catch {}
+      if (_rafMv) return;
+      _rafMv = requestAnimationFrame(() => { _rafMv = 0; const p = _lastPt; if (!p) return; const t = _dropTarget({ clientX: p.x, clientY: p.y }); setDragMv(d => d ? (_sameT(d.over, t) ? d : { ...d, over: t }) : d); });
     };
     const tm = (e) => { e.preventDefault(); }; // ドラッグ中は画面スクロールを止める
     // ★ 2026-11-11 trial556(ユーザー要望・iPad「長押しで上や下の端まで持っていっても画面が動かず、いったん離してスクロールしてまたつかむ必要がある。Excel や Word のように一緒にスクロールしてほしい」):
@@ -40147,7 +40174,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const dy = _edgeV(p.y, ry.top, ry.bottom, EDGE, MAXV); if (dy) { const b0 = sy.scrollTop; sy.scrollTop = b0 + dy; moved = moved || sy.scrollTop !== b0; }
         const sx = _scrollerOf(p.x, p.y, 'x'); const rx = (sx === document.scrollingElement || sx === document.documentElement) ? { left: 0, right: window.innerWidth } : sx.getBoundingClientRect();
         const dx = _edgeV(p.x, rx.left, rx.right, EDGE, MAXV); if (dx) { const l0 = sx.scrollLeft; sx.scrollLeft = l0 + dx; moved = moved || sx.scrollLeft !== l0; }
-        if (moved) { const t = _dropTarget({ clientX: p.x, clientY: p.y }); setDragMv(d => d ? { ...d, over: t } : d); }
+        if (moved) { const t = _dropTarget({ clientX: p.x, clientY: p.y }); setDragMv(d => d ? (_sameT(d.over, t) ? d : { ...d, over: t }) : d); }
       } catch {}
     };
     const up = (e) => {
@@ -40183,7 +40210,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     document.addEventListener('touchmove', tm, { passive: false });
     document.body.style.userSelect = 'none';
     _raf = requestAnimationFrame(_tick); // ★ trial556: 端に近づいたときの自動スクロール
-    return () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('touchmove', tm); document.body.style.userSelect = ''; cancelAnimationFrame(_raf); };
+    return () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('touchmove', tm); document.body.style.userSelect = ''; cancelAnimationFrame(_raf); if (_rafMv) cancelAnimationFrame(_rafMv); };
   }, [dragMv ? dragMv.pid : null]);
   // ★ 2026-10-02(試験版・ユーザー要望「iPadで長押しドラッグすると文字の範囲選択も出てしまう」): ドラッグできる要素すべてに
   //   data-tpdrag を付け、CSS(src/index.css)で文字の選択・長押しメニューを出さない。ドラッグ中は画面全体の文字選択も止める(下の effect)。
@@ -41566,12 +41593,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/*   確定したあとは「確定済」のボタン(押すと今の内容で確定を更新)だけにして、横幅を取らないようにする */}
           {/* ★ 2026-10-13(ユーザー指示): 「作成中」の印は不要(確定済でなければ作成中と分かる) */}
           {/* ★ 2026-11-04 trial512(ユーザー「上の帯のボタンを減らす」): 基本の送迎表・送りの時間の表示・設定 は「その他」の中へ */}
+          {_tpTemplate && <button type="button" data-testid="tp-base-reflect-btn" onClick={_tplReflectAll} title="保存してある基本の送迎表の時間を、利用者マスタの基本のお迎え時間・送りの時間にまとめて書き込みます（押すと件数を確かめてから）" className="bg-emerald-600 hover:bg-emerald-700 text-white h-10 px-3 rounded-xl font-bold text-sm whitespace-nowrap">利用者マスタへ反映</button>}
           <span className="relative inline-flex">
             <button type="button" data-testid="tp-more" aria-expanded={tpMoreOpen} onClick={() => setTpMoreOpen(v => !v)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 h-10 px-3 rounded-xl font-bold text-sm whitespace-nowrap" title="基本の送迎表・送りの時間の表示・設定">その他 ▼</button>
             {tpMoreOpen && (<>
               <div className="fixed inset-0 z-[79]" onClick={() => setTpMoreOpen(false)} aria-hidden="true"/>
               <div data-testid="tp-more-menu" className="absolute right-0 top-11 z-[80] bg-white border border-slate-300 rounded-xl shadow-xl w-[17rem] p-1.5">
                 {!_tpPhone && !_tpTemplate && <button type="button" data-testid="tp-base-open" onClick={() => { setTpMoreOpen(false); setSelectedDate(TSU_TP_BASE_MON); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-sm font-bold text-emerald-800">基本の送迎表{_hasBaseAny ? '' : '（未作成）'}</button>}
+                {_tpTemplate && (<div data-testid="tp-base-reflect" className="px-3 pt-2 pb-1 border-b border-slate-100 mb-1">
+                  <div className="text-[12px] font-bold text-slate-500 mb-1">「利用者マスタへ反映」で書き込む項目</div>
+                  <label className="flex items-center gap-2.5 py-1.5 text-sm font-bold text-slate-800 cursor-pointer select-none"><input type="checkbox" data-testid="tp-base-reflect-pickup" checked={_tplReflectCfg.pickup} onChange={e => _setTplReflect('pickup', e.target.checked)} className="w-5 h-5 accent-emerald-600"/>基本のお迎え時間</label>
+                  {_dropShown && <label className="flex items-center gap-2.5 py-1.5 text-sm font-bold text-slate-800 cursor-pointer select-none"><input type="checkbox" data-testid="tp-base-reflect-drop" checked={_tplReflectCfg.drop} onChange={e => _setTplReflect('drop', e.target.checked)} className="w-5 h-5 accent-emerald-600"/>基本の送り時間（「基本の送り時間も設定する」も入にします）</label>}
+                </div>)}
                 {/* ★ 2026-11-05 trial522(ユーザー要望「チェックを付けたら表示・外したら非表示が見て分かるように」・説明の2行目は不要): チェックの形に。押してもメニューは閉じない(チェックが変わるのが見える) */}
                 <label data-testid="tp-drop-toggle" data-shown={_dropShown ? '1' : '0'} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-slate-50 text-sm font-bold text-slate-800 cursor-pointer select-none"><input type="checkbox" data-testid="tp-drop-check" checked={_dropShown} onChange={() => _toggleDropShown()} style={{width:20,height:20,flexShrink:0,accentColor:'#059669'}}/>送りの時間を表示する</label>
                 <button type="button" data-testid="tp-settings" onClick={() => { setTpMoreOpen(false); setTpSetCap({}); setTpSettings(true); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-sm font-bold text-slate-800">設定<div className="text-[11px] font-normal text-slate-500">車の定員・座席表の並び</div></button>
@@ -41581,18 +41614,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))), dropAt: true, dropMode2: 'none' })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
       </div>
-        {_tpTemplate && (
-          <div data-testid="tp-base-banner" className="bg-emerald-50 border-b border-emerald-200 px-3 py-2 text-[13px] text-emerald-900 leading-relaxed">
-            {/* ★ 2026-11-11 trial557(ユーザー「説明文が長い。前のようにタップしたら出るように」): 1行＋ⓘ */}
-            <span className="inline-flex items-center gap-1"><b>基本の送迎表</b>＝曜日ごとの「いつもの並び」。新しい週はこの並びから自動で下書きを作ります。<TsuHint>まだ作っていない曜日は、今の送迎表の並び（車・順番・時間・運転者）を写して入れてあります。基本利用曜日の方だけで、振替で来た方は入りません（休み・退所の方は関係ありません）。名前を長押しして車へ入れるか「自動計算」で並べ、運転者・座席表・送りの時間も決めておけます。新しい週を開くと、この並びにその日来る方を当てはめて自動で下書きを作ります（「コピー → 基本の送迎表からコピー」でも写せます）。基本利用曜日を変えた方は、ここを開いたときに自動で外れます。</TsuHint></span>
-            {/* ★ 2026-11-11 trial556: ここで入れた時間を利用者マスタの基本の時間へも反映(どれを反映するかはチェック・店舗の設定) */}
-            <div className="mt-1.5 pt-1.5 border-t border-emerald-200 flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="tp-base-reflect">
-              <span className="font-bold">ここで入れた時間を利用者マスタ（月間スケジュールの基本の時間）にも反映:</span>
-              <label className="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" data-testid="tp-base-reflect-pickup" checked={_tplReflectCfg.pickup} onChange={e => _setTplReflect('pickup', e.target.checked)} className="w-4 h-4 accent-emerald-600"/>お迎え時間</label>
-              {_dropShown && <label className="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" data-testid="tp-base-reflect-drop" checked={_tplReflectCfg.drop} onChange={e => _setTplReflect('drop', e.target.checked)} className="w-4 h-4 accent-emerald-600"/>送りの時間<TsuHint>送りの時間を入れた方は、利用者マスタの「基本の送り時間も設定する」が入になります。時と分がそろった時間だけ反映し、消したときはマスタを触りません。</TsuHint></label>}
-            </div>
-          </div>
-        )}
+        {/* ★ 2026-11-13 trial573(ユーザー「基本の送迎表＝曜日ごとの…の説明は不要・マニュアルで」「反映のボタンと項目は自動計算の並びへ」): 緑の帯は廃止。反映ボタンは上の段、項目は「その他」の中 */}
         {_tpPhone && (
           <div className="bg-white px-1.5 py-1.5 border-b border-slate-200 flex items-center gap-1" data-testid="tp-phone-daybar">
             {_tpOneDay ? (<>
@@ -41859,7 +41881,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 <button type="button" onClick={() => setTelDone(iso, sl, m.pid, !_dn)} data-testid={`tp-dot-${iso}-${sl}-${m.pid}`} data-on="1" data-done={_dn ? '1' : '0'} title={`${_ac}。${_dn ? '連絡済（押すと取り消し）' : '電話したら押して連絡済に'}`} className="shrink-0 w-6 h-8 flex items-center justify-center">
                                   <span aria-hidden="true" className={`block w-5 h-5 rounded border-2 text-[12px] font-bold leading-none flex items-center justify-center ${_dn ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-red-600 bg-white text-transparent'}`}>✓</span>
                                 </button>) : <span aria-hidden="true" data-testid={`tp-dot-${iso}-${sl}-${m.pid}`} data-on="0" className="shrink-0 w-6 h-8 block" />; })()}
-                                <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></button>
+                                <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></button>{_isTplIso(iso) && _tplPausedNow(m.pid) && <span data-testid="tp-paused-tag" className="ml-1 shrink-0 text-[10px] leading-none px-1 py-0.5 rounded border border-slate-300 bg-slate-100 text-slate-600">休止中</span>}
                                 <TpTimeInput value={_fmtT(m.t)} normalize={_normTimeInput} onCommit={v => setTime(iso, sl, m.pid, v)} data-testid={`tp-time-${m.pid}`} data-tel={_tpRed(pl, iso, m.pid) ? '1' : '0'} data-notime={/^\d{1,2}:\d{2}$/.test(String(_fmtT(m.t) || '')) ? '0' : '1'} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 outline-none shrink-0 ${_tpRed(pl, iso, m.pid) ? 'border-2 border-red-600 text-slate-800' : (/^\d{1,2}:\d{2}$/.test(String(_fmtT(m.t) || '')) ? 'border border-slate-300' : 'border-2 border-amber-400 bg-amber-50')}`} style={{fontVariantNumeric:'tabular-nums'}}/>
                                 {/* ★ 2026-10-21: 送りで家に着く時間。押すとテンキーで直せる(送りが迎えと同じ日もここで)。その日に送りの時間が1つでもあれば、空いている方にも出す */}
                                 {_dropShown && (() => { const _da = _dropAtOf(pl, m.pid); const _any = Object.values(pl.dropAt || {}).some(Boolean); if (!_da && !_any && pl.dropMode === 'custom') return null; /* ★ 2026-10-23: 迎えと同じの日はいつも出す(ここから入れ始められる) */ return <button type="button" data-testid={`tp-dat-${m.pid}`} onClick={() => setSeatAtKp({ iso, sl, cid: c.id, pid: m.pid })} title="送りで家に着く時間（押すと入力）" className={`shrink-0 text-[11px] font-bold tabular-nums whitespace-nowrap rounded px-0.5 ${_da ? (_dropAtAutoOf(pl, m.pid) ? 'text-slate-400' : 'text-indigo-600') : 'text-slate-300 border border-dashed border-slate-300'}`}>送{_da || '--:--'}</button>; })()}
@@ -42184,10 +42206,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   out.push(
                   <div key={m.pid} data-ordrow={c.id} data-ordpid={String(m.pid)} data-testid={`tp-ord-row-${m.pid}`}
                     onPointerDown={e => { if (e.button != null && e.button !== 0) return; if (e.target.closest && e.target.closest('button')) return; e.preventDefault(); try { e.currentTarget.setPointerCapture(e.pointerId); } catch {} const st = { cid: c.id, pid: m.pid, y0: e.clientY, dy: 0, over: j }; ordDragRef.current = st; setOrdDrag(st); }}
-                    onPointerMove={e => { const st = ordDragRef.current; if (!st || st.pid !== m.pid) return; const rows = [...document.querySelectorAll(`[data-ordrow="${c.id}"]`)].filter(el => el.getAttribute('data-ordpid') !== String(m.pid)); let over = 0; rows.forEach(el => { const r = el.getBoundingClientRect(); if (e.clientY > r.top + r.height / 2) over++; }); const nx = { ...st, dy: e.clientY - st.y0, over }; ordDragRef.current = nx; setOrdDrag(nx); }}
+                    onPointerMove={e => { const st = ordDragRef.current; if (!st || st.pid !== m.pid) return; const rows = [...document.querySelectorAll(`[data-ordrow="${c.id}"]`)].filter(el => el.getAttribute('data-ordpid') !== String(m.pid)); let over = 0; rows.forEach(el => { const r = el.getBoundingClientRect(); if (e.clientY > r.top + r.height / 2) over++; }); const nx = { ...st, dy: e.clientY - st.y0, over }; ordDragRef.current = nx; try { e.currentTarget.style.transform = `translateY(${nx.dy}px)`; } catch {} if (over !== st.over) setOrdDrag(nx); }} /* ★ trial572: 動かす量は DOM に直接・描き直しは落とす先が変わったときだけ */
                     onPointerUp={() => { const st = ordDragRef.current; ordDragRef.current = null; setOrdDrag(null); if (st && st.pid === m.pid && st.over !== j) setDropOrder(iso, sl, c.id, m.pid, st.over); }}
                     onPointerCancel={() => { ordDragRef.current = null; setOrdDrag(null); }}
-                    style={{ touchAction: 'none', position: 'relative', zIndex: isDrag ? 5 : undefined, transform: isDrag ? `translateY(${od.dy}px)` : undefined }}
+                    style={{ touchAction: 'none', position: 'relative', zIndex: isDrag ? 5 : undefined, transform: isDrag ? `translateY(${(ordDragRef.current && ordDragRef.current.pid === m.pid ? ordDragRef.current : od).dy}px)` : undefined }}
                     className={`flex items-center gap-1.5 rounded-lg border px-1.5 py-1 select-none cursor-grab ${isDrag ? 'bg-amber-100 border-amber-500 shadow-lg' : (seatOrd.pid === m.pid ? 'bg-white border-amber-500' : 'bg-white border-slate-200')}`}>
                     <GripVertical size={14} className="text-slate-400 shrink-0"/>
                     <span className="shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white text-[12px] font-bold flex items-center justify-center">{j + 1}</span>
@@ -42386,7 +42408,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>
         </div>); })(), document.body)}
       {dragMv && ReactDOM.createPortal((
-        <div style={{position:'fixed', left: dragMv.x + 10, top: dragMv.y - 14, zIndex: 100002, pointerEvents:'none', background:'#1d4ed8', color:'white', fontWeight:'bold', fontSize:14, padding:'6px 12px', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.35)'}}>
+        <div ref={_dragGhostRef} style={{position:'fixed', left: 0, top: 0, transform: `translate(${dragMv.x + 10}px, ${dragMv.y - 14}px)`, willChange: 'transform', zIndex: 100002, pointerEvents:'none', background:'#1d4ed8', color:'white', fontWeight:'bold', fontSize:14, padding:'6px 12px', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.35)'}}>
           {dragMv.name} <span style={{fontSize:11, opacity:0.85}}>青い線の位置に入ります</span>
         </div>
       ), document.body)}

@@ -67,7 +67,7 @@ const planOf = (page, key) => page.evaluate((k) => { const d = JSON.parse(localS
   await page.getByTestId('tp-more').click(); await page.waitForTimeout(300);
   r.ui_more_menu = (await page.getByTestId('tp-base-open').count()) === 1 && (await page.getByTestId('tp-drop-toggle').count()) === 1 && (await page.getByTestId('tp-settings').count()) === 1;
   await page.getByTestId('tp-base-open').click(); await page.waitForTimeout(1500);
-  r.base_head = (await page.getByTestId('tp-base-head').count()) === 1 && (await page.getByTestId('tp-base-banner').count()) === 1;
+  r.base_head = (await page.getByTestId('tp-base-head').count()) === 1 && (await page.getByTestId('tp-base-banner').count()) === 0; // ★ trial573: 帯は廃止
   r.base_dow_header = (await page.evaluate(() => document.body.innerText)).includes('曜日');
   r.base_hidden_btns = !(await page.getByTestId('tp-copy-prev').isVisible().catch(() => false)) && (await page.getByTestId('tp-finalize').isVisible().catch(() => false)) === false;
   const tplRows = async (pid) => page.locator(`[data-tprow][data-tppid="${pid}"][data-tpiso="${tplIso}"]`).count();
