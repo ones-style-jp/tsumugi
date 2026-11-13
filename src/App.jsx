@@ -39267,7 +39267,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     onSave({ ...appData, transportPlans: np }, { manual: true, message: `✓ 「${e.label}」の前に戻しました(${e.items.length}コマ)` });
   };
   //   一括の操作(自動計算・前週コピー・完成)は、保存する直前に変わるコマの操作前を控える
-  const _saveBulk = (label, np, opts) => { const afters = {}; Object.keys(np).forEach(k => { if (np[k] !== plans[k] && /^\d{4}-\d{2}-\d{2}_(AM|PM)$/.test(k)) { np[k] = _stampChgRef.current(plans[k], np[k]); afters[k] = np[k]; } }); _pushUndo(label, afters); onSave({ ...appData, transportPlans: np }, opts || { silent: true }); };
+  const _saveBulk = (label, np, opts) => { const afters = {}; Object.keys(np).forEach(k => { if (np[k] !== plans[k] && /^\d{4}-\d{2}-\d{2}_(AM|PM)$/.test(k)) { np[k] = _stampChgRef.current(plans[k], np[k], k.slice(0, 10)); afters[k] = np[k]; } }); _pushUndo(label, afters); onSave({ ...appData, transportPlans: np }, opts || { silent: true }); };
   const _stampChgRef = React.useRef((prev, next) => next); // ★ _stampChg は下で定義(宣言順の都合で ref 経由)
   // 週の月曜(selectedDate基準)
   const _mon = (() => { const d = new Date(selectedDate || new Date()); const dw = d.getDay(); const diff = (dw === 0 ? -6 : 1 - dw); d.setDate(d.getDate() + diff); d.setHours(0,0,0,0); return d; })();
@@ -39538,7 +39538,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const savePlan = (iso, sl, plan, extra) => { // ★ 2026-11-11 trial556: extra=同じ保存で一緒に書く項目(基本の送迎表の時間→利用者マスタ。別々に onSave すると後の方が前の方を消すため)
     const { _draft, ...rest0 } = plan; const rest = _autoDropDepart(_pruneDropAt(rest0), sl); // ★ 2026-10-25(ユーザー: 動かすたびに到着が変わって面倒): 保存のたびの到着の目安の入れ直しはやめた(目安は「自動計算」「前週コピー」のときだけ) ★ 2026-10-21: 乗っていない方の送りの時間は消す
     const k = `${iso}_${sl}`;
-    const next = _stampChg(plans[k], { ...rest, _savedAt: syncNow() });
+    const next = _stampChg(plans[k], { ...rest, _savedAt: syncNow() }, iso);
     _pushUndo('手での変更', { [k]: next });
     onSave({ ...appData, ...(extra || {}), transportPlans: { ...plans, [k]: next } }, { silent: true });
   };
@@ -39595,25 +39595,43 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-26(ユーザー決定「赤枠は時間が変わった人だけ。車が変わった・乗車順・徒歩/車の変更は数えない。配布後に振替で入った人は赤枠」):
   //   比べるのは「乗る時間」だけ(車=乗車時間・徒歩=到着時間・その他=なし)。配布の控えに無い人は「配布後に追加」(連絡帳を渡した後の振替など。渡す前に決まっていた振替は控えに入っているので付かない)
   const _tOfLoc = (l) => !l ? '' : (l.zone === 'walk' ? String(l.wt || '') : (l.zone === 'other' ? '' : String(l.t || '')));
-  const _chgOf = (pl, pid) => { const fin = _baseOf(pl); if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '配布後に追加';
+  // ★ 2026-11-13 1113b(扇橋店: 11/11 の連絡帳で「次回 13:05」を渡したあと送迎表を 13:15 に変えたのに赤枠が付かない): これまでの赤枠は「配布の控え(_base)との差」だけで、
+  //   連絡帳を渡した時点で送迎表のコマが無い(基本の送迎表からの下書きのまま)と控えが無く、あとから保存した時間がそのまま基準になって差が出なかった。
+  //   → 連絡帳の控え(record.cbIssued の 次回利用日 d と お迎え時間 t・出力のたびに記録される)を「ご家族に渡した時間」として基準にする。同じ方・同じ日は新しい出力を採る。
+  //   渡した時間と今の乗る時間が違えば赤枠(連絡済で消える)。渡した時間と同じなら、配布の控えと違っていても赤枠にしない(ご家族は最新を知っている)
+  const _cbIssuedRef = React.useMemo(() => { const m = new Map(); try { (appData.ticketRecords || []).forEach(r => { if (!r || !r.cbIssued || r.patientId == null) return; let o = null; try { o = JSON.parse(r.cbIssued); } catch { return; } if (!o || !o.d || !o.t) return;
+    const dm = String(o.d).match(/(\d+)月(\d+)日/); if (!dm) return; const y0 = Number(r.year) || new Date().getFullYear(); const rm = String(r.date || '').match(/^(\d+)月/); const y = (rm && +dm[1] < +rm[1]) ? y0 + 1 : y0;
+    const iso = `${y}-${String(+dm[1]).padStart(2, '0')}-${String(+dm[2]).padStart(2, '0')}`;
+    const tm = String(o.t).replace(/[\s　頃ごろ]/g, '').match(/^(\d{1,2})[時:](\d{1,2})?分?$/); if (!tm) return;
+    const t = `${+tm[1]}:${tm[2] != null && tm[2] !== '' ? String(tm[2]).padStart(2, '0') : '--'}`;
+    const key = `${iso}|${r.patientId}`; const prev = m.get(key); const at = Number(o.at) || 0; if (!prev || at >= prev.at) m.set(key, { t, at }); }); } catch {} return m; }, [appData.ticketRecords]);
+  const _hmN = (v) => { const m = String(v || '').trim().match(/^(\d{1,2}):(\d{1,2}|--)$/); return m ? `${+m[1]}:${m[2] === '--' ? '--' : String(+m[2]).padStart(2, '0')}` : String(v || '').trim(); };
+  const _cbRefOf = (iso, pl, pid) => { if (!iso) return ''; const m = _cbIssuedRef.get(`${iso}|${pid}`); if (m && m.t) return m.t; const c = pl && pl._cbT ? pl._cbT[pid] : ''; return c ? String(c) : ''; };
+  const _chgOf = (pl, pid, iso) => { const now = _locOf(_snapPlan(pl), pid); if (!now) return '';
+    const ref = _cbRefOf(iso, pl, pid);
+    if (ref && now.zone !== 'other') { const tN = _tOfLoc(now); return _hmN(tN) !== _hmN(ref) ? `時間が変更（連絡帳 ${ref}→${tN || '未定'}）` : ''; }
+    const fin = _baseOf(pl); if (!fin) return ''; const was = _locOf(fin, pid); if (!was) return '配布後に追加';
     const tN = _tOfLoc(now), tW = _tOfLoc(was); if (tN !== tW) return `時間が変更（${tW || '未定'}→${tN || '未定'}）`; return ''; };
   // ★ 2026-10-02(ユーザー要望「赤丸は、前の来所日の連絡帳を渡した後に変わった分だけ」):
   //   確定後の変更ごとに「変えた時刻」を pl._chgAt[pid] に控える(位置が変わるたびに更新・元に戻れば消す)。
   //   赤丸の判定 _noticeNeeded: 変えた日から送迎日の前日までに本人の来所(午前/午後)があり、その回の連絡帳が
   //   「変えた後に出力済み(cbPrintedAt_AM/PM)」または「まだ出力していない(今日以降)」なら、次の連絡帳に載るので赤丸なし。
   //   それ以外(来所がない／連絡帳を出した後に変えた／出力時刻が分からない過去)は赤丸あり(安全側)。
-  const _stampChg = (prev, next) => {
+  const _stampChg = (prev, next, iso) => {
     try {
       if (!next || typeof next !== 'object') return next;
-      if (!_baseOf(next)) { if (next._chgAt) { const { _chgAt, ...rest } = next; return rest; } return next; }
-      const fresh = !prev || _baseIdOf(prev) == null || _baseIdOf(prev) !== _baseIdOf(next); // 確定(更新)直後は控えを白紙に(解除→再確定は同じ基準なので残す)
-      const ca = fresh ? {} : { ...(prev._chgAt || {}) };
-      const curSnap = _snapPlan(next), prevSnap = (prev && !fresh) ? _snapPlan(prev) : null;
+      const base = _baseOf(next); const curSnap = _snapPlan(next);
+      const curIds = [ ...Object.values(curSnap.cars).flat().map(m => m.pid), ...curSnap.walkers, ...curSnap.others ];
+      const refAny = !!iso && curIds.some(pid => !!_cbRefOf(iso, next, pid)); // ★ 1113b: 連絡帳で渡した時間があれば、配布の控えが無くても変更を控える
+      if (!base && !refAny) { if (next._chgAt) { const { _chgAt, ...rest } = next; return rest; } return next; }
+      const fresh = base ? (!prev || _baseIdOf(prev) == null || _baseIdOf(prev) !== _baseIdOf(next)) : false; // 確定(更新)直後は控えを白紙に(解除→再確定は同じ基準なので残す)
+      const ca = fresh ? {} : { ...(prev && prev._chgAt || {}) };
+      const prevSnap = (prev && !fresh) ? _snapPlan(prev) : null;
       const _key = (snap, pid) => { const l = _locOf(snap, pid); if (!l) return 'none'; const { idx, ...rest } = l; return JSON.stringify(rest); };
       const removed = new Set(_removedSince(next).map(String));
-      const ids = new Set([ ...Object.values(curSnap.cars).flat().map(m => m.pid), ...curSnap.walkers, ...curSnap.others, ...Object.values(_baseOf(next).cars || {}).flat().map(m => m.pid), ...(_baseOf(next).walkers || []), ...(_baseOf(next).others || []) ]);
+      const ids = new Set([ ...curIds, ...(base ? [ ...Object.values(base.cars || {}).flat().map(m => m.pid), ...(base.walkers || []), ...(base.others || []) ] : []) ]);
       const now = syncNow();
-      ids.forEach(pid => { const changed = !!_chgOf(next, pid) || removed.has(String(pid)); if (!changed) { delete ca[pid]; return; } if (!ca[pid] || (prevSnap && _key(curSnap, pid) !== _key(prevSnap, pid))) ca[pid] = now; });
+      ids.forEach(pid => { const changed = !!_chgOf(next, pid, iso) || removed.has(String(pid)); if (!changed) { delete ca[pid]; return; } if (!ca[pid] || (prevSnap && _key(curSnap, pid) !== _key(prevSnap, pid))) ca[pid] = now; });
       return { ...next, _chgAt: ca };
     } catch { return next; }
   };
@@ -39638,7 +39656,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return true;
   };
   // 赤丸を出すべき変更の理由(出さない変更は '')。title 用に _dotInfo で両方返す
-  const _dotInfo = (pl, iso, pid) => { const ac = _chgOf(pl, pid); if (!ac) return { ac: '', dot: false }; return { ac, dot: _noticeNeeded(iso, pid, pl && pl._chgAt ? pl._chgAt[pid] : 0) }; };
+  const _dotInfo = (pl, iso, pid) => { const ac = _chgOf(pl, pid, iso); if (!ac) return { ac: '', dot: false }; return { ac, dot: _noticeNeeded(iso, pid, pl && pl._chgAt ? pl._chgAt[pid] : 0) }; };
   const _dotOf = (pl, iso, pid) => { const i = _dotInfo(pl, iso, pid); return i.dot ? i.ac : ''; };
   _stampChgRef.current = _stampChg;
   // ★ 2026-11-03 trial506(ユーザー報告・スマホの写真「10/27 に退所した方が、配布後に外れた方として打ち消し線＋休みで出る」): 配布の控え(_base/_final)にはその方が残っているため、
@@ -39649,14 +39667,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-11-03 trial508(ユーザー決定「印は時間の赤い枠と連絡済だけ」): 件数は「要連絡(配布後に時間が変わった・追加された方)で、まだ連絡済にしていない方」だけ。外れた方(休み)・車の変更は数えない
   const _telDoneOf = (pl, pid) => { const _td = pl && (pl._telDone || {})[pid]; return !!(_td && typeof _td === 'object' && _td.on && String(_td.ck) === String(((pl._chgAt || {})[pid]) || '0')); };
   const _tpRed = (pl, iso, pid) => !!_dotOf(pl, iso, pid) && !_telDoneOf(pl, pid); // ★ 2026-11-07 trial529(ユーザー「電話してチェックを付けたあとにダウンロードしても赤枠が付く」): 印刷・ダウンロードの赤枠と徒歩の時間の枠もこれで判定(連絡済なら出さない)
-  const _chgCount = (pl, iso) => { if (!pl || !_baseOf(pl) || !iso) return 0; const cur = _snapPlan(pl); let n = 0; [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { if (_tpRed(pl, iso, pid)) n++; }); return n; };
+  const _chgCount = (pl, iso) => { if (!pl || !iso) return 0; const cur = _snapPlan(pl); let n = 0; [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { if (_tpRed(pl, iso, pid)) n++; }); return n; };
   // ★ 2026-10-05: この車の中身が基準(確定時)から変わったか(乗る方の増減・順番・時間)。運転者の変更は数えない
   const _carChanged = (pl, cid) => { const base = _baseOf(pl); if (!base) return false; const cur = (pl.cars && pl.cars[cid]) || []; if (cur.some(m => _chgOf(pl, m.pid))) return true; const now = new Set(cur.map(m => String(m.pid))); return ((base.cars && base.cars[cid]) || []).some(m => !now.has(String(m.pid)) && _tpListable(m.pid)); };
   // ★ 2026-10-06(ユーザー要望「変更2 などのところで変更内容が表示されると尚いい」): 週の確定後の変更を一覧にする(_chgCount と同じ数え方)
   const _carNmOf = (zone) => zone === 'walk' ? '徒歩' : zone === 'other' ? 'その他' : ((cars.find(c => String(c.id) === String(zone)) || {}).name || '車');
-  const _chgListOfWeek = () => { const out = []; days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = plans[`${iso}_${sl}`]; if (!pl || !_baseOf(pl)) return; const cur = _snapPlan(pl), fin = _baseOf(pl);
-    [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { let ac = _chgOf(pl, pid); if (!ac || !_dotOf(pl, iso, pid)) return; // ★ 2026-11-03 trial508: 要連絡(電話が要る時間の変更・追加)だけ
-      if (ac === '車が変更') { const w = _locOf(fin, pid), n = _locOf(cur, pid); ac = `車が変更（${_carNmOf(w && w.zone)}→${_carNmOf(n && n.zone)}）`; }
+  const _chgListOfWeek = () => { const out = []; days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = plans[`${iso}_${sl}`]; if (!pl) return; const cur = _snapPlan(pl), fin = _baseOf(pl);
+    [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { let ac = _chgOf(pl, pid, iso); if (!ac || !_dotOf(pl, iso, pid)) return; // ★ 2026-11-03 trial508: 要連絡(電話が要る時間の変更・追加)だけ
+      if (ac === '車が変更' && fin) { const w = _locOf(fin, pid), n = _locOf(cur, pid); ac = `車が変更（${_carNmOf(w && w.zone)}→${_carNmOf(n && n.zone)}）`; }
       const _ck = String(((pl._chgAt || {})[pid]) || '0'); const _td = (pl._telDone || {})[pid];
       out.push({ iso, sl, pid, ac, tel: !!_dotOf(pl, iso, pid), done: !!(_td && typeof _td === 'object' && _td.on && String(_td.ck) === _ck) }); });
     })); return out; }; // ★ 2026-11-03 trial508: 外れた方(休み)は一覧に出さない(「休み」の欄で分かる)
