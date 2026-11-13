@@ -28,44 +28,7 @@ const pat = (page, pid) => page.evaluate((pid) => { const d = JSON.parse(localSt
 const plan = (page, key) => page.evaluate((k) => (JSON.parse(localStorage.getItem('daycareAppData_v3')).transportPlans || {})[k] || null, key);
 const typeTime = async (page, isoK, pid, v) => { const inp = page.locator(`[data-tprow][data-tppid="${pid}"][data-tpiso="${isoK}"] input`).first(); await inp.click(); await inp.fill(''); await inp.type(v, { delay: 20 }); await inp.press('Enter'); await page.waitForTimeout(900); };
 const keypadTime = async (page, digits) => { for (const k of digits) { await page.locator('[data-testid="tsu-kp"] button', { hasText: new RegExp('^' + k + '$') }).last().click(); await page.waitForTimeout(50); } await page.locator('[data-testid="tsu-kp"] button', { hasText: /^(決定|確定)$/ }).last().click(); await page.waitForTimeout(900); };
-// ---- ① 基本の送迎表 → 利用者マスタ ----
-{ const { page, ids } = await start({ width: 1366, height: 900 }, '2099-01-05');
-  ok((await page.getByTestId('tp-base-banner').count()) === 1, '基本の送迎表を開いた');
-  const cbP = page.getByTestId('tp-base-reflect-pickup'), cbD = page.getByTestId('tp-base-reflect-drop');
-  ok((await cbP.count()) === 1 && await cbP.isChecked() && (await cbD.count()) === 1 && await cbD.isChecked(), '帯に「お迎え時間」「送りの時間」のチェック(既定はどちらも入)');
-  await typeTime(page, tplIso, ids[0], '8:50');
-  let p0 = await pat(page, ids[0]); let pl = await plan(page, `${tplIso}_AM`);
-  ok(p0 && p0.pickupTimes[dow] === '08:50' && p0.pickupType === 'fixed', `お迎え 8:50 → マスタの基本のお迎え時間 ${JSON.stringify(p0 && p0.pickupTimes[dow])}`);
-  ok(pl && Object.values(pl.cars).flat().find(m => m.pid === ids[0]).t === '8:50', '基本の送迎表のコマにも 8:50 が残る(同じ保存)');
-  await typeTime(page, tplIso, ids[1], '9:05');
-  const p1 = await pat(page, ids[1]);
-  ok(p1 && p1.pickupTimes[dow] === '09:05' && p1.pickupType === 'fixed', `お迎えの種類が未設定の方は「固定」にして入れる ${JSON.stringify(p1 && [p1.pickupTimes[dow], p1.pickupType])}`);
-  // 送りの時間(行の「送--:--」→ テンキー 12:30)
-  await page.getByTestId(`tp-dat-${ids[0]}`).first().click(); await page.waitForTimeout(400);
-  ok((await page.getByTestId('tsu-kp').count()) === 1, '送りの時間のテンキーが開く');
-  await keypadTime(page, ['1', '2', '3', '0']);
-  p0 = await pat(page, ids[0]); pl = await plan(page, `${tplIso}_AM`);
-  ok(p0 && p0.dropTimeOn === true && p0.dropTimes[dow] === '12:30', `送り 12:30 → マスタの基本の送り時間 ${JSON.stringify(p0 && [p0.dropTimeOn, p0.dropTimes[dow]])}(設定するが入になる)`);
-  ok(pl && (pl.dropAt || {})[String(ids[0])] === '12:30', 'コマの送りの時間にも 12:30');
-  // チェックを外す → 反映しない
-  await cbP.click(); await page.waitForTimeout(700);
-  ok(await page.evaluate(() => JSON.parse(localStorage.getItem('daycareAppData_v3')).systemSettings.tpBaseReflect.pickup === false), 'お迎えのチェックを外すと店舗の設定に保存');
-  await typeTime(page, tplIso, ids[2], '9:10');
-  const p2 = await pat(page, ids[2]); pl = await plan(page, `${tplIso}_AM`);
-  ok(p2 && p2.pickupTimes[dow] === '08:30', `外したあとは お迎え 9:10 を入れてもマスタは 08:30 のまま(${p2 && p2.pickupTimes[dow]})`);
-  ok(pl && Object.values(pl.cars).flat().find(m => m.pid === ids[2]).t === '9:10', 'コマには 9:10 が入る');
-  await cbD.click(); await page.waitForTimeout(700);
-  await page.getByTestId(`tp-dat-${ids[1]}`).first().click(); await page.waitForTimeout(400); await keypadTime(page, ['1', '2', '4', '5']);
-  const p1b = await pat(page, ids[1]);
-  ok(p1b && p1b.dropTimeOn === false && !p1b.dropTimes[dow], '送りのチェックを外すと 12:45 を入れてもマスタは変わらない');
-  await cbP.click(); await cbD.click(); await page.waitForTimeout(600); // 戻す
-  // ② ふつうの週では反映しない
-  await page.getByTestId('tp-base-back').click(); await page.waitForTimeout(1500);
-  await typeTime(page, today, ids[3], '9:20');
-  const p3 = await pat(page, ids[3]);
-  ok(p3 && p3.pickupTimes[dow] === '08:30', `今週の送迎表で 9:20 を入れてもマスタは 08:30 のまま(${p3 && p3.pickupTimes[dow]})`);
-  await page.screenshot({ path: '/tmp/chk_1111tpbase_pc.png' }).catch(() => {});
-  await page.context().close(); }
+// ---- ① 基本の送迎表 → 利用者マスタ(自動反映) は trial572 で「反映」ボタンに変更 → chk_1113tp572.mjs で確認 ----
 // ---- ③ iPad: 長押しドラッグ中の自動スクロール ----
 { const { page, ids } = await start({ width: 1080, height: 810 }, today, 18);
   const nameBtn = page.locator(`[data-tprow][data-tppid="${ids[0]}"][data-tpiso="${today}"] button[data-tpdrag]`).first();
