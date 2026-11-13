@@ -21677,6 +21677,14 @@ function StaffLoginGate({ onLogin }) {
       setForm(f=>({...f, loading:false, pkBusy:''}));
       // 候補を出したが選ばなかった・取り消した(NotAllowedError) → また出せるように作り直す。ただし「候補なし」で即座に戻るブラウザもあるので、間隔を空け(1.5秒→3→6→12秒)・4回で打ち切る(連打でサーバーを叩かない)
       c.fails = (c.fails || 0) + 1; if (c.fails > 4) return;
+      // ★ 2026-11-13 1113c(ユーザー「パスキーで入れませんでした（このパスキーは登録されていません）と出るが、もう一度やると同じIDのパスキーで入れる」):
+      //   端末に同じ名前のパスキーが複数残っていると、自動入力が古い方(サーバーから消した・登録し直す前のもの)を選ぶことがある。
+      //   「登録されていません」のときは、その場でパスキーを選ぶ画面を出して1回やり直す(ここで別のパスキーを選べる)。それでも駄目なら案内を出す
+      if (/登録されていません/.test(String((err && err.message) || '')) && !c.retried) {
+        c.retried = true;
+        try { setForm(f=>({...f, loading:true, error:''})); const staff2 = await supabaseHqPasskeyLogin({ onAuth: () => { if (gen === c.gen) _pkAuthed(); } }); if (gen !== c.gen) return; _condStop(); try { localStorage.setItem(staff2 && staff2.role === 'super_admin' ? 'tsumugiHqPasskeyDev' : 'tsumugiStaffPasskeyDev', '1'); } catch {} _pkAuthed(); await finishLogin(staff2); return; }
+        catch (e2) { if (gen !== c.gen) return; setForm(f=>({...f, loading:false, pkBusy:'', error: (e2 && e2.name === 'NotAllowedError') ? 'パスキーでのログインを取り消しました。ID とパスワードで入ってください' : `パスキーで入れませんでした（${(e2 && e2.message) || ''}）。この端末に古いパスキーが残っているときは、端末のパスワード設定で「つむぎ」の古いパスキーを消すか、管理局の「パスキー」で登録し直してください`})); c.timer = setTimeout(() => { if (gen === c.gen) _condStart(); }, 1500 * Math.pow(2, c.fails - 1)); return; }
+      }
       if (!(err && err.name === 'NotAllowedError')) setForm(f=>({...f, loading:false, error: `パスキーで入れませんでした（${(err && err.message) || ''}）。ID とパスワードで入ってください`}));
       c.timer = setTimeout(() => { if (gen === c.gen) _condStart(); }, 1500 * Math.pow(2, c.fails - 1));
     }
@@ -29136,11 +29144,18 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     // ★ テンキー入力中の血圧枠は「打った内容そのまま」(スラッシュを打てばスラッシュも見える)を表示
                     const _kpActive = isBp && keypad.isOpen && keypad.recordId === p.id && keypad.field === field;
                     const _shown2 = _kpActive ? ((keypad.value || '') || '＋') : shown;
+                    // ★ 2026-11-13 1113c(ユーザー「スマホの血圧は上か下のどちらかが高いと全部赤くなる。PC/iPad と同じく上と下を分けて色分けして」): 入力中でなければ 上/下 を別々の色で
+                    const _bpParts = (isBp && !_kpActive && cur) ? String(cur).split('/') : null;
                     // ★ 選択中セルのハイライト(2026-08-11): PC版と同じ青枠リングでどこを入力中か分かるように
                     return (
                     <button key={field} disabled={dis} onClick={()=>{openKeypad(p.id,field,cur,isAbsent);setActiveCell(`${p.id}-${field}`);}} className={`rounded-lg border py-1.5 px-1 disabled:opacity-40 flex flex-col items-center ${activeCell===`${p.id}-${field}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-slate-300 bg-white'}`}>
                       <span className="text-[12px] font-bold text-slate-600">{lbl}</span>
-                      <span className={`text-base font-bold ${colorCls}`}>{_shown2}</span>
+                      {_bpParts ? (
+                        <span className="text-base font-bold" data-testid={`rv-bp-${p.id}-${field}`}>
+                          <span data-bp-up="1" className={getBpUpColorClass(_bpParts[0] || '')}>{_bpParts[0] || ''}</span>
+                          {_bpParts.length > 1 && <><span className="text-slate-500">/</span><span data-bp-dn="1" className={getBpDnColorClass(_bpParts[1] || '')}>{_bpParts[1] || ''}</span></>}
+                        </span>
+                      ) : <span className={`text-base font-bold ${colorCls}`}>{_shown2}</span>}
                     </button>
                     );
                   })}

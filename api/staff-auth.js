@@ -383,7 +383,7 @@ export default async function handler(req, res) {
       if (!sid) return fail();
       const all = await kvLoad(PK_KEY); const mine = Array.isArray(all[sid]) ? all[sid] : [];
       const cred = mine.find(x => x.id === String(c.id || '') && x.rp === rp.id);
-      if (!cred) { await loginFailNote('passkey'); return fail('このパスキーは登録されていません'); }
+      if (!cred) { await loginFailNote('passkey'); return fail(`このパスキーは登録されていません（この端末に古いパスキーが残っているかもしれません。もう一度押すと別のパスキーを選べます。登録済み: ${mine.filter(x => x.rp === rp.id).length}件）`); } // ★ 2026-11-13 1113c: 古いパスキーが端末に残っている場合の案内
       let out; try { out = verifyAuthentication(resp, cred, { challenge, origin: rp.origin, rpId: rp.id }); } catch { await loginFailNote('passkey'); return fail(); }
       const staff = await pkStaffById(sid); if (!staff) return fail(); // ★ 2026-11-01: 本部または職員の本人アカウント
       cred.signCount = out.signCount; cred.lastUsed = new Date().toISOString(); all[sid] = mine; await kvSave(PK_KEY, all);
