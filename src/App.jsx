@@ -26993,6 +26993,22 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const [recOrderOpen, setRecOrderOpen] = useState(false); // ★ 2026-10-07: 利用者の並び替え
   // ★ 拡大入力ビュー(2026-09-09 店舗要望): 高齢のスタッフでも見やすいよう、1名分のバイタル・運動・特記を大きな字で表示・入力
   const [zoomPid, setZoomPid] = useState(null);
+  // ★ 2026-11-13 trial577(ユーザー指示「スマホ版と虫眼鏡にも特記の家族 表示/非表示を」): PC の表と同じ控え(familyTokkiOverrides[pid][M月D日])を読み書きする共通の口
+  const _famTokkiOf = (p) => {
+    const pid = p.patientId || p.id; const recId = p.recordId || p.id;
+    const _dObj = new Date(selectedDate); const dateKey = p.date || `${_dObj.getMonth()+1}月${_dObj.getDate()}日`;
+    const ftoPid = (appData.familyTokkiOverrides||{})[pid] || {}; const ov = ftoPid[dateKey] || ftoPid[recId] || {};
+    const isVisible = ov.visible !== false;
+    const toggle = () => { const fto = appData.familyTokkiOverrides || {}; const cur = fto[pid] || {}; const newOv = {...ov, visible: !isVisible}; const next = {...cur, [dateKey]: newOv}; if (p.recordId) next[p.recordId] = newOv; onSave({...appData, familyTokkiOverrides: {...fto, [pid]: next}}); };
+    // 欠席・休止の特記=休みの理由はご家族へ必ず表示(2026-08-21)なのでボタンを出さない
+    const canToggle = !!isEditMode && p.status !== '欠席' && p.status !== '休止';
+    return { isVisible, toggle, canToggle };
+  };
+  const _famHideBtn = (p, { big, testid } = {}) => { const f = _famTokkiOf(p); if (!f.canToggle) return null; const h = big ? 48 : 44; return (
+    <button type="button" data-testid={testid} data-vis={f.isVisible ? '1' : '0'} onClick={f.toggle} title={f.isVisible ? '押すとご家族の画面に出しません（ケアマネには表示）' : '家族に非表示中。押すと表示に戻します'}
+      className="shrink-0" style={{height:h, minWidth: big ? 72 : 58, padding:'0 6px', border: f.isVisible ? '1px solid #cbd5e1' : '1.5px solid #dc2626', borderRadius: big ? 12 : 8, fontWeight:'bold', background: f.isVisible ? '#f8fafc' : '#dc2626', color: f.isVisible ? '#64748b' : '#fff', lineHeight:1.2, fontSize: big ? 13 : 11, whiteSpace:'nowrap'}}>
+      {f.isVisible ? <>家族<br/>非表示</> : <>非表示中</>}
+    </button> ); };
   const kpConfirmRef = React.useRef(false); // ★ PC Enter: 1回目=確定 / 2回目=右のセルへ移動
   const [kibunModal, setKibunModal] = useState({ isOpen: false, recordId: null, timing: null }); // timing: 'arrival'|'departure'
   const [kibunStep, setKibunStep] = useState('mood'); // 'mood' | 'reason'
@@ -29267,6 +29283,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   {!isReadOnly && !isAbsent && !isPause && <TsuTokkiPresetSelect appData={appData} testid={`rv-ctokki-pick-${p.id}`} label="一言" onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
                     className="shrink-0 w-[4.5rem] h-11 px-1 text-[14px] font-bold border border-slate-300 rounded-lg bg-white text-slate-700 outline-none"/>}
                   {!isReadOnly && !isAbsent && !isPause && !appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-ctokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-11 h-11" size={20}/>}
+                  {!!(p.tokki||'').trim() && _famHideBtn(p, { testid: `rv-ctokki-fam-${p.id}` })}
                   <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="flex-1 min-w-0 h-11 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
                 </div>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX} c={TOKKI_NL_C}/></div>}
                 {/* ★ trial538: たたむ / 次の方へ(次の人を広げてそこまで送る) */}
@@ -30035,6 +30052,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     onBlur={e=>updateRecord(p.id,'tokki',e.target.value)} rows={4}
                     style={{flex:1,minWidth:0,width:'100%',boxSizing:'border-box',fontSize:19,lineHeight:1.7,padding:'12px 14px',border:'2px solid #94a3b8',borderRadius:14,outline:'none',background:'white',color:'#0f172a'}}/>
                   </div>
+                  {/* ★ trial577: ご家族に表示/非表示(表と同じ控え)。欠席・休止は出さない */}
+                  {!isAbsent && !isPause && _famTokkiOf(p).canToggle && <div style={{display:'flex',alignItems:'center',gap:10,marginTop:8}}>
+                    {_famHideBtn(p, { big: true, testid: 'rv-ztokki-fam' })}
+                    <span style={{fontSize:14,color:'#475569'}}>{_famTokkiOf(p).isVisible ? 'ご家族の画面に出ます（押すと出しません。ケアマネには表示）' : 'ご家族の画面に出していません（押すと戻ります）'}</span>
+                  </div>}
                 </div>
               </div>
             </div>
