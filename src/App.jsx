@@ -41691,12 +41691,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/*   確定したあとは「確定済」のボタン(押すと今の内容で確定を更新)だけにして、横幅を取らないようにする */}
           {/* ★ 2026-10-13(ユーザー指示): 「作成中」の印は不要(確定済でなければ作成中と分かる) */}
           {/* ★ 2026-11-04 trial512(ユーザー「上の帯のボタンを減らす」): 基本の送迎表・送りの時間の表示・設定 は「その他」の中へ */}
+          {_tpTemplate && <button type="button" data-testid="tp-base-reflect-btn" onClick={_tplReflectAll} title="保存してある基本の送迎表の時間を、利用者マスタの基本のお迎え時間・送りの時間にまとめて書き込みます（押すと件数を確かめてから）" className="bg-emerald-600 hover:bg-emerald-700 text-white h-10 px-3 rounded-xl font-bold text-sm whitespace-nowrap">利用者マスタへ反映</button>}
           <span className="relative inline-flex">
             <button type="button" data-testid="tp-more" aria-expanded={tpMoreOpen} onClick={() => setTpMoreOpen(v => !v)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 h-10 px-3 rounded-xl font-bold text-sm whitespace-nowrap" title="基本の送迎表・送りの時間の表示・設定">その他 ▼</button>
             {tpMoreOpen && (<>
               <div className="fixed inset-0 z-[79]" onClick={() => setTpMoreOpen(false)} aria-hidden="true"/>
               <div data-testid="tp-more-menu" className="absolute right-0 top-11 z-[80] bg-white border border-slate-300 rounded-xl shadow-xl w-[17rem] p-1.5">
                 {!_tpPhone && !_tpTemplate && <button type="button" data-testid="tp-base-open" onClick={() => { setTpMoreOpen(false); setSelectedDate(TSU_TP_BASE_MON); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-sm font-bold text-emerald-800">基本の送迎表{_hasBaseAny ? '' : '（未作成）'}</button>}
+                {_tpTemplate && (<div data-testid="tp-base-reflect" className="px-3 pt-2 pb-1 border-b border-slate-100 mb-1">
+                  <div className="text-[12px] font-bold text-slate-500 mb-1">「利用者マスタへ反映」で書き込む項目</div>
+                  <label className="flex items-center gap-2.5 py-1.5 text-sm font-bold text-slate-800 cursor-pointer select-none"><input type="checkbox" data-testid="tp-base-reflect-pickup" checked={_tplReflectCfg.pickup} onChange={e => _setTplReflect('pickup', e.target.checked)} className="w-5 h-5 accent-emerald-600"/>基本のお迎え時間</label>
+                  {_dropShown && <label className="flex items-center gap-2.5 py-1.5 text-sm font-bold text-slate-800 cursor-pointer select-none"><input type="checkbox" data-testid="tp-base-reflect-drop" checked={_tplReflectCfg.drop} onChange={e => _setTplReflect('drop', e.target.checked)} className="w-5 h-5 accent-emerald-600"/>基本の送り時間（「基本の送り時間も設定する」も入にします）</label>}
+                </div>)}
                 {/* ★ 2026-11-05 trial522(ユーザー要望「チェックを付けたら表示・外したら非表示が見て分かるように」・説明の2行目は不要): チェックの形に。押してもメニューは閉じない(チェックが変わるのが見える) */}
                 <label data-testid="tp-drop-toggle" data-shown={_dropShown ? '1' : '0'} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-slate-50 text-sm font-bold text-slate-800 cursor-pointer select-none"><input type="checkbox" data-testid="tp-drop-check" checked={_dropShown} onChange={() => _toggleDropShown()} style={{width:20,height:20,flexShrink:0,accentColor:'#059669'}}/>送りの時間を表示する</label>
                 <button type="button" data-testid="tp-settings" onClick={() => { setTpMoreOpen(false); setTpSetCap({}); setTpSettings(true); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-sm font-bold text-slate-800">設定<div className="text-[11px] font-normal text-slate-500">車の定員・座席表の並び</div></button>
@@ -41706,19 +41712,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))), dropAt: true, dropMode2: 'none' })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
       </div>
-        {_tpTemplate && (
-          <div data-testid="tp-base-banner" className="bg-emerald-50 border-b border-emerald-200 px-3 py-2 text-[13px] text-emerald-900 leading-relaxed">
-            {/* ★ 2026-11-11 trial557(ユーザー「説明文が長い。前のようにタップしたら出るように」): 1行＋ⓘ */}
-            <span className="inline-flex items-center gap-1"><b>基本の送迎表</b>＝曜日ごとの「いつもの並び」。新しい週はこの並びから自動で下書きを作ります。<TsuHint>まだ作っていない曜日は、今の送迎表の並び（車・順番・時間・運転者）を写して入れてあります。基本利用曜日の方だけで、振替で来た方は入りません（休み・退所の方は関係ありません）。名前を長押しして車へ入れるか「自動計算」で並べ、運転者・座席表・送りの時間も決めておけます。新しい週を開くと、この並びにその日来る方を当てはめて自動で下書きを作ります（「コピー → 基本の送迎表からコピー」でも写せます）。基本利用曜日を変えた方は、ここを開いたときに自動で外れます。</TsuHint></span>
-            {/* ★ 2026-11-11 trial556: ここで入れた時間を利用者マスタの基本の時間へも反映(どれを反映するかはチェック・店舗の設定) */}
-            <div className="mt-1.5 pt-1.5 border-t border-emerald-200 flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="tp-base-reflect">
-              <button type="button" data-testid="tp-base-reflect-btn" onClick={_tplReflectAll} className="h-9 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[13px] whitespace-nowrap">利用者マスタへ反映</button><TsuHint>保存してある基本の送迎表の時間（お迎え時間・送りの時間）を、利用者マスタの「基本のお迎え時間」「基本の送り時間」にまとめて書き込みます。押すと件数を確かめてから反映します。時と分がそろった時間だけが対象で、消した時間はマスタを触りません。</TsuHint>
-              <span className="font-bold">反映する項目:</span>
-              <label className="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" data-testid="tp-base-reflect-pickup" checked={_tplReflectCfg.pickup} onChange={e => _setTplReflect('pickup', e.target.checked)} className="w-4 h-4 accent-emerald-600"/>お迎え時間</label>
-              {_dropShown && <label className="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" data-testid="tp-base-reflect-drop" checked={_tplReflectCfg.drop} onChange={e => _setTplReflect('drop', e.target.checked)} className="w-4 h-4 accent-emerald-600"/>送りの時間<TsuHint>送りの時間を入れた方は、利用者マスタの「基本の送り時間も設定する」が入になります。時と分がそろった時間だけ反映し、消したときはマスタを触りません。</TsuHint></label>}
-            </div>
-          </div>
-        )}
+        {/* ★ 2026-11-13 trial573(ユーザー「基本の送迎表＝曜日ごとの…の説明は不要・マニュアルで」「反映のボタンと項目は自動計算の並びへ」): 緑の帯は廃止。反映ボタンは上の段、項目は「その他」の中 */}
         {_tpPhone && (
           <div className="bg-white px-1.5 py-1.5 border-b border-slate-200 flex items-center gap-1" data-testid="tp-phone-daybar">
             {_tpOneDay ? (<>

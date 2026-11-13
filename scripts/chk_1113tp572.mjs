@@ -35,8 +35,11 @@ const plan = (page, key) => page.evaluate((k) => (JSON.parse(localStorage.getIte
 const typeTime = async (page, isoK, pid, v) => { const inp = page.locator(`[data-tprow][data-tppid="${pid}"][data-tpiso="${isoK}"] input`).first(); await inp.click(); await inp.fill(''); await inp.type(v, { delay: 20 }); await inp.press('Enter'); await page.waitForTimeout(600); };
 // ---- ① 基本の送迎表 → 利用者マスタ は「反映」ボタン ----
 { const { page, ids } = await start({ width: 1366, height: 900 }, '2099-01-05');
-  ok((await page.getByTestId('tp-base-banner').count()) === 1, '基本の送迎表を開いた');
-  ok((await page.getByTestId('tp-base-reflect-btn').count()) === 1, '帯に「利用者マスタへ反映」ボタン(trial572)');
+  ok((await page.getByTestId('tp-base-head').count()) === 1 && (await page.getByTestId('tp-base-banner').count()) === 0, '基本の送迎表を開いた(説明の帯は無い・trial573)');
+  ok((await page.getByTestId('tp-base-reflect-btn').count()) === 1, '上の段に「利用者マスタへ反映」ボタン(trial572/573)');
+  await page.getByTestId('tp-more').click(); await page.waitForTimeout(300);
+  ok((await page.getByTestId('tp-base-reflect-pickup').count()) === 1 && await page.getByTestId('tp-base-reflect-pickup').isChecked(), '「その他」の中に反映する項目(お迎え時間・既定は入)');
+  await page.mouse.click(5, 5); await page.waitForTimeout(300); ok((await page.getByTestId('tp-more-menu').count()) === 0, 'その他を閉じた');
   await typeTime(page, tplIso, ids[0], '8:50');
   let p0 = await pat(page, ids[0]); let pl = await plan(page, `${tplIso}_AM`);
   ok(pl && Object.values(pl.cars).flat().find(m => m.pid === ids[0]).t === '8:50', 'コマに 8:50 が入る');
@@ -52,7 +55,7 @@ const typeTime = async (page, isoK, pid, v) => { const inp = page.locator(`[data
   dialogs.length = 0; await page.getByTestId('tp-base-reflect-btn').click(); await page.waitForTimeout(600);
   ok(dialogs.length === 0 && (await page.getByText('反映する時間はありません', { exact: false }).count()) >= 1, '同じ時間なら確認を出さず「反映する時間はありません」');
   // お迎えのチェックを外すと、お迎えは反映しない
-  await page.getByTestId('tp-base-reflect-pickup').click(); await page.waitForTimeout(600);
+  await page.getByTestId('tp-more').click(); await page.waitForTimeout(300); await page.getByTestId('tp-base-reflect-pickup').click(); await page.waitForTimeout(600); await page.mouse.click(5, 5); await page.waitForTimeout(300);
   await typeTime(page, tplIso, ids[2], '9:10'); dialogs.length = 0; await page.getByTestId('tp-base-reflect-btn').click(); await page.waitForTimeout(700);
   const p2b = await pat(page, ids[2]);
   ok(p2b && p2b.pickupTimes[dow] === '08:32', `お迎えのチェックを外すと 9:10 を入れて反映してもマスタは 08:32 のまま(${p2b && p2b.pickupTimes[dow]})`);
