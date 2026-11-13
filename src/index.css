@@ -676,7 +676,9 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
   .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-ex input { height: 26px !important; font-size: 13px !important; }
   .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-ex select { height: 20px !important; font-size: 11px !important; }
   .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-ex.mt-1\.5 { margin-top: 4px !important; }
-  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-foot { position: sticky; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); z-index: 5; background: #fff;
+  /* ★ trial577(2026-11-13): 下のバーの分は #appMainArea の padding(66px) と .record-view-scroll の padding(72px) で既に空けてある。
+     ここでさらに 60px 上げると、Chrome(Android) は枠の padding を除いた箱を sticky の基準にするため二重になり、枠の最後(特記の行)に帯が 27px かぶっていた → 0 */
+  .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-foot { position: sticky; bottom: 0; z-index: 5; background: #fff;
     margin: 6px -10px -8px; padding: 6px 10px calc(6px + 2px); border-top: 1px solid #e2e8f0; }
   html:not(.tsu-tabbar-on) .tsu-rv-cards > [data-rec-card]:not(.tsu-rv-row) .tsu-rv-foot { bottom: 0; }
   /* ★ trial541「全員広げたまま」: 全員が広がるので、1人だけを目立たせる緑の上下線と濃い影は付けない */
