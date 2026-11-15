@@ -76,6 +76,21 @@ export const EXT_SERVICES = [
     ],
   },
   {
+    id: 'aws_backup',
+    name: 'AWS S3（写真の控え）',
+    vendor: 'Amazon Web Services',
+    desc: '写真(個人ファイル)と店舗データ本体の控えを、毎晩 AWS の大阪リージョンへ自動で写します(2026-11-16 承認)。本体は Supabase のまま。未設定だと控えは取られません。設定手順は docs/セキュリティ/AWS控えの設定手順.md。',
+    status: 'active',
+    required: false,
+    test: 's3',
+    fields: [
+      { env: 'AWS_ACCESS_KEY_ID', dbKey: 'aws_access_key_id', label: 'アクセスキーID', type: 'text', placeholder: 'AKIA...', note: 'AWS → IAM → ユーザー tsumugi-backup → セキュリティ認証情報 → アクセスキーを作成' },
+      { env: 'AWS_SECRET_ACCESS_KEY', dbKey: 'aws_secret_access_key', label: 'シークレットアクセスキー', type: 'password', placeholder: '', note: 'アクセスキーを作ったときに1回だけ表示されます。控えを取らずに閉じたら作り直してください' },
+      { env: 'AWS_REGION', dbKey: 'aws_region', label: 'リージョン', type: 'text', placeholder: 'ap-northeast-3', note: '大阪 = ap-northeast-3(空欄なら大阪)' },
+      { env: 'AWS_BUCKET', dbKey: 'aws_bucket', label: 'バケット名', type: 'text', placeholder: 'tsumugi-backup-xxxx', note: 'S3 で作ったバケットの名前(Object Lock 有効・30日保持)' },
+    ],
+  },
+  {
     id: 'admin',
     name: '管理局の合言葉',
     vendor: 'つむぎ',
