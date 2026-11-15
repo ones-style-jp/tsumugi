@@ -13445,7 +13445,7 @@ function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: fold ? 0 : 6 }}>
         <button type="button" data-testid="home-tp-notice-fold" aria-expanded={!fold} onClick={togFold} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>
           <span style={{ fontSize: 12, color: '#9a3412' }}>{fold ? '▶' : '▼'}</span>
-          <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>送迎の時間が変わった方（連絡が要る）</span>
+          <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>送迎の時間が変わった方</span>{/* ★ trial579: 「（連絡が要る）」を外す */}
           <span data-testid="home-tp-notice-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px' }}>未連絡 {pending}名</span>
         </button>
         {!fold && <span style={{ fontSize: 11, color: '#9a3412' }}>電話したらチェック（送迎表の連絡済にも入ります）</span>}
@@ -13462,7 +13462,7 @@ function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
                   <label key={r.pid} data-testid={`home-tp-row-${x.iso}-${sl}-${r.pid}`} data-done={r.done ? '1' : '0'} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderTop: '1px solid #f1f5f9', cursor: 'pointer', opacity: r.done ? 0.6 : 1, minHeight: 40 }}>
                     <input type="checkbox" checked={!!r.done} onChange={e => mark(x.iso, sl, r.pid, e.target.checked)} style={{ width: 20, height: 20, accentColor: '#059669', flexShrink: 0 }} />
                     <span style={{ fontSize: 14, fontWeight: 'bold', color: '#1e293b', textDecoration: r.done ? 'line-through' : 'none' }}>{r.name}</span>{/* ★ trial518: 本日の業務と同じ 14px */}
-                    <span style={{ fontSize: 12, color: '#475569' }}>{r.ac}</span>
+                    <span data-testid={`home-tp-ac-${x.iso}-${sl}-${r.pid}`} style={r.done ? { fontSize: 12, color: '#475569' } : { fontSize: 12, fontWeight: 'bold', color: '#b91c1c', border: '2px solid #dc2626', borderRadius: 6, padding: '0 6px', lineHeight: '20px' }}>{r.ac}</span>{/* ★ trial579: 送迎表と同じ赤枠(連絡済で外れる) */}
                     {r.done ? <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 'bold', color: '#047857', whiteSpace: 'nowrap' }}>連絡済</span> : null}
                   </label>))}
               </div>); })}
@@ -13692,7 +13692,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           );
           const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
-                      {[['tpNotice','送迎の時間が変わった方（連絡が要る）※「本日だけ」=明日の分は出さない'],['absence','本日のお休みと休み連絡の状態（未連絡・作成中・連絡済）'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                      {[['tpNotice','送迎の時間が変わった方 ※「本日だけ」=明日の分は出さない'],['absence','本日のお休みと休み連絡の状態（未連絡・作成中・連絡済）'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
                           <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={k === 'shortcuts' ? !!c.on : c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
                           {['tpNotice','tasks','fitness','keikaku','monitoring'].includes(k) && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
@@ -21615,7 +21615,7 @@ function StaffLoginGate({ onLogin }) {
       if (staff && staff._needCode) { // ★ 本部: 確認コードの入力へ
         if (_tryPk && staff._passkeyFirst) {
           _condStop();
-          try { const st2 = await supabaseHqPasskeyLogin({ onAuth: _pkAuthed }); await finishLogin(st2); return; }
+          try { const st2 = await supabaseHqPasskeyLogin({ onAuth: _pkAuthed, allow: staff._pkAllow, expectSid: staff._pkSid }); await finishLogin(st2); return; } // ★ trial580: この人の登録済みパスキーだけを端末に出す(古い残りを選ばせない)
           catch (e2) { // パスキーを取り消した・使えない → メールを送ってコード入力へ
             _condStart(); setForm(f=>({...f, pkBusy:''}));
             const _cancel = !!(e2 && e2.name === 'NotAllowedError');
@@ -21635,11 +21635,13 @@ function StaffLoginGate({ onLogin }) {
       setForm(f=>({...f, loading:false, pkBusy:'', error: msg + debug}));
     }
   };
+  // ★ 2026-11-16 trial580: ボタンのパスキー。サーバーが「古いパスキー」と返したら、その人の登録済みパスキーだけを出して1回やり直す(登録済みが無ければそのまま案内)
+  const _pkLoginWithRetry = async () => { try { return await supabaseHqPasskeyLogin({ onAuth: _pkAuthed }); } catch (e) { if (e && e.pkStale && Array.isArray(e.pkAllow) && e.pkAllow.length) return supabaseHqPasskeyLogin({ onAuth: _pkAuthed, allow: e.pkAllow, expectSid: e.pkSid }); if (e && e.pkStale) { const e2 = new Error('この端末のパスキーは古いものです。ID とパスワードで入り、各種設定の「パスキー」で登録し直してください'); throw e2; } throw e; } };
   // ★ 2026-10-23 本部のパスキー(Touch ID・Face ID): ID・パスワード・確認コードなしで入る(登録は管理局の「パスキー」から)
   const passkeyLogin = async () => {
     if (!isSupabaseEnabled) { setForm(f=>({...f, error:'Supabase が未接続です'})); return; }
     setForm(f=>({...f, loading:true, error:''})); _condStop();
-    try { const staff = await supabaseHqPasskeyLogin({ onAuth: _pkAuthed }); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} await finishLogin(staff); } // ★ 2026-10-26: パスキーで入れた端末に印(次からは自動)
+    try { const staff = await _pkLoginWithRetry(); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} await finishLogin(staff); } // ★ 2026-10-26: パスキーで入れた端末に印(次からは自動) ★ trial580: 古いパスキーなら登録済みだけでやり直す
     catch (err) { _condStart(); setForm(f=>({...f, loading:false, pkBusy:'', error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした')})); }
   };
   // ★ 2026-11-01 従業員のパスキー: この端末で職員が登録した(または入れたことがある)ときだけ、ID・パスワードなしの「パスキーで入る」を出す(印 tsumugiStaffPasskeyDev)
@@ -21647,7 +21649,7 @@ function StaffLoginGate({ onLogin }) {
   const passkeyLoginStaff = async () => {
     if (!isSupabaseEnabled && String(import.meta.env.VITE_E2E_DEMO || '') !== '1') { setForm(f=>({...f, error:'Supabase が未接続です'})); return; } // (自動テストの見本ビルドでは API を模擬)
     setForm(f=>({...f, loading:true, error:''})); _condStop();
-    try { const staff = await supabaseHqPasskeyLogin({ onAuth: _pkAuthed }); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} await finishLogin(staff); }
+    try { const staff = await _pkLoginWithRetry(); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} await finishLogin(staff); }
     catch (err) { _condStart(); setForm(f=>({...f, loading:false, pkBusy:'', error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした。ID とパスワードで入ってください')})); }
   };
   // ★ 2026-11-01 trial496(ユーザー「他のサイトは ID を自動入力する時点で顔認証が出る。つむぎは ID・パスワードを打ってログインしてから認証で手間が多い」):
@@ -21680,10 +21682,12 @@ function StaffLoginGate({ onLogin }) {
       // ★ 2026-11-13 1113c(ユーザー「パスキーで入れませんでした（このパスキーは登録されていません）と出るが、もう一度やると同じIDのパスキーで入れる」):
       //   端末に同じ名前のパスキーが複数残っていると、自動入力が古い方(サーバーから消した・登録し直す前のもの)を選ぶことがある。
       //   「登録されていません」のときは、その場でパスキーを選ぶ画面を出して1回やり直す(ここで別のパスキーを選べる)。それでも駄目なら案内を出す
-      if (/登録されていません/.test(String((err && err.message) || '')) && !c.retried) {
+      // ★ 2026-11-16 trial580: サーバーが「古いパスキー」と返したら、その人の登録済みパスキーだけを出してやり直す(端末には古い方を「もう無い」と知らせ済み)。登録済みが無ければやり直さず案内
+      if (err && err.pkStale && !c.retried) {
         c.retried = true;
-        try { setForm(f=>({...f, loading:true, error:''})); const staff2 = await supabaseHqPasskeyLogin({ onAuth: () => { if (gen === c.gen) _pkAuthed(); } }); if (gen !== c.gen) return; _condStop(); try { localStorage.setItem(staff2 && staff2.role === 'super_admin' ? 'tsumugiHqPasskeyDev' : 'tsumugiStaffPasskeyDev', '1'); } catch {} _pkAuthed(); await finishLogin(staff2); return; }
-        catch (e2) { if (gen !== c.gen) return; setForm(f=>({...f, loading:false, pkBusy:'', error: (e2 && e2.name === 'NotAllowedError') ? 'パスキーでのログインを取り消しました。ID とパスワードで入ってください' : `パスキーで入れませんでした（${(e2 && e2.message) || ''}）。この端末に古いパスキーが残っているときは、端末のパスワード設定で「つむぎ」の古いパスキーを消すか、管理局の「パスキー」で登録し直してください`})); c.timer = setTimeout(() => { if (gen === c.gen) _condStart(); }, 1500 * Math.pow(2, c.fails - 1)); return; }
+        if (!(Array.isArray(err.pkAllow) && err.pkAllow.length)) { setForm(f=>({...f, loading:false, pkBusy:'', error: 'この端末のパスキーは古いものです。ID とパスワードで入り、各種設定の「パスキー」で登録し直してください'})); return; }
+        try { setForm(f=>({...f, loading:true, error:''})); const staff2 = await supabaseHqPasskeyLogin({ onAuth: () => { if (gen === c.gen) _pkAuthed(); }, allow: err.pkAllow, expectSid: err.pkSid }); if (gen !== c.gen) return; _condStop(); try { localStorage.setItem(staff2 && staff2.role === 'super_admin' ? 'tsumugiHqPasskeyDev' : 'tsumugiStaffPasskeyDev', '1'); } catch {} _pkAuthed(); await finishLogin(staff2); return; }
+        catch (e2) { if (gen !== c.gen) return; setForm(f=>({...f, loading:false, pkBusy:'', error: (e2 && e2.name === 'NotAllowedError') ? 'この端末に登録済みのパスキーが見つかりませんでした。ID とパスワードで入り、各種設定の「パスキー」で登録し直してください' : `パスキーで入れませんでした（${(e2 && e2.message) || ''}）。ID とパスワードで入ってください`})); c.timer = setTimeout(() => { if (gen === c.gen) _condStart(); }, 1500 * Math.pow(2, c.fails - 1)); return; }
       }
       if (!(err && err.name === 'NotAllowedError')) setForm(f=>({...f, loading:false, error: `パスキーで入れませんでした（${(err && err.message) || ''}）。ID とパスワードで入ってください`}));
       c.timer = setTimeout(() => { if (gen === c.gen) _condStart(); }, 1500 * Math.pow(2, c.fails - 1));
@@ -39070,6 +39074,16 @@ const tpFmtT = (t) => { const v = String(t ?? '').replace(/[\s　]+/g, '').trim(
   return String(t ?? '').trim(); };
 const tpSnapOf = (pl) => { const cars = {}; Object.keys(pl?.cars || {}).forEach(cid => { cars[cid] = (pl.cars[cid] || []).filter(Boolean).map(m => ({ pid: m.pid, t: tpFmtT(m.t) })); }); return { cars, walkers: (pl?.walkers || []).filter(Boolean).map(m => m.pid), walkT: Object.fromEntries((pl?.walkers || []).filter(Boolean).map(m => [m.pid, /\d/.test(String(m.t || '')) ? tpFmtT(m.t) : ''])), others: (pl?.others || []).filter(Boolean).map(m => m.pid) }; };
 const tpLocIn = (snap, pid) => { for (const cid of Object.keys(snap.cars || {})) { const i = snap.cars[cid].findIndex(m => m.pid === pid); if (i >= 0) return { zone: cid, t: snap.cars[cid][i].t || '' }; } if (snap.walkers.includes(pid)) return { zone: 'walk', t: snap.walkT[pid] || '' }; if (snap.others.includes(pid)) return { zone: 'other', t: '' }; return null; };
+// ★ 2026-11-16 trial579(ユーザー報告「ホームで徒歩の方が毎回『配布後に追加』になる」): 配布の控え(_base)は _snapPlan の形(walkers=[pid]・walkT={pid:t}・others=[pid])。
+//   tpSnapOf は生きている送迎表の形(walkers=[{pid,t}])しか読めず、控えの徒歩/その他の方を見失って毎日「追加」にしていた。控えの形でも生きている形でも読む
+const tpSnapOfBase = (b) => { if (!b || typeof b !== 'object') return { cars: {}, walkers: [], walkT: {}, others: [] }; const pidOf = (x) => (x && typeof x === 'object') ? x.pid : x; const cars = {}; Object.keys(b.cars || {}).forEach(cid => { cars[cid] = (b.cars[cid] || []).filter(Boolean).map(m => ({ pid: m.pid, t: tpFmtT(m.t) })); });
+  const walkers = (b.walkers || []).filter(x => x != null).map(pidOf); const walkT = {}; walkers.forEach(pid => { const w = (b.walkers || []).find(x => pidOf(x) === pid); const t = (b.walkT && b.walkT[pid] != null) ? b.walkT[pid] : (w && typeof w === 'object' ? w.t : ''); walkT[pid] = /\d/.test(String(t || '')) ? tpFmtT(t) : ''; });
+  return { cars, walkers, walkT, others: (b.others || []).filter(x => x != null).map(pidOf) }; };
+// ★ trial579: 連絡帳に印字した次回のお迎え時間(cbIssued)。送迎表(1113b)と同じ決まりをホームにも: 渡した時間と今の時間が違うときだけ要連絡・同じなら控えと違っても出さない
+const tpCbIssuedMapG = (appData) => { const m = new Map(); try { (appData.ticketRecords || []).forEach(r => { if (!r || !r.cbIssued || r.patientId == null) return; let o = null; try { o = JSON.parse(r.cbIssued); } catch { return; } if (!o || !o.d || !o.t) return;
+  const dm = String(o.d).match(/(\d+)月(\d+)日/); if (!dm) return; const y0 = Number(r.year) || new Date().getFullYear(); const rm = String(r.date || '').match(/^(\d+)月/); const y = (rm && +dm[1] < +rm[1]) ? y0 + 1 : y0;
+  const iso = `${y}-${String(+dm[1]).padStart(2, '0')}-${String(+dm[2]).padStart(2, '0')}`; const tm = String(o.t).replace(/[\s　頃ごろ]/g, '').match(/^(\d{1,2})[時:](\d{1,2})?分?$/); if (!tm) return;
+  const t = `${+tm[1]}:${tm[2] != null && tm[2] !== '' ? String(tm[2]).padStart(2, '0') : '--'}`; const key = `${iso}|${r.patientId}`; const prev = m.get(key); const at = Number(o.at) || 0; if (!prev || at >= prev.at) m.set(key, { t, at }); }); } catch {} return m; };
 const tpRecsOnG = (appData, pid, iso) => (appData.ticketRecords || []).filter(r => r && r.patientId === pid && recIsoOf(r) === iso);
 const tpAttendsOnG = (appData, iso, sl, pid) => {
   const p = (appData.patients || []).find(x => x.id === pid); if (!p || !isPatientActiveOnDate(p, iso)) return false;
@@ -39093,12 +39107,14 @@ const tpNoticeNeededG = (appData, targetIso, pid, chgAt) => {
 };
 // その日の「要連絡」の一覧 [{ sl, pid, name, ac, done, ck }](連絡済も done:true で返す)
 const tpNoticeListOn = (appData, iso) => {
-  const out = []; if (!tpStoreUsesTransport(appData)) return out;
+  const out = []; if (!tpStoreUsesTransport(appData)) return out; const cbm = tpCbIssuedMapG(appData);
   ['AM', 'PM'].forEach(sl => { const pl = (appData.transportPlans || {})[`${iso}_${sl}`]; const base = pl && typeof pl === 'object' && pl._base; if (!pl || !base) return;
-    const cur = tpSnapOf(pl), fin = tpSnapOf(base);
+    const cur = tpSnapOf(pl), fin = tpSnapOfBase(base); /* ★ trial579: 控えは控えの形で読む */
     const ids = [...Object.values(cur.cars).flat().map(m => m.pid), ...cur.walkers, ...cur.others];
     ids.forEach(pid => { const now = tpLocIn(cur, pid); if (!now) return; const was = tpLocIn(fin, pid);
-      let ac = ''; if (!was) ac = '配布後に追加'; else if (now.t !== was.t) ac = `時間が変更（${was.t || '未定'}→${now.t || '未定'}）`; if (!ac) return;
+      let ac = ''; const cbr = cbm.get(`${iso}|${pid}`); const ref = (cbr && cbr.t) || (pl._cbT && pl._cbT[pid] ? String(pl._cbT[pid]) : '');
+      if (ref && now.zone !== 'other') { ac = tpFmtT(now.t) !== tpFmtT(ref) ? `時間が変更（連絡帳 ${ref}→${now.t || '未定'}）` : ''; } /* ★ trial579: 送迎表(1113b)と同じ: 連絡帳に書いた時間が基準 */
+      else if (!was) ac = `時間が変更（なし→${now.t || '未定'}）`; /* ★ trial579(ユーザー要望): 「配布後に追加」でなく時間の変更として「なし→時間」 */ else if (now.t !== was.t) ac = `時間が変更（${was.t || '未定'}→${now.t || '未定'}）`; if (!ac) return;
       const ca = (pl._chgAt || {})[pid] || 0; if (!tpNoticeNeededG(appData, iso, pid, ca)) return;
       const ck = String(ca || '0'); const td = (pl._telDone || {})[pid]; const done = !!(td && typeof td === 'object' && td.on && String(td.ck) === ck);
       const p = (appData.patients || []).find(x => x.id === pid); out.push({ sl, pid, name: (p && p.name) || '', ac, done, ck }); }); });
@@ -39753,7 +39769,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _chgOf = (pl, pid, iso) => { const now = _locOf(_snapPlan(pl), pid); if (!now) return '';
     const ref = _cbRefOf(iso, pl, pid);
     if (ref && now.zone !== 'other') { const tN = _tOfLoc(now); return _hmN(tN) !== _hmN(ref) ? `時間が変更（連絡帳 ${ref}→${tN || '未定'}）` : ''; }
-    const fin = _baseOf(pl); if (!fin) return ''; const was = _locOf(fin, pid); if (!was) return '配布後に追加';
+    const fin = _baseOf(pl); if (!fin) return ''; const was = _locOf(fin, pid); if (!was) return `時間が変更（なし→${_tOfLoc(now) || '未定'}）`; /* ★ trial579: 「配布後に追加」→「なし→時間」 */
     const tN = _tOfLoc(now), tW = _tOfLoc(was); if (tN !== tW) return `時間が変更（${tW || '未定'}→${tN || '未定'}）`; return ''; };
   // ★ 2026-10-02(ユーザー要望「赤丸は、前の来所日の連絡帳を渡した後に変わった分だけ」):
   //   確定後の変更ごとに「変えた時刻」を pl._chgAt[pid] に控える(位置が変わるたびに更新・元に戻れば消す)。

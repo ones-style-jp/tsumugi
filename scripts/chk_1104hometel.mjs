@@ -12,9 +12,9 @@ const seed = async (page, view) => {
     d.systemSettings = d.systemSettings || {}; d.systemSettings.facilityInfo = { ...(d.systemSettings.facilityInfo || {}), closedDays: [] }; delete d.systemSettings.transportEnabled; d.holidays = []; d.ticketRecords = (d.ticketRecords || []).filter(x => !(x && x.year === t.getFullYear())); d.transportPlans = {}; d.monthlyShifts = {};
     const act = d.patients.filter(p => p.status === '利用中' && !p.endDate); const ids = {}, names = {};
     const set = (k, i, sl) => { const p = act[i]; p.pauseHistory = []; p.scheduleAmPm = ['', '', '', '', '', '', '']; p.scheduleAmPm[dow] = sl; p.scheduleChangeHistory = []; p.startDate = '2025-01-01'; p.name = `検${k}四郎`; p.dropTimeOn = false; ids[k] = p.id; names[k] = p.name; };
-    set('A', 0, 'AM'); set('B', 1, 'AM'); set('C', 2, 'PM'); set('D', 3, 'PM'); act.slice(4).forEach(p => { p.scheduleAmPm = ['', '', '', '', '', '', '']; });
+    set('A', 0, 'AM'); set('B', 1, 'AM'); set('C', 2, 'PM'); set('D', 3, 'PM'); set('E', 4, 'AM'); act.slice(5).forEach(p => { p.scheduleAmPm = ['', '', '', '', '', '', '']; });
     const carId = ((d.diarySettings || {}).cars || [])[0]?.id || 'car1'; const today = iso(t); const now = Date.now();
-    d.transportPlans[`${today}_AM`] = { cars: { [carId]: [{ pid: ids.A, t: '8:45', mark: false }, { pid: ids.B, t: '8:40', mark: false }] }, walkers: [], others: [], un: [], driver: {}, _savedAt: now - 60000, _base: { cars: { [carId]: [{ pid: ids.A, t: '8:30' }, { pid: ids.B, t: '8:40' }] }, walkers: [], others: [], driver: {} }, _baseAt: now - 86400000 * 2, _baseId: 'chk', _chgAt: { [ids.A]: now - 60000 } };
+    d.transportPlans[`${today}_AM`] = { cars: { [carId]: [{ pid: ids.A, t: '8:45', mark: false }, { pid: ids.B, t: '8:40', mark: false }] }, walkers: [{ pid: ids.E, t: '9:00' }], others: [], un: [], driver: {}, _savedAt: now - 60000, _base: { cars: { [carId]: [{ pid: ids.A, t: '8:30' }, { pid: ids.B, t: '8:40' }] }, walkers: [ids.E], walkT: { [ids.E]: '9:00' }, others: [], driver: {} }, _baseAt: now - 86400000 * 2, _baseId: 'chk', _chgAt: { [ids.A]: now - 60000 } }; // trial579: E は徒歩で控えと同じ時間 → 出ない
     // D: いまは「13:0」・控えは「13:00」(表記が違うだけ) → 変更ではない(trial515)
     d.transportPlans[`${today}_PM`] = { cars: { [carId]: [{ pid: ids.C, t: '13:10', mark: false }, { pid: ids.D, t: '13:0', mark: false }] }, walkers: [], others: [], un: [], driver: {}, _savedAt: now - 60000, _base: { cars: { [carId]: [{ pid: ids.D, t: '13:00' }] }, walkers: [], others: [], driver: {} }, _baseAt: now - 86400000 * 2, _baseId: 'chk', _chgAt: { [ids.C]: now - 60000 } };
     localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiTpDriveAck', String(now));
@@ -26,9 +26,11 @@ const seed = async (page, view) => {
   const card = page.getByTestId('home-tp-notice');
   r.card = (await card.count()) === 1 && (await card.getAttribute('data-pending')) === '2';
   r.A_am = (await page.getByTestId(`home-tp-row-${S.today}-AM-${S.ids.A}`).count()) === 1 && /8:30→8:45/.test(await page.getByTestId(`home-tp-row-${S.today}-AM-${S.ids.A}`).innerText());
-  r.C_pm = (await page.getByTestId(`home-tp-row-${S.today}-PM-${S.ids.C}`).count()) === 1 && /配布後に追加/.test(await page.getByTestId(`home-tp-row-${S.today}-PM-${S.ids.C}`).innerText());
+  r.C_pm = (await page.getByTestId(`home-tp-row-${S.today}-PM-${S.ids.C}`).count()) === 1 && /なし→13:10/.test(await page.getByTestId(`home-tp-row-${S.today}-PM-${S.ids.C}`).innerText());
   r.B_none = (await page.locator(`[data-testid^="home-tp-row-"][data-testid$="-${S.ids.B}"]`).count()) === 0;
   r.D_none = (await page.locator(`[data-testid^="home-tp-row-"][data-testid$="-${S.ids.D}"]`).count()) === 0; // 13:0 と 13:00 は同じ
+  r.E_walk_none = (await page.locator(`[data-testid^="home-tp-row-"][data-testid$="-${S.ids.E}"]`).count()) === 0; // trial579: 徒歩で控えと同じ → 出ない
+  r.A_redframe = /2px solid/.test(await page.getByTestId(`home-tp-ac-${S.today}-AM-${S.ids.A}`).evaluate(e => getComputedStyle(e).border)); // trial579: 赤枠
   // 折りたたみ: 見出しを押すと行が隠れ、もう一度で戻る(この端末で覚える)
   await page.getByTestId('home-tp-notice-fold').click(); await page.waitForTimeout(300); r.fold = (await card.getAttribute('data-collapsed')) === '1' && (await page.locator('[data-testid^="home-tp-row-"]').count()) === 0;
   await page.getByTestId('home-tp-notice-fold').click(); await page.waitForTimeout(300); r.unfold = (await card.getAttribute('data-collapsed')) === '0' && (await page.locator('[data-testid^="home-tp-row-"]').count()) >= 2;
