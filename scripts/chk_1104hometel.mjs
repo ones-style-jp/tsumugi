@@ -12,11 +12,13 @@ const seed = async (page, view) => {
     d.systemSettings = d.systemSettings || {}; d.systemSettings.facilityInfo = { ...(d.systemSettings.facilityInfo || {}), closedDays: [] }; delete d.systemSettings.transportEnabled; d.holidays = []; d.ticketRecords = (d.ticketRecords || []).filter(x => !(x && x.year === t.getFullYear())); d.transportPlans = {}; d.monthlyShifts = {};
     const act = d.patients.filter(p => p.status === '利用中' && !p.endDate); const ids = {}, names = {};
     const set = (k, i, sl) => { const p = act[i]; p.pauseHistory = []; p.scheduleAmPm = ['', '', '', '', '', '', '']; p.scheduleAmPm[dow] = sl; p.scheduleChangeHistory = []; p.startDate = '2025-01-01'; p.name = `検${k}四郎`; p.dropTimeOn = false; ids[k] = p.id; names[k] = p.name; };
-    set('A', 0, 'AM'); set('B', 1, 'AM'); set('C', 2, 'PM'); set('D', 3, 'PM'); act.slice(4).forEach(p => { p.scheduleAmPm = ['', '', '', '', '', '', '']; });
+    set('A', 0, 'AM'); set('B', 1, 'AM'); set('C', 2, 'PM'); set('D', 3, 'PM'); set('E', 4, 'AM'); set('F', 5, 'AM'); act.slice(6).forEach(p => { p.scheduleAmPm = ['', '', '', '', '', '', '']; });
     const carId = ((d.diarySettings || {}).cars || [])[0]?.id || 'car1'; const today = iso(t); const now = Date.now();
-    d.transportPlans[`${today}_AM`] = { cars: { [carId]: [{ pid: ids.A, t: '8:45', mark: false }, { pid: ids.B, t: '8:40', mark: false }] }, walkers: [], others: [], un: [], driver: {}, _savedAt: now - 60000, _base: { cars: { [carId]: [{ pid: ids.A, t: '8:30' }, { pid: ids.B, t: '8:40' }] }, walkers: [], others: [], driver: {} }, _baseAt: now - 86400000 * 2, _baseId: 'chk', _chgAt: { [ids.A]: now - 60000 } };
+    d.transportPlans[`${today}_AM`] = { cars: { [carId]: [{ pid: ids.A, t: '8:45', mark: false }, { pid: ids.B, t: '8:40', mark: false }] }, walkers: [{ pid: ids.E, t: '9:00' }, { pid: ids.F, t: '徒歩' }], others: [], un: [], driver: {}, _savedAt: now - 60000, _base: { cars: { [carId]: [{ pid: ids.A, t: '8:30' }, { pid: ids.B, t: '8:40' }] }, walkers: [ids.E, ids.F], walkT: { [ids.E]: '9:00', [ids.F]: '' }, others: [], driver: {} }, _baseAt: now - 86400000 * 2, _baseId: 'chk', _chgAt: { [ids.A]: now - 60000 } }; // trial579: E は徒歩で控えと同じ時間 → 出ない
     // D: いまは「13:0」・控えは「13:00」(表記が違うだけ) → 変更ではない(trial515)
     d.transportPlans[`${today}_PM`] = { cars: { [carId]: [{ pid: ids.C, t: '13:10', mark: false }, { pid: ids.D, t: '13:0', mark: false }] }, walkers: [], others: [], un: [], driver: {}, _savedAt: now - 60000, _base: { cars: { [carId]: [{ pid: ids.D, t: '13:00' }] }, walkers: [], others: [], driver: {} }, _baseAt: now - 86400000 * 2, _baseId: 'chk', _chgAt: { [ids.C]: now - 60000 } };
+    // trial582: F は徒歩のまま(時間なし)。前の来所日の連絡帳に「次回 9時00分」(利用者マスタの送迎時間)が印字済み(cbIssued) → 徒歩の方は連絡帳の時間と比べない → 出ない
+    { const y = new Date(t); y.setDate(y.getDate() - 1); d.ticketRecords.push({ id: 'chkF_cb', patientId: ids.F, year: y.getFullYear(), date: `${y.getMonth() + 1}月${y.getDate()}日`, status: '出席', cbIssued: JSON.stringify({ d: `${t.getMonth() + 1}月${t.getDate()}日`, t: '9時00分', at: now - 86400000 }) }); }
     localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiTpDriveAck', String(now));
     sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view, pid: null, t: Date.now(), ampm: 'AM' })); return { ids, names, today, carId }; }, view);
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); return S;
@@ -26,9 +28,13 @@ const seed = async (page, view) => {
   const card = page.getByTestId('home-tp-notice');
   r.card = (await card.count()) === 1 && (await card.getAttribute('data-pending')) === '2';
   r.A_am = (await page.getByTestId(`home-tp-row-${S.today}-AM-${S.ids.A}`).count()) === 1 && /8:30→8:45/.test(await page.getByTestId(`home-tp-row-${S.today}-AM-${S.ids.A}`).innerText());
-  r.C_pm = (await page.getByTestId(`home-tp-row-${S.today}-PM-${S.ids.C}`).count()) === 1 && /配布後に追加/.test(await page.getByTestId(`home-tp-row-${S.today}-PM-${S.ids.C}`).innerText());
+  r.C_pm = (await page.getByTestId(`home-tp-row-${S.today}-PM-${S.ids.C}`).count()) === 1 && /なし→13:10/.test(await page.getByTestId(`home-tp-row-${S.today}-PM-${S.ids.C}`).innerText());
   r.B_none = (await page.locator(`[data-testid^="home-tp-row-"][data-testid$="-${S.ids.B}"]`).count()) === 0;
   r.D_none = (await page.locator(`[data-testid^="home-tp-row-"][data-testid$="-${S.ids.D}"]`).count()) === 0; // 13:0 と 13:00 は同じ
+  r.E_walk_none = (await page.locator(`[data-testid^="home-tp-row-"][data-testid$="-${S.ids.E}"]`).count()) === 0; // trial579: 徒歩で控えと同じ → 出ない
+  r.F_walk_cb_none = (await page.locator(`[data-testid^="home-tp-row-"][data-testid$="-${S.ids.F}"]`).count()) === 0; // trial582: 徒歩で連絡帳に 9:00 が印字済みでも出ない
+  { const ac = page.getByTestId(`home-tp-ac-${S.today}-AM-${S.ids.A}`); const bw = await ac.locator('b').evaluate(e => getComputedStyle(e).fontWeight).catch(() => ''); r.A_bold_after = /8:30→8:45/.test(await ac.innerText()) && (bw === '700' || bw === 'bold') && !/時間が変更|連絡帳/.test(await ac.innerText()); } // trial582: 前→後(後は太字)・赤字なし
+  r.pill_mitaiou = /未対応\s*2名/.test(await page.getByTestId('home-tp-notice-pending').innerText()); // trial582: 未連絡→未対応
   // 折りたたみ: 見出しを押すと行が隠れ、もう一度で戻る(この端末で覚える)
   await page.getByTestId('home-tp-notice-fold').click(); await page.waitForTimeout(300); r.fold = (await card.getAttribute('data-collapsed')) === '1' && (await page.locator('[data-testid^="home-tp-row-"]').count()) === 0;
   await page.getByTestId('home-tp-notice-fold').click(); await page.waitForTimeout(300); r.unfold = (await card.getAttribute('data-collapsed')) === '0' && (await page.locator('[data-testid^="home-tp-row-"]').count()) >= 2;
@@ -53,7 +59,7 @@ const seed = async (page, view) => {
   const dotA = page.getByTestId(`tp-dot-${S.today}-AM-${S.ids.A}`), dotC = page.getByTestId(`tp-dot-${S.today}-PM-${S.ids.C}`);
   r.tp_A_done = (await dotA.getAttribute('data-done')) === '1' && (await page.getByTestId(`tp-time-${S.ids.A}`).getAttribute('data-tel')) === '0';
   r.tp_C_red = (await dotC.getAttribute('data-on')) === '1' && (await dotC.getAttribute('data-done')) === '0';
-  r.tp_count_1 = /要連絡\s*1件/.test(await page.getByTestId('tp-chg-btn').innerText().catch(() => ''));
+  r.tp_count_1 = /未対応\s*1件/.test(await page.getByTestId('tp-chg-btn').innerText().catch(() => ''));
   await page.context().close(); }
 { const page = await (await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' })).newPage(); page.on('dialog', d => d.accept());
   const S = await seed(page, 'dashboard');

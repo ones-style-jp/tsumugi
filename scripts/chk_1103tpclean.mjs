@@ -34,7 +34,7 @@ const planOf = (page, key) => page.evaluate((k) => { const d = JSON.parse(localS
   const dotA = page.getByTestId(`tp-dot-${S.today}-AM-${S.ids.A}`), dotB = page.getByTestId(`tp-dot-${S.today}-AM-${S.ids.B}`), timeA = page.getByTestId(`tp-time-${S.ids.A}`);
   r.A_red = (await dotA.getAttribute('data-on')) === '1' && (await dotA.getAttribute('data-done')) === '0' && (await timeA.getAttribute('data-tel')) === '1';
   r.B_plain = (await dotB.getAttribute('data-on')) === '0';
-  r.count_1 = /要連絡\s*1件/.test(await page.getByTestId('tp-chg-btn').innerText().catch(() => ''));
+  r.count_1 = /(要連絡|未対応)\s*1件/.test(await page.getByTestId('tp-chg-btn').innerText().catch(() => ''));
   r.no_old_marks = (await page.locator('[data-testid^="tp-chg-chip-"], [data-tpcarchg="1"], [data-testid^="tp-stale-"], [data-testid="tp-stale-modal"]').count()) === 0;
   // ③ 休みの自動反映: C は車から外れ、保存にも残っていない。D は残る
   const pl = await planOf(page, `${S.today}_AM`); const inCar = (pid) => Object.values(pl.cars || {}).flat().some(m => String(m.pid) === String(pid));
@@ -90,9 +90,9 @@ const planOf = (page, key) => page.evaluate((k) => { const d = JSON.parse(localS
   const S = await seed(page);
   const am = page.locator('button', { hasText: /^AM$/ }).first(); if (await am.count()) { await am.click().catch(() => {}); await page.waitForTimeout(800); }
   const tel = page.getByTestId(`tp-dl-tel-${S.today}-AM-${S.ids.A}`);
-  r.phone_tel_btn = (await tel.count()) === 1 && /連絡済にする/.test(await tel.innerText());
+  r.phone_tel_btn = (await tel.count()) === 1 && /(連絡済|対応済)にする/.test(await tel.innerText());
   r.phone_no_chip = (await page.locator('[data-testid^="tp-dl-chg-"]').count()) === 0;
-  if (await tel.count()) { await tel.click(); await page.waitForTimeout(900); r.phone_tel_done = /連絡済/.test(await tel.innerText()) && (await tel.getAttribute('data-done')) === '1'; }
+  if (await tel.count()) { await tel.click(); await page.waitForTimeout(900); r.phone_tel_done = /(連絡済|対応済)/.test(await tel.innerText()) && (await tel.getAttribute('data-done')) === '1'; }
   await page.screenshot({ path: '/tmp/chk_1103tpclean_phone.png', fullPage: true }).catch(() => {});
   await page.context().close(); }
 await b.close();
