@@ -38963,6 +38963,11 @@ const tpFmtT = (t) => { const v = String(t ?? '').replace(/[\s　]+/g, '').trim(
   m = v.match(/^(\d{1,2}):(\d{1,2}|--)$/); if (m) return `${m[1]}:${m[2] === '--' ? '--' : String(m[2]).padStart(2, '0')}`;
   return String(t ?? '').trim(); };
 const tpSnapOf = (pl) => { const cars = {}; Object.keys(pl?.cars || {}).forEach(cid => { cars[cid] = (pl.cars[cid] || []).filter(Boolean).map(m => ({ pid: m.pid, t: tpFmtT(m.t) })); }); return { cars, walkers: (pl?.walkers || []).filter(Boolean).map(m => m.pid), walkT: Object.fromEntries((pl?.walkers || []).filter(Boolean).map(m => [m.pid, /\d/.test(String(m.t || '')) ? tpFmtT(m.t) : ''])), others: (pl?.others || []).filter(Boolean).map(m => m.pid) }; };
+// ★ 2026-11-16 1116a(ユーザー報告「ホームで徒歩の方が毎回『配布後に追加』になる」・trial579 と同じ): 配布の控え(_base)は _snapPlan の形(walkers=[pid]・walkT={pid:t}・others=[pid])。
+//   tpSnapOf は生きている送迎表の形(walkers=[{pid,t}])しか読めず、控えの徒歩/その他の方を見失って毎日「追加」にしていた。控えの形でも生きている形でも読む
+const tpSnapOfBase = (b) => { if (!b || typeof b !== 'object') return { cars: {}, walkers: [], walkT: {}, others: [] }; const pidOf = (x) => (x && typeof x === 'object') ? x.pid : x; const cars = {}; Object.keys(b.cars || {}).forEach(cid => { cars[cid] = (b.cars[cid] || []).filter(Boolean).map(m => ({ pid: m.pid, t: tpFmtT(m.t) })); });
+  const walkers = (b.walkers || []).filter(x => x != null).map(pidOf); const walkT = {}; walkers.forEach(pid => { const w = (b.walkers || []).find(x => pidOf(x) === pid); const t = (b.walkT && b.walkT[pid] != null) ? b.walkT[pid] : (w && typeof w === 'object' ? w.t : ''); walkT[pid] = /\d/.test(String(t || '')) ? tpFmtT(t) : ''; });
+  return { cars, walkers, walkT, others: (b.others || []).filter(x => x != null).map(pidOf) }; };
 const tpLocIn = (snap, pid) => { for (const cid of Object.keys(snap.cars || {})) { const i = snap.cars[cid].findIndex(m => m.pid === pid); if (i >= 0) return { zone: cid, t: snap.cars[cid][i].t || '' }; } if (snap.walkers.includes(pid)) return { zone: 'walk', t: snap.walkT[pid] || '' }; if (snap.others.includes(pid)) return { zone: 'other', t: '' }; return null; };
 const tpRecsOnG = (appData, pid, iso) => (appData.ticketRecords || []).filter(r => r && r.patientId === pid && recIsoOf(r) === iso);
 const tpAttendsOnG = (appData, iso, sl, pid) => {
@@ -38989,7 +38994,7 @@ const tpNoticeNeededG = (appData, targetIso, pid, chgAt) => {
 const tpNoticeListOn = (appData, iso) => {
   const out = []; if (!tpStoreUsesTransport(appData)) return out;
   ['AM', 'PM'].forEach(sl => { const pl = (appData.transportPlans || {})[`${iso}_${sl}`]; const base = pl && typeof pl === 'object' && pl._base; if (!pl || !base) return;
-    const cur = tpSnapOf(pl), fin = tpSnapOf(base);
+    const cur = tpSnapOf(pl), fin = tpSnapOfBase(base); /* ★ 1116a: 控えは控えの形で読む */
     const ids = [...Object.values(cur.cars).flat().map(m => m.pid), ...cur.walkers, ...cur.others];
     ids.forEach(pid => { const now = tpLocIn(cur, pid); if (!now) return; const was = tpLocIn(fin, pid);
       let ac = ''; if (!was) ac = '配布後に追加'; else if (now.t !== was.t) ac = `時間が変更（${was.t || '未定'}→${now.t || '未定'}）`; if (!ac) return;
@@ -39646,7 +39651,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _cbRefOf = (iso, pl, pid) => { if (!iso) return ''; const m = _cbIssuedRef.get(`${iso}|${pid}`); if (m && m.t) return m.t; const c = pl && pl._cbT ? pl._cbT[pid] : ''; return c ? String(c) : ''; };
   const _chgOf = (pl, pid, iso) => { const now = _locOf(_snapPlan(pl), pid); if (!now) return '';
     const ref = _cbRefOf(iso, pl, pid);
-    if (ref && now.zone !== 'other') { const tN = _tOfLoc(now); return _hmN(tN) !== _hmN(ref) ? `時間が変更（連絡帳 ${ref}→${tN || '未定'}）` : ''; }
+    // ★ 2026-11-16 1116a(ユーザー報告「徒歩の方がずっと徒歩なのに 連絡帳 9:00→未定 と出る」): 連絡帳が徒歩の方に印字する時間は送迎表の徒歩の時間ではない(getTransportTimeFor は徒歩を返し、利用者マスタの送迎時間や提供開始からの目安が印字される)ので、徒歩の方は連絡帳の時間と比べない(配布の控えとだけ比べる)
+    if (ref && now.zone !== 'other' && now.zone !== 'walk') { const tN = _tOfLoc(now); return _hmN(tN) !== _hmN(ref) ? `時間が変更（連絡帳 ${ref}→${tN || '未定'}）` : ''; }
     const fin = _baseOf(pl); if (!fin) return ''; const was = _locOf(fin, pid); if (!was) return '配布後に追加';
     const tN = _tOfLoc(now), tW = _tOfLoc(was); if (tN !== tW) return `時間が変更（${tW || '未定'}→${tN || '未定'}）`; return ''; };
   // ★ 2026-10-02(ユーザー要望「赤丸は、前の来所日の連絡帳を渡した後に変わった分だけ」):
