@@ -30,7 +30,7 @@ const isOn = async (pid) => (await dot(pid).count()) === 1 && (await dot(pid).ge
 ok((await isOn(ids[0])) && (await dot(ids[0]).getAttribute('data-done')) === '0', 'A: 連絡帳で 13:05 を渡したあと 13:15 に変えた → 赤枠(要連絡)が付く(配布の控えが無くても)(1113b)');
 ok(!(await isOn(ids[1])), 'B: 渡した 13:05 のまま → 赤枠なし');
 ok(!(await isOn(ids[2])), 'C: 連絡帳を渡していない方(控えなし) → 従来どおり赤枠なし');
-ok(await dot(ids[0]).getAttribute('title').then(t => /連絡帳 13:05→13:15/.test(t || '')), `赤枠の説明に「連絡帳 13:05→13:15」(${await dot(ids[0]).getAttribute('title')})`);
+ok(await dot(ids[0]).getAttribute('title').then(t => /(連絡帳 )?13:05→13:15/.test(t || '')), `赤枠の説明に「13:05→13:15」(trial582: 「時間が変更（連絡帳 …）」をやめ 前→後 だけ)(${await dot(ids[0]).getAttribute('title')})`);
 // 連絡済にすると消える(赤枠は消え、チェックは緑)
 await dot(ids[0]).click(); await page.waitForTimeout(600);
 ok((await dot(ids[0]).getAttribute('data-done')) === '1', 'A: 連絡済を押すと済みになる');
@@ -46,6 +46,6 @@ const chg = await page.evaluate((k) => ((JSON.parse(localStorage.getItem('daycar
 ok(!!chg[ids[0]] || !!chg[String(ids[0])], `変えた時刻が控えられる(_chgAt: ${JSON.stringify(Object.keys(chg))})`);
 // 要連絡の件数
 const bodyText = await page.evaluate(() => document.body.innerText);
-ok(/要連絡\s*1/.test(bodyText), `上の件数に「要連絡 1件」(${(bodyText.match(/要連絡[^\n]{0,8}/) || [''])[0]})`);
+ok(/(要連絡|未対応)\s*1/.test(bodyText), `上の件数に「未対応 1件」(${(bodyText.match(/(要連絡|未対応)[^\n]{0,8}/) || [''])[0]})`); // trial582: 要連絡→未対応
 await b.close();
 console.log(fails ? `FAIL ${fails}` : 'ALL PASS'); process.exit(fails ? 1 : 0);

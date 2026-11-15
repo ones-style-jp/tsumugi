@@ -13410,7 +13410,7 @@ function TsuHomeAbsence({ appData, navigateTo }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: fold ? 0 : 4 }}>
         <button type="button" data-testid="home-absence-fold" aria-expanded={!fold} onClick={togFold} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left', minHeight: 32 }}>
           <span style={{ fontSize: 12, color: '#9a3412' }}>{fold ? '▶' : '▼'}</span>
-          <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>休み連絡がまだの方</span>
+          <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>休み未連絡</span>{/* ★ trial582(ユーザー): 「休み連絡がまだの方」→「休み未連絡」 */}
           <span data-testid="home-absence-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pending}名</span>
         </button>
         <TsuHint>今日お休みの方（提供記録の欠席・月間表の欠席）のうち、ケアマネへの休み連絡がまだの方です。名前を押すとその方の休み連絡（送付状）を開きます。「作成中」は送付状を書いたが印刷・連絡済にしていない状態です。連絡済になるとここから消えます。</TsuHint>
@@ -13445,10 +13445,10 @@ function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: fold ? 0 : 6 }}>
         <button type="button" data-testid="home-tp-notice-fold" aria-expanded={!fold} onClick={togFold} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>
           <span style={{ fontSize: 12, color: '#9a3412' }}>{fold ? '▶' : '▼'}</span>
-          <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>送迎の時間が変わった方</span>{/* ★ trial579: 「（連絡が要る）」を外す */}
-          <span data-testid="home-tp-notice-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px' }}>未連絡 {pending}名</span>
+          <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>送迎時間の変更</span>{/* ★ trial582(ユーザー): 「送迎の時間が変わった方」→「送迎時間の変更」・未連絡→未対応・電話したら→対応したら(電話以外もある) */}
+          <span data-testid="home-tp-notice-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px' }}>未対応 {pending}名</span>
         </button>
-        {!fold && <span style={{ fontSize: 11, color: '#9a3412' }}>電話したらチェック（送迎表の連絡済にも入ります）</span>}
+        {!fold && <span style={{ fontSize: 11, color: '#9a3412' }}>対応したらチェック（送迎表の対応済にも入ります）</span>}
         <button type="button" data-testid="home-tp-notice-open" onClick={() => navigateTo && navigateTo('transport')} style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 'bold', color: '#1d4ed8', background: '#fff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 10px' }}>送迎表を開く</button>
       </div>
       {!fold && lists.map(x => (
@@ -13457,13 +13457,13 @@ function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
           <div style={{ display: 'grid', gridTemplateColumns: narrow ? '1fr' : '1fr 1fr', gap: 8 }}>
             {['AM', 'PM'].map(sl => { const rows = x.rows.filter(r => r.sl === sl); return (
               <div key={sl} data-testid={`home-tp-notice-${x.iso}-${sl}`} style={{ background: '#fff', border: '1px solid #fed7aa', borderRadius: 10, padding: '6px 10px' }}>
-                <div style={{ fontSize: 12, fontWeight: 'bold', color: '#475569', marginBottom: 2 }}>{sl === 'AM' ? '午前' : '午後'}{rows.length ? `（未連絡 ${rows.filter(r => !r.done).length}名）` : ''}</div>
+                <div style={{ fontSize: 12, fontWeight: 'bold', color: '#475569', marginBottom: 2 }}>{sl === 'AM' ? '午前' : '午後'}{rows.length ? `（未対応 ${rows.filter(r => !r.done).length}名）` : ''}</div>
                 {!rows.length ? <div style={{ fontSize: 12, color: '#94a3b8' }}>なし</div> : rows.map(r => (
                   <label key={r.pid} data-testid={`home-tp-row-${x.iso}-${sl}-${r.pid}`} data-done={r.done ? '1' : '0'} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderTop: '1px solid #f1f5f9', cursor: 'pointer', opacity: r.done ? 0.6 : 1, minHeight: 40 }}>
                     <input type="checkbox" checked={!!r.done} onChange={e => mark(x.iso, sl, r.pid, e.target.checked)} style={{ width: 20, height: 20, accentColor: '#059669', flexShrink: 0 }} />
                     <span style={{ fontSize: 14, fontWeight: 'bold', color: '#1e293b', textDecoration: r.done ? 'line-through' : 'none' }}>{r.name}</span>{/* ★ trial518: 本日の業務と同じ 14px */}
-                    <span data-testid={`home-tp-ac-${x.iso}-${sl}-${r.pid}`} style={r.done ? { fontSize: 12, color: '#475569' } : { fontSize: 12, fontWeight: 'bold', color: '#b91c1c', border: '2px solid #dc2626', borderRadius: 6, padding: '0 6px', lineHeight: '20px' }}>{r.ac}</span>{/* ★ trial579: 送迎表と同じ赤枠(連絡済で外れる) */}
-                    {r.done ? <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 'bold', color: '#047857', whiteSpace: 'nowrap' }}>連絡済</span> : null}
+                    <span data-testid={`home-tp-ac-${x.iso}-${sl}-${r.pid}`} style={{ fontSize: 14, color: r.done ? '#475569' : '#1e293b', whiteSpace: 'nowrap' }}>{r.acFrom}→<b style={{ fontWeight: r.done ? 'normal' : 'bold' }}>{r.acTo}</b></span>{/* ★ trial582(ユーザー「時間が変更（連絡帳…）は分かりづらい・赤字にしない・時間だけ・変更後は太字」): 前→後 だけ。太字は未対応のあいだ */}
+                    {r.done ? <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 'bold', color: '#047857', whiteSpace: 'nowrap' }}>対応済</span> : null}
                   </label>))}
               </div>); })}
           </div>
@@ -13692,7 +13692,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           );
           const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
-                      {[['tpNotice','送迎の時間が変わった方 ※「本日だけ」=明日の分は出さない'],['absence','本日のお休みと休み連絡の状態（未連絡・作成中・連絡済）'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                      {[['tpNotice','送迎時間の変更 ※「本日だけ」=明日の分は出さない'],['absence','本日のお休みと休み連絡の状態（未連絡・作成中・連絡済）'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
                           <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={k === 'shortcuts' ? !!c.on : c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
                           {['tpNotice','tasks','fitness','keikaku','monitoring'].includes(k) && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
@@ -13721,7 +13721,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 </div>
               </div>
               <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd',position:'relative'}}>
-                <TsuHomeTpNotice appData={appData} onSave={onSave} navigateTo={navigateTo} />{/* ★ 2026-11-04 trial514: 送迎の時間が変わった方(連絡が要る)・今日と明日・午前/午後 */}
+                <TsuHomeTpNotice appData={appData} onSave={onSave} navigateTo={navigateTo} />{/* ★ 2026-11-04 trial514: 送迎時間の変更(未対応)・今日と明日・午前/午後 */}
                 <TsuHomeAbsence appData={appData} navigateTo={navigateTo} />{/* ★ 2026-11-12 trial566: 本日のお休みと休み連絡の状態 */}
                 {_hcfg.memos?.on !== false && <TsuHomeMemos appData={appData} onSave={onSave} isRead={isRead} markRead={markRead} />}{/* ★ 2026-10-30: 今日の申し送り(本日の業務の上) ★ trial517: 表示設定で切替 */}
                 {section('today', '本日の業務', 'home-tasks-today', true)}
@@ -39073,6 +39073,7 @@ const tpFmtT = (t) => { const v = String(t ?? '').replace(/[\s　]+/g, '').trim(
   m = v.match(/^(\d{1,2}):(\d{1,2}|--)$/); if (m) return `${m[1]}:${m[2] === '--' ? '--' : String(m[2]).padStart(2, '0')}`;
   return String(t ?? '').trim(); };
 const tpSnapOf = (pl) => { const cars = {}; Object.keys(pl?.cars || {}).forEach(cid => { cars[cid] = (pl.cars[cid] || []).filter(Boolean).map(m => ({ pid: m.pid, t: tpFmtT(m.t) })); }); return { cars, walkers: (pl?.walkers || []).filter(Boolean).map(m => m.pid), walkT: Object.fromEntries((pl?.walkers || []).filter(Boolean).map(m => [m.pid, /\d/.test(String(m.t || '')) ? tpFmtT(m.t) : ''])), others: (pl?.others || []).filter(Boolean).map(m => m.pid) }; };
+const tpTimeLbl = (l) => !l ? '' : l.zone === 'walk' ? (l.t || '徒歩') : l.zone === 'other' ? 'その他' : (l.t || '未定'); // ★ trial582: 一覧に出す時間の字(徒歩で時間なし=徒歩)
 const tpLocIn = (snap, pid) => { for (const cid of Object.keys(snap.cars || {})) { const i = snap.cars[cid].findIndex(m => m.pid === pid); if (i >= 0) return { zone: cid, t: snap.cars[cid][i].t || '' }; } if (snap.walkers.includes(pid)) return { zone: 'walk', t: snap.walkT[pid] || '' }; if (snap.others.includes(pid)) return { zone: 'other', t: '' }; return null; };
 // ★ 2026-11-16 trial579(ユーザー報告「ホームで徒歩の方が毎回『配布後に追加』になる」): 配布の控え(_base)は _snapPlan の形(walkers=[pid]・walkT={pid:t}・others=[pid])。
 //   tpSnapOf は生きている送迎表の形(walkers=[{pid,t}])しか読めず、控えの徒歩/その他の方を見失って毎日「追加」にしていた。控えの形でも生きている形でも読む
@@ -39112,12 +39113,15 @@ const tpNoticeListOn = (appData, iso) => {
     const cur = tpSnapOf(pl), fin = tpSnapOfBase(base); /* ★ trial579: 控えは控えの形で読む */
     const ids = [...Object.values(cur.cars).flat().map(m => m.pid), ...cur.walkers, ...cur.others];
     ids.forEach(pid => { const now = tpLocIn(cur, pid); if (!now) return; const was = tpLocIn(fin, pid);
-      let ac = ''; const cbr = cbm.get(`${iso}|${pid}`); const ref = (cbr && cbr.t) || (pl._cbT && pl._cbT[pid] ? String(pl._cbT[pid]) : '');
-      if (ref && now.zone !== 'other') { ac = tpFmtT(now.t) !== tpFmtT(ref) ? `時間が変更（連絡帳 ${ref}→${now.t || '未定'}）` : ''; } /* ★ trial579: 送迎表(1113b)と同じ: 連絡帳に書いた時間が基準 */
-      else if (!was) ac = `時間が変更（なし→${now.t || '未定'}）`; /* ★ trial579(ユーザー要望): 「配布後に追加」でなく時間の変更として「なし→時間」 */ else if (now.t !== was.t) ac = `時間が変更（${was.t || '未定'}→${now.t || '未定'}）`; if (!ac) return;
+      let from = '', to = ''; const cbr = cbm.get(`${iso}|${pid}`); const ref = (cbr && cbr.t) || (pl._cbT && pl._cbT[pid] ? String(pl._cbT[pid]) : '');
+      // ★ trial582(ユーザー報告「徒歩の方がずっと徒歩なのに 9時→未定 と出る」): 連絡帳が徒歩の方に印字する時間は送迎表の徒歩の時間ではない(利用者マスタの送迎時間・提供開始からの目安)ので、徒歩の方は連絡帳の時間と比べない(配布の控えとだけ比べる)。
+      //   表示は「前→後」だけ(時間が変更（連絡帳 …）はやめる)。徒歩で時間なし=「徒歩」・その他=「その他」・車で時間なし=「未定」
+      if (ref && now.zone !== 'other' && now.zone !== 'walk') { if (tpFmtT(now.t) !== tpFmtT(ref)) { from = ref; to = tpTimeLbl(now); } } /* ★ trial579: 送迎表(1113b)と同じ: 連絡帳に書いた時間が基準 */
+      else if (!was) { from = 'なし'; to = tpTimeLbl(now); } /* ★ trial579(ユーザー要望): 「配布後に追加」でなく時間の変更として「なし→時間」 */ else if (now.t !== was.t || ((now.zone === 'walk') !== (was.zone === 'walk'))) { from = tpTimeLbl(was); to = tpTimeLbl(now); } if (!to) return;
+      const ac = `${from}→${to}`;
       const ca = (pl._chgAt || {})[pid] || 0; if (!tpNoticeNeededG(appData, iso, pid, ca)) return;
       const ck = String(ca || '0'); const td = (pl._telDone || {})[pid]; const done = !!(td && typeof td === 'object' && td.on && String(td.ck) === ck);
-      const p = (appData.patients || []).find(x => x.id === pid); out.push({ sl, pid, name: (p && p.name) || '', ac, done, ck }); }); });
+      const p = (appData.patients || []).find(x => x.id === pid); out.push({ sl, pid, name: (p && p.name) || '', ac, acFrom: from, acTo: to, done, ck }); }); });
   return out;
 };
 // 連絡済を付ける/外す(送迎表の setTelDone と同じ形で保存。戻り値=新しい appData・コマが無ければ null)
@@ -39766,11 +39770,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const key = `${iso}|${r.patientId}`; const prev = m.get(key); const at = Number(o.at) || 0; if (!prev || at >= prev.at) m.set(key, { t, at }); }); } catch {} return m; }, [appData.ticketRecords]);
   const _hmN = (v) => { const m = String(v || '').trim().match(/^(\d{1,2}):(\d{1,2}|--)$/); return m ? `${+m[1]}:${m[2] === '--' ? '--' : String(+m[2]).padStart(2, '0')}` : String(v || '').trim(); };
   const _cbRefOf = (iso, pl, pid) => { if (!iso) return ''; const m = _cbIssuedRef.get(`${iso}|${pid}`); if (m && m.t) return m.t; const c = pl && pl._cbT ? pl._cbT[pid] : ''; return c ? String(c) : ''; };
+  const _tLbl = (l) => !l ? '' : (l.zone === 'walk' ? (_tOfLoc(l) || '徒歩') : l.zone === 'other' ? 'その他' : (_tOfLoc(l) || '未定')); // ★ trial582: 一覧の字(徒歩で時間なし=徒歩・その他=その他)
+  // ★ trial582(ユーザー報告「徒歩の方がずっと徒歩なのに 9時→未定 と出る」): 連絡帳が徒歩の方に印字する時間は送迎表の徒歩の時間ではない(getTransportTimeFor は徒歩を返し、利用者マスタの送迎時間や提供開始からの目安が印字される)ので、
+  //   徒歩の方は連絡帳の時間と比べない(配布の控えとだけ比べる)。表示は「前→後」だけ(「時間が変更（連絡帳 …）」はやめる・ユーザー「分かりづらい」)
   const _chgOf = (pl, pid, iso) => { const now = _locOf(_snapPlan(pl), pid); if (!now) return '';
     const ref = _cbRefOf(iso, pl, pid);
-    if (ref && now.zone !== 'other') { const tN = _tOfLoc(now); return _hmN(tN) !== _hmN(ref) ? `時間が変更（連絡帳 ${ref}→${tN || '未定'}）` : ''; }
-    const fin = _baseOf(pl); if (!fin) return ''; const was = _locOf(fin, pid); if (!was) return `時間が変更（なし→${_tOfLoc(now) || '未定'}）`; /* ★ trial579: 「配布後に追加」→「なし→時間」 */
-    const tN = _tOfLoc(now), tW = _tOfLoc(was); if (tN !== tW) return `時間が変更（${tW || '未定'}→${tN || '未定'}）`; return ''; };
+    if (ref && now.zone !== 'other' && now.zone !== 'walk') { const tN = _tOfLoc(now); return _hmN(tN) !== _hmN(ref) ? `${ref}→${_tLbl(now)}` : ''; }
+    const fin = _baseOf(pl); if (!fin) return ''; const was = _locOf(fin, pid); if (!was) return `なし→${_tLbl(now)}`; /* ★ trial579: 「配布後に追加」→「なし→時間」 */
+    const tN = _tOfLoc(now), tW = _tOfLoc(was); if (tN !== tW || ((now.zone === 'walk') !== (was.zone === 'walk'))) return `${_tLbl(was)}→${_tLbl(now)}`; return ''; };
   // ★ 2026-10-02(ユーザー要望「赤丸は、前の来所日の連絡帳を渡した後に変わった分だけ」):
   //   確定後の変更ごとに「変えた時刻」を pl._chgAt[pid] に控える(位置が変わるたびに更新・元に戻れば消す)。
   //   赤丸の判定 _noticeNeeded: 変えた日から送迎日の前日までに本人の来所(午前/午後)があり、その回の連絡帳が
@@ -41716,7 +41723,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           ); })()}
           {/* ★ 2026-10-13(ユーザー提案): 変更内容は確定済みメニューとは別の専用ボタンから(全体・曜日・午前午後で絞り込み) */}
           {(() => { const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`], _iso(d)),0),0); return tot ? (
-            <button type="button" onClick={() => setChgPanel({ iso: '', sl: '' })} data-testid="tp-chg-btn" className={`${(_tpPhone || _tpTemplate) ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100`}>要連絡 {tot}件</button>) : null; })()}
+            <button type="button" onClick={() => setChgPanel({ iso: '', sl: '' })} data-testid="tp-chg-btn" className={`${(_tpPhone || _tpTemplate) ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100`}>未対応 {tot}件</button>) : null; })()}{/* ★ trial582: 要連絡→未対応 */}
           {tpFocus && <button type="button" data-testid="tp-focus-clear" onClick={() => setTpFocus(null)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-amber-300 bg-yellow-100 text-amber-900 whitespace-nowrap">黄色の表示を消す</button>}
           {!!_finalAtOfWeek() && tpEdit && <button type="button" data-testid="tp-board-mode" onClick={()=>setTpEdit(false)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-emerald-300 bg-emerald-50 text-emerald-800 whitespace-nowrap">一覧に戻る</button>}
           {finalMenu && ReactDOM.createPortal((
@@ -41739,7 +41746,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             return (
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-16" style={{zIndex:10000}} onClick={()=>setChgPanel(null)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-5" onClick={e=>e.stopPropagation()} data-testid="tp-chg-panel">
-                <div className="flex items-center justify-between mb-3"><div className="font-bold text-slate-800 text-lg">{'要連絡（配布後に時間が変わった方）'}<span className="ml-1 text-sm font-normal text-slate-500">（{cl.length}件{(chgPanel.iso || chgPanel.sl) ? `／全体 ${all.length}件` : ''}）</span></div><button type="button" onClick={()=>setChgPanel(null)} className="whitespace-nowrap text-slate-500 text-sm font-bold px-2">閉じる</button></div>
+                <div className="flex items-center justify-between mb-3"><div className="font-bold text-slate-800 text-lg">{'未対応（配布後に時間が変わった方）'}<span className="ml-1 text-sm font-normal text-slate-500">（{cl.length}件{(chgPanel.iso || chgPanel.sl) ? `／全体 ${all.length}件` : ''}）</span></div><button type="button" onClick={()=>setChgPanel(null)} className="whitespace-nowrap text-slate-500 text-sm font-bold px-2">閉じる</button></div>
                 <div className="flex flex-wrap gap-1.5 mb-1.5" data-testid="tp-chg-filter-day">
                   <button type="button" className={_fb(!chgPanel.iso)} onClick={()=>setChgPanel(v=>({ ...v, iso: '' }))}>全体</button>
                   {days.map(d => { const iso = _iso(d); const n = all.filter(x => x.iso === iso).length; return <button key={iso} type="button" className={_fb(chgPanel.iso === iso, n ? '' : 'opacity-50')} onClick={()=>setChgPanel(v=>({ ...v, iso }))}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{n ? <span className="ml-1 inline-block min-w-[1.4em] text-center rounded-full bg-amber-100 text-amber-800 text-[11px] leading-[1.5]">{n}</span> : null}</button>; })}
@@ -41756,11 +41763,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         <button type="button" data-testid="tp-chg-item-focus" onClick={() => { setChgPanel(null); focusChg(x); }} className="flex-1 min-w-0 text-left" title="押すとこの方を黄色く表示（もう一度で消えます）">
                           <span className="font-bold text-slate-600 tabular-nums whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>
                           <span className={`font-bold ml-1.5 ${x.tel && x.done ? 'text-slate-500' : 'text-slate-800'}`}>{_pname(x.pid)}</span>
-                          <span className={`ml-1.5 ${x.tel && x.done ? 'text-slate-500' : 'text-slate-700'}`}>{x.ac}</span>
-                          {x.tel && !x.done && <span className="ml-1.5 text-[12px] font-bold text-amber-800 bg-amber-50 border border-amber-400 rounded px-1 whitespace-nowrap">要連絡</span>}
+                          <span className={`ml-1.5 ${x.tel && x.done ? 'text-slate-500' : 'text-slate-700'}`}>{(() => { const i = String(x.ac || '').indexOf('→'); return i < 0 ? x.ac : <>{x.ac.slice(0, i)}→<b className={x.tel && x.done ? 'font-normal' : 'font-bold'}>{x.ac.slice(i + 1)}</b></>; })()}</span>{/* ★ trial582: 前→後(後は太字) */}
+                          {x.tel && !x.done && <span className="ml-1.5 text-[12px] font-bold text-amber-800 bg-amber-50 border border-amber-400 rounded px-1 whitespace-nowrap">未対応</span>}
                         </button>
                         {x.tel && <label className={`flex items-center gap-1.5 text-[13px] font-bold whitespace-nowrap cursor-pointer shrink-0 ${x.done ? 'text-emerald-700' : 'text-slate-700'}`} data-testid="tp-chg-item-done">
-                          <input type="checkbox" checked={!!x.done} onChange={e => setTelDone(x.iso, x.sl, x.pid, e.target.checked)} className="w-5 h-5 accent-emerald-600"/>連絡済</label>}
+                          <input type="checkbox" checked={!!x.done} onChange={e => setTelDone(x.iso, x.sl, x.pid, e.target.checked)} className="w-5 h-5 accent-emerald-600"/>対応済</label>}
                       </div>); })}
                   </div>)}
               </div>
@@ -41807,7 +41814,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <button type="button" data-testid="tp-phone-week" onClick={() => setTpWeekOnPhone(true)} className="h-10 px-1.5 shrink-0 rounded-lg bg-slate-800 text-white text-[12px] font-bold whitespace-nowrap">1週間</button>
               {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`], _iso(d)),0),0); return TSU_TP_FINAL_OFF ? null : (
                 <button type="button" onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize-phone" className={`h-10 px-1.5 shrink-0 rounded-lg font-bold text-[12px] border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-400 text-emerald-800':'bg-white border-slate-300 text-slate-700'}`}>
-                  {fa ? <>確定済{tot ? <span className="ml-0.5 bg-red-600 text-white rounded px-1">要連絡{tot}</span> : null}<span className="ml-0.5 text-[9px]">▼</span></> : '確定'}
+                  {fa ? <>確定済{tot ? <span className="ml-0.5 bg-red-600 text-white rounded px-1">未対応{tot}</span> : null}<span className="ml-0.5 text-[9px]">▼</span></> : '確定'}
                 </button>); })()}
               <button type="button" data-testid="tp-ops-btn" onClick={_tpTogOps} aria-expanded={_tpOpsOpen} className={`h-10 px-1.5 shrink-0 rounded-lg text-[12px] font-bold border whitespace-nowrap ${_tpOpsOpen ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>{_tpOpsOpen ? '操作▲' : '操作▼'}</button>
             </>) : (<>
@@ -41815,7 +41822,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <button type="button" data-testid="tp-phone-day" onClick={() => setTpWeekOnPhone(false)} className="h-10 px-2 shrink-0 rounded-lg bg-blue-600 text-white text-[12px] font-bold whitespace-nowrap">1日に戻る</button>
               {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`], _iso(d)),0),0); return TSU_TP_FINAL_OFF ? null : (
                 <button type="button" onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize-phone-w" className={`h-10 px-1.5 shrink-0 rounded-lg font-bold text-[12px] border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-400 text-emerald-800':'bg-white border-slate-300 text-slate-700'}`}>
-                  {fa ? <>確定済{tot ? <span className="ml-0.5 bg-red-600 text-white rounded px-1">要連絡{tot}</span> : null}<span className="ml-0.5 text-[9px]">▼</span></> : '確定'}
+                  {fa ? <>確定済{tot ? <span className="ml-0.5 bg-red-600 text-white rounded px-1">未対応{tot}</span> : null}<span className="ml-0.5 text-[9px]">▼</span></> : '確定'}
                 </button>); })()}
               <button type="button" data-testid="tp-ops-btn-w" onClick={_tpTogOps} aria-expanded={_tpOpsOpen} className={`h-10 px-1.5 shrink-0 rounded-lg text-[12px] font-bold border whitespace-nowrap ${_tpOpsOpen ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>{_tpOpsOpen ? '操作▲' : '操作▼'}</button>
             </>)}
@@ -41862,7 +41869,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="flex items-baseline gap-x-2 gap-y-0 flex-wrap">
               <span className={`shrink-0 truncate font-bold text-[18px] text-slate-900 ${rm ? 'line-through' : ''}`} style={{width:'6.6em'}}>{_pname(m.pid)}</span>
               <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-[19px] text-slate-900 border-2 rounded px-1 ${dot ? 'border-red-600' : 'border-transparent'} ${rm ? 'line-through' : ''}`} style={{minWidth:'3.2em', textAlign:'center'}}>{walk ? (/\d/.test(String(m.t||'')) ? `${_fmtT(m.t)} 着` : '到着') : (_fmtT(m.t) || '—')}</span>
-              {(dot || dn) ? <button type="button" data-testid={`tp-dl-tel-${iso}-${sl}-${m.pid}`} data-done={dn ? '1' : '0'} onClick={() => setTelDone(iso, sl, m.pid, !dn)} className={`shrink-0 self-center h-9 px-2.5 rounded-lg border-2 text-[13px] font-bold ${dn ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-red-600 bg-white text-red-700'}`}>{dn ? '✓ 連絡済' : '連絡済にする'}</button> : null}
+              {(dot || dn) ? <button type="button" data-testid={`tp-dl-tel-${iso}-${sl}-${m.pid}`} data-done={dn ? '1' : '0'} onClick={() => setTelDone(iso, sl, m.pid, !dn)} className={`shrink-0 self-center h-9 px-2.5 rounded-lg border-2 text-[13px] font-bold ${dn ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-red-600 bg-white text-red-700'}`}>{dn ? '✓ 対応済' : '対応済にする'}</button> : null}
               {tg ? <span data-testid={`tp-dl-tag-${iso}-${sl}-${m.pid}`} className="shrink-0 text-[11px] text-slate-500">{tg}</span> : null}
               {!rm && place ? <span className="min-w-0 inline-flex items-center gap-0.5 text-[12px] text-slate-600 leading-snug" title="待ち合わせ場所"><TsuHailIcon size={18} className="shrink-0" />{place}</span> : null}
               {dAt ? <span data-testid={`tp-dl-dat-${iso}-${sl}-${m.pid}`} className={`shrink-0 text-[12px] font-bold tabular-nums whitespace-nowrap ${dAuto ? 'text-slate-500' : 'text-indigo-700'}`} title={dAuto ? '送りで家に着く目安' : '送りで家に着く時間'}>送 {dAt}{dAuto ? '頃' : ''}</span> : null}
@@ -42056,7 +42063,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 className={`flex items-center gap-1 px-1 py-0 min-h-[28px] border-t border-slate-100 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
                                 {(() => { const _di = _dotInfo(pl, iso, m.pid); const _ac = _di.dot ? _di.ac : ''; const _dn = !!_ac && _telDoneOf(pl, m.pid); return _ac ? (
                                 // ★ 2026-11-03 trial508(ユーザー決定): 手で付ける赤丸は廃止。配布後に時間が変わった(電話が要る)方だけ、名前の左に「連絡済」のチェック。押すと赤枠が消える(誰がいつ押したかは _telDone に残る)
-                                <button type="button" onClick={() => setTelDone(iso, sl, m.pid, !_dn)} data-testid={`tp-dot-${iso}-${sl}-${m.pid}`} data-on="1" data-done={_dn ? '1' : '0'} title={`${_ac}。${_dn ? '連絡済（押すと取り消し）' : '電話したら押して連絡済に'}`} className="shrink-0 w-6 h-8 flex items-center justify-center">
+                                <button type="button" onClick={() => setTelDone(iso, sl, m.pid, !_dn)} data-testid={`tp-dot-${iso}-${sl}-${m.pid}`} data-on="1" data-done={_dn ? '1' : '0'} title={`${_ac}。${_dn ? '対応済（押すと取り消し）' : '対応したら押して対応済に'}`} className="shrink-0 w-6 h-8 flex items-center justify-center">
                                   <span aria-hidden="true" className={`block w-5 h-5 rounded border-2 text-[12px] font-bold leading-none flex items-center justify-center ${_dn ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-red-600 bg-white text-transparent'}`}>✓</span>
                                 </button>) : <span aria-hidden="true" data-testid={`tp-dot-${iso}-${sl}-${m.pid}`} data-on="0" className="shrink-0 w-6 h-8 block" />; })()}
                                 <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></button>{_isTplIso(iso) && _tplPausedNow(m.pid) && <span data-testid="tp-paused-tag" className="ml-1 shrink-0 text-[10px] leading-none px-1 py-0.5 rounded border border-slate-300 bg-slate-100 text-slate-600">休止中</span>}

@@ -27,7 +27,7 @@ const title = () => page.locator('header.tsu-app-header h1').innerText();
 const box = page.getByTestId('home-absence');
 ok(await box.count() === 1, 'ホームに「本日のお休み」の枠が出る');
 ok((await box.getAttribute('data-pending')) === '1', '休み連絡が未の方は1名');
-ok(/休み連絡がまだの方/.test(await box.innerText()) && /1名/.test(await page.getByTestId('home-absence-pending').innerText()), '見出しに「休み連絡がまだの方」・1名');
+ok(/休み(連絡がまだの方|未連絡)/.test(await box.innerText()) && /1名/.test(await page.getByTestId('home-absence-pending').innerText()), '見出しに「休み連絡がまだの方」・1名');
 const rowA = page.getByTestId(`home-absence-row-${info.a}`), rowB = page.getByTestId(`home-absence-row-${info.b}`);
 ok(/未連絡/.test(await rowA.innerText()) && (await rowB.count()) === 0, 'A=未連絡 の札・B(連絡済)は出ない(trial567)');
 await page.getByTestId('home-absence-fold').click(); await page.waitForTimeout(200);
