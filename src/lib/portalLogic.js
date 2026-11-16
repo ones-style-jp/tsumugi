@@ -12,7 +12,7 @@
 export const PATIENT_TEXT_FL = ['phone','phoneMobile','email','zipCode','address','prefecture','city','addressLine','building','kiou','ryui','doctor','medicalInstitution','medicalContact','hihokenNum','kana','kanaLast','kanaFirst','gender','birthDate'];
 
 // ★ 2026-11-16 1116d: 緊急連絡先(emergencyContacts)の端末間の付き合わせ【store の push(supabase.js)・pull(App.jsx)で共通】
-//   ご家族の登録で増えた連絡先が、まだ取り込んでいない店舗の端末の保存(=手元の一覧が丸ごと勝つ)で消えていた(五位渕様の長女の件)。
+//   ご家族の登録で増えた連絡先が、まだ取り込んでいない店舗の端末の保存(=手元の一覧が丸ごと勝つ)で消えていた(ある店舗の利用者の長女の件)。
 //   ① 項目時刻 _fieldTs.emergencyContacts の新しい方の一覧を土台にする(どちらにも無ければ aIsBase の側)
 //   ② 負けた側にだけある「ご家族の登録で入った連絡先(_famAt)」は、墓石(_deletedEC=消した控え)に無く・名前+続柄が同じ方が居なければ足す(ケアマネ由来は足さない)
 //   ③ 墓石は両方の和集合。 返り値: { emergencyContacts(両方に無ければ undefined), _deletedEC }
@@ -131,7 +131,7 @@ export function portalMergePatientFromFamily(cloud, patientId, patientPatch, ext
       // ★ 2026-10-29: 基本情報(電話・住所・既往歴など)と介護度も、値が変わった項目だけ時刻を刻む(変わっていない項目は刻まない=事業所で直したばかりの値に勝たない)
       { const _txKeys = [...PATIENT_TEXT_FL, 'careLevel'].filter(k => filteredPatch[k] !== undefined && JSON.stringify(filteredPatch[k]) !== JSON.stringify(p[k]));
         if (_txKeys.length) { _cmTs = { ...(p._fieldTs || {}), ...(_cmTs || {}) }; const _tnow = Date.now(); _txKeys.forEach(k => { _cmTs[k] = _tnow; }); } }
-      // ★ 2026-11-16 1116d(五位渕様の長女: 「新規アカウント登録」のお知らせは来たのに緊急連絡先に居ない):
+      // ★ 2026-11-16 1116d(ある店舗の利用者の長女: 「新規アカウント登録」のお知らせは来たのに緊急連絡先に居ない):
       //   ここは時刻を刻まずに書いていたので、まだ取り込んでいない店舗の端末が何か保存すると、端末側の代表家族(空)や緊急連絡先(登録前の一覧)が勝って消えていた
       //   (お知らせ docUpdates は和集合なので残る)。代表家族の項目(値が変わったものだけ)と、増えた緊急連絡先に項目時刻を刻む
       { let _ecCh; try { _ecCh = JSON.stringify(mergedContacts2) !== JSON.stringify(p.emergencyContacts || []); } catch { _ecCh = true; }
