@@ -13383,27 +13383,32 @@ function TsuHomeAbsence({ appData, navigateTo }) {
   const togFold = () => setFold(v => { const nv = !v; try { localStorage.setItem('tsuFold_homeAbs', nv ? '1' : '0'); } catch {} return nv; });
   const cfg = ((appData.systemSettings || {}).homeTasks || {}).absence || {};
   if (cfg.on === false) return null;
-  let rows = [];
+  // ★ 2026-11-16 trial583(ユーザー「休み未連絡も本日分か全体かで切り替えられるように」): 範囲 range = today(本日だけ・これまでどおり)/all(今日から先の分も。月間表の欠席・提供記録の欠席で休み連絡がまだの方。31日先まで・日ごとに見出し)
+  const range = cfg.range === 'all' ? 'all' : 'today';
+  let groups = [];
   try {
-    const now = new Date(); const iso = tsuTodayIso(); const dow = now.getDay(); const dayNum = now.getDate(); const mk = iso.slice(0, 7); const todayJ = `${now.getMonth() + 1}月${now.getDate()}日`;
-    const recs = (appData.ticketRecords || []).filter(r => r && recMatchesDateYear(r, todayJ, now.getFullYear()));
-    const fs = appData.faxDataStore || {};
-    (appData.patients || []).forEach(p => {
-      if (!p || !isPatientListable(p) || !isPatientActiveOnDate(p, iso)) return;
-      const rec = recs.find(r => r.patientId === p.id);
-      let abs = false;
-      if (rec) { abs = rec.status === '欠席'; }
-      else { const base = (getScheduleOnDate(p, iso) || {})[dow] || ''; if (!base) return; const sls = base === '1日' ? ['AM', 'PM'] : [base]; const sh = ((appData.monthlyShifts || {})[mk] || {})[p.id] || {}; abs = sls.some(sl => String(sh[`${dayNum}_${sl}`] ?? '') === '欠席'); }
-      if (!abs) return;
-      const st = String((fs[`${iso}_${p.id}`] || {}).status || 'none');
-      const done = st === 'printed' || st === 'both' || st === 'faxed'; if (done) return; // ★ trial567(ユーザー「連絡済だったら表示から外していい」): 未連絡・作成中だけ
-      rows.push({ pid: p.id, name: p.name, st, done: false, edited: st === 'edited' || st === 'pdf', cm: !!(p.cmName || p.cmOffice) });
-    });
-  } catch { rows = []; }
+    const todayIso = tsuTodayIso(); const fs = appData.faxDataStore || {}; const nDays = range === 'all' ? 31 : 1;
+    for (let k = 0; k < nDays; k++) { const iso = tsuIsoAdd(todayIso, k); const d = new Date(iso + 'T00:00:00'); const dow = d.getDay(); const dayNum = d.getDate(); const mk = iso.slice(0, 7); const dayJ = `${d.getMonth() + 1}月${dayNum}日`;
+      const hol = (appData.holidays || []).find(h => (h && (h.date || h)) === iso); if (hol && (!hol.ampm || hol.ampm === '1日')) continue;
+      const recs = (appData.ticketRecords || []).filter(r => r && recMatchesDateYear(r, dayJ, d.getFullYear())); const rows = [];
+      (appData.patients || []).forEach(p => {
+        if (!p || !isPatientListable(p) || !isPatientActiveOnDate(p, iso)) return;
+        const rec = recs.find(r => r.patientId === p.id);
+        let abs = false;
+        if (rec) { abs = rec.status === '欠席'; }
+        else { const base = (getScheduleOnDate(p, iso) || {})[dow] || ''; if (!base) return; const sls = base === '1日' ? ['AM', 'PM'] : [base]; const sh = ((appData.monthlyShifts || {})[mk] || {})[p.id] || {}; abs = sls.some(sl => String(sh[`${dayNum}_${sl}`] ?? '') === '欠席'); }
+        if (!abs) return;
+        const st = String((fs[`${iso}_${p.id}`] || {}).status || 'none');
+        const done = st === 'printed' || st === 'both' || st === 'faxed'; if (done) return; // ★ trial567(ユーザー「連絡済だったら表示から外していい」): 未連絡・作成中だけ
+        rows.push({ pid: p.id, iso, k, name: p.name, st, done: false, edited: st === 'edited' || st === 'pdf', cm: !!(p.cmName || p.cmOffice) });
+      });
+      if (rows.length) groups.push({ iso, d, k, rows }); }
+  } catch { groups = []; }
+  const rows = groups.flatMap(g => g.rows);
   if (!rows.length) return null;
-  const iso = tsuTodayIso();
+  const DOWJ = ['日', '月', '火', '水', '木', '金', '土'];
   const pending = rows.filter(r => !r.done).length;
-  const open = (r) => { try { sessionStorage.setItem('tsumugiOpenFax', JSON.stringify({ type: 'absence', patientId: r.pid, date: iso })); } catch {} navigateTo && navigateTo('absence_fax'); };
+  const open = (r) => { try { sessionStorage.setItem('tsumugiOpenFax', JSON.stringify({ type: 'absence', patientId: r.pid, date: r.iso })); } catch {} navigateTo && navigateTo('absence_fax'); };
   const pill = (r) => r.done ? { t: '連絡済', c: '#047857', bg: '#ecfdf5', bd: '#a7f3d0' } : r.edited ? { t: '作成中', c: '#9a3412', bg: '#fff7ed', bd: '#fdba74' } : { t: '未連絡', c: '#fff', bg: '#ea580c', bd: '#ea580c' };
   return (
     <div data-testid="home-absence" data-pending={pending} data-collapsed={fold ? '1' : '0'} style={{ width: '100%', background: pending ? '#fff7ed' : '#f8fafc', border: `1px solid ${pending ? '#fdba74' : '#e2e8f0'}`, borderRadius: 12, padding: fold ? '4px 10px' : '6px 10px 8px' }}>{/* ★ trial568(ユーザー「余白が多い」): 1行目に題名・件数・ⓘ、すぐ下に名前 */}
@@ -13413,16 +13418,20 @@ function TsuHomeAbsence({ appData, navigateTo }) {
           <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>休み未連絡</span>{/* ★ trial582(ユーザー): 「休み連絡がまだの方」→「休み未連絡」 */}
           <span data-testid="home-absence-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pending}名</span>
         </button>
-        <TsuHint>今日お休みの方（提供記録の欠席・月間表の欠席）のうち、ケアマネへの休み連絡がまだの方です。名前を押すとその方の休み連絡（送付状）を開きます。「作成中」は送付状を書いたが印刷・連絡済にしていない状態です。連絡済になるとここから消えます。</TsuHint>
+        <TsuHint>今日お休みの方（提供記録の欠席・月間表の欠席）のうち、ケアマネへの休み連絡がまだの方です。ホームの表示設定で「すべて」にすると、今日から先（31日先まで）の分も日ごとに出ます。名前を押すとその方の休み連絡（送付状）を開きます。「作成中」は送付状を書いたが印刷・連絡済にしていない状態です。連絡済になるとここから消えます。</TsuHint>
         {tsuViewW() >= 640 && <button type="button" data-testid="home-absence-open" onClick={() => navigateTo && navigateTo('absence_fax')} style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 'bold', color: '#475569', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: '3px 10px' }}>休み連絡を開く</button>}{/* スマホは名前を押せば開くので出さない */}
       </div>
-      {!fold && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {rows.map(r => { const pl = pill(r); return (
-          <button key={r.pid} type="button" data-testid={`home-absence-row-${r.pid}`} data-st={r.st} onClick={() => open(r)} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 40, padding: '4px 10px', background: '#fff', border: '1px solid #fed7aa', borderRadius: 10, cursor: 'pointer' }}>
-            <span style={{ fontSize: 14, fontWeight: 'bold', color: '#1e293b' }}>{r.name} 様</span>
-            <span style={{ fontSize: 11, fontWeight: 'bold', color: pl.c, background: pl.bg, border: `1px solid ${pl.bd}`, borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pl.t}</span>
-          </button>); })}
-      </div>}
+      {!fold && groups.map(g => (
+        <div key={g.iso} data-testid={`home-absence-day-${g.iso}`} style={{ marginTop: g.k === 0 && groups.length === 1 ? 0 : 4 }}>
+          {(range === 'all') && <div style={{ fontSize: 12, fontWeight: 'bold', color: '#7c2d12', marginBottom: 4 }}>{g.k === 0 ? '今日 ' : g.k === 1 ? '明日 ' : ''}{g.d.getMonth() + 1}/{g.d.getDate()}（{DOWJ[g.d.getDay()]}）</div>}{/* ★ trial583: すべて のときは日ごとの見出し */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {g.rows.map(r => { const pl = pill(r); return (
+              <button key={r.pid} type="button" data-testid={r.k === 0 ? `home-absence-row-${r.pid}` : `home-absence-row-${r.iso}-${r.pid}`} data-st={r.st} onClick={() => open(r)} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 40, padding: '4px 10px', background: '#fff', border: '1px solid #fed7aa', borderRadius: 10, cursor: 'pointer' }}>
+                <span style={{ fontSize: 14, fontWeight: 'bold', color: '#1e293b' }}>{r.name} 様</span>
+                <span style={{ fontSize: 11, fontWeight: 'bold', color: pl.c, background: pl.bg, border: `1px solid ${pl.bd}`, borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pl.t}</span>
+              </button>); })}
+          </div>
+        </div>))}
     </div>);
 }
 function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
@@ -13433,7 +13442,10 @@ function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
   const cfg = ((appData.systemSettings || {}).homeTasks || {}).tpNotice || {};
   if (cfg.on === false) return null;
   if (!tpStoreUsesTransport(appData)) return null;
-  const days = (cfg.todayOnly ? [0] : [0, 1]).map(k => { const d = new Date(); d.setDate(d.getDate() + k); return { iso: tpIsoOf(d), label: k === 0 ? '今日' : '明日', d }; });
+  // ★ 2026-11-16 trial583(ユーザー「今日と明日とか今週の分が出てくる。表示設定で当日だけにするか全てにするかを選べるように」): 範囲 range = today(本日だけ)/two(本日と明日・これまでどおり)/all(配布の控えがある日をすべて・今日から31日先まで)
+  const range = cfg.range || (cfg.todayOnly ? 'today' : 'two'); const todayIso = tpIsoOf(new Date());
+  const isos = range === 'all' ? (() => { const s = new Set([todayIso]); Object.keys(appData.transportPlans || {}).forEach(k => { const m = k.match(/^(\d{4}-\d{2}-\d{2})_(AM|PM)$/); if (!m || m[1] < todayIso) return; const pl = appData.transportPlans[k]; if (pl && typeof pl === 'object' && pl._base) s.add(m[1]); }); return [...s].sort().slice(0, 31); })() : range === 'today' ? [todayIso] : [todayIso, tsuIsoAdd(todayIso, 1)];
+  const days = isos.map(iso => { const d = new Date(iso + 'T00:00:00'); const k = Math.round((d - new Date(todayIso + 'T00:00:00')) / 86400000); return { iso, label: k === 0 ? '今日' : k === 1 ? '明日' : '', d }; });
   const lists = days.map(x => ({ ...x, rows: tpNoticeListOn(appData, x.iso) })).filter(x => x.rows.length);
   if (!lists.length) return null;
   const DOWJ = ['日', '月', '火', '水', '木', '金', '土']; const narrow = tsuViewW() < 640;
@@ -13692,10 +13704,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           );
           const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
-                      {[['tpNotice','送迎時間の変更 ※「本日だけ」=明日の分は出さない'],['absence','本日のお休みと休み連絡の状態（未連絡・作成中・連絡済）'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                      {[['tpNotice','送迎時間の変更'],['absence','休み未連絡（お休みの方のうち休み連絡がまだの方・作成中も）'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
                           <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={k === 'shortcuts' ? !!c.on : c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
-                          {['tpNotice','tasks','fitness','keikaku','monitoring'].includes(k) && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
+                          {['tasks','fitness','keikaku','monitoring'].includes(k) && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
+                          {k === 'tpNotice' && <select data-testid="home-tasks-cfg-tpNotice-range" value={c.range || (c.todayOnly ? 'today' : 'two')} disabled={c.on === false} onChange={e => set({ range: e.target.value, todayOnly: e.target.value === 'today' })} style={{fontSize:12,padding:'2px 4px',border:'1px solid #cbd5e1',borderRadius:6,background:'#fff',color:'#334155'}}><option value="today">本日だけ</option><option value="two">本日と明日</option><option value="all">すべて（控えのある日）</option></select>}{/* ★ trial583(ユーザー): 当日だけ／すべて を選べる */}
+                          {k === 'absence' && <select data-testid="home-tasks-cfg-absence-range" value={c.range === 'all' ? 'all' : 'today'} disabled={c.on === false} onChange={e => set({ range: e.target.value })} style={{fontSize:12,padding:'2px 4px',border:'1px solid #cbd5e1',borderRadius:6,background:'#fff',color:'#334155'}}><option value="today">本日だけ</option><option value="all">すべて（今日から先）</option></select>}
                         </div>); })}
                       <div style={{textAlign:'right',marginTop:6}}><button type="button" onClick={() => setHtCfgOpen(false)} style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'none',borderRadius:8,padding:'4px 12px',cursor:'pointer'}}>閉じる</button></div>
                     </>);
@@ -39097,6 +39111,21 @@ const tpAttendsOnG = (appData, iso, sl, pid) => {
   const slotOf = (r) => r.furikaeAmpm ? (r.furikaeAmpm === '1日' ? 'AM' : r.furikaeAmpm) : (/午後/.test(String(r.tokki || '')) ? 'PM' : 'AM');
   return recs.some(r => (r.status === '振替' || r.status === '臨時') && slotOf(r) === sl);
 };
+// ★ 2026-11-16 trial583(ユーザー「『なし』は大抵 臨時や休止。休止から13:15で再開した、と分かるように。休止・欠席・臨時・休業が出ると嬉しい」):
+//   配布の控えに無かった方の「前」の字。臨時/振替は月間表・提供記録から。欠席/休業/休止は配布のときの控え(_base.abs・trial583 から控える)。
+//   休止は休止の履歴からも分かる(控えを取った日にまだ休止だった→再開)。基本の曜日に無い日なら臨時。分からなければ「なし」
+const tpAddReasonG = (appData, iso, sl, pid, pl) => { try {
+  const p = (appData.patients || []).find(x => x.id === pid); if (!p || !iso) return 'なし';
+  const d = new Date(iso + 'T00:00:00'); const dow = d.getDay(); const ov = appData.monthlyShifts?.[iso.slice(0, 7)]?.[pid]?.[`${d.getDate()}_${sl}`]; const recs = tpRecsOnG(appData, pid, iso);
+  if (ov === '臨時' || recs.some(r => r.status === '臨時')) return '臨時';
+  if ((ov && String(ov).startsWith('振')) || recs.some(r => r.status === '振替')) return '振替';
+  const bs = pl && (pl._final || pl._base); const ab = bs && bs.abs && bs.abs[pid]; if (ab) return String(ab);
+  const bv = pl && (pl._finalAt || pl._baseAt); const bd = bv ? new Date(typeof bv === 'number' ? bv : String(bv)) : null; const baseIso = (bd && !isNaN(bd.getTime())) ? tpIsoOf(bd) : iso;
+  const hist = Array.isArray(p.pauseHistory) ? p.pauseHistory : [];
+  if (hist.some(h => h && h.fromDate && String(h.fromDate).slice(0, 10) <= iso && (!h.toDate || String(h.toDate).slice(0, 10) >= baseIso))) return '休止';
+  const base = getScheduleOnDate(p, iso)?.[dow] || ''; if (!(base === sl || base === '1日')) return '臨時';
+  return 'なし';
+} catch { return 'なし'; } };
 const tpNoticeNeededG = (appData, targetIso, pid, chgAt) => {
   const t = Number(chgAt); if (!t) return true;
   const chgIso = tpIsoOf(new Date(t)); const todayIso = tpIsoOf(new Date()); if (chgIso >= targetIso) return true;
@@ -39117,7 +39146,7 @@ const tpNoticeListOn = (appData, iso) => {
       // ★ trial582(ユーザー報告「徒歩の方がずっと徒歩なのに 9時→未定 と出る」): 連絡帳が徒歩の方に印字する時間は送迎表の徒歩の時間ではない(利用者マスタの送迎時間・提供開始からの目安)ので、徒歩の方は連絡帳の時間と比べない(配布の控えとだけ比べる)。
       //   表示は「前→後」だけ(時間が変更（連絡帳 …）はやめる)。徒歩で時間なし=「徒歩」・その他=「その他」・車で時間なし=「未定」
       if (ref && now.zone !== 'other' && now.zone !== 'walk') { if (tpFmtT(now.t) !== tpFmtT(ref)) { from = ref; to = tpTimeLbl(now); } } /* ★ trial579: 送迎表(1113b)と同じ: 連絡帳に書いた時間が基準 */
-      else if (!was) { from = 'なし'; to = tpTimeLbl(now); } /* ★ trial579(ユーザー要望): 「配布後に追加」でなく時間の変更として「なし→時間」 */ else if (now.t !== was.t || ((now.zone === 'walk') !== (was.zone === 'walk'))) { from = tpTimeLbl(was); to = tpTimeLbl(now); } if (!to) return;
+      else if (!was) { from = tpAddReasonG(appData, iso, sl, pid, pl); to = tpTimeLbl(now); } /* ★ trial579(ユーザー要望): 「配布後に追加」でなく時間の変更として「なし→時間」 ★ trial583: なし→臨時/振替/欠席/休業/休止(分かるとき) */ else if (now.t !== was.t || ((now.zone === 'walk') !== (was.zone === 'walk'))) { from = tpTimeLbl(was); to = tpTimeLbl(now); } if (!to) return;
       const ac = `${from}→${to}`;
       const ca = (pl._chgAt || {})[pid] || 0; if (!tpNoticeNeededG(appData, iso, pid, ca)) return;
       const ck = String(ca || '0'); const td = (pl._telDone || {})[pid]; const done = !!(td && typeof td === 'object' && td.on && String(td.ck) === ck);
@@ -39709,7 +39738,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-26(ユーザー要望): 運行表を出した(ダウンロードした)ときに、そのコマの配置を「配布の控え(_base)」として残す(初めて出したときだけ)。以後の変更は赤枠・変更n件・要連絡に出る
   // ★ 2026-10-26(ユーザー「店舗によっては運行表を月1回しか出さないので、ダウンロード時点ではなく日付で」): 送迎日の7日前(それより前に開いていなければ、初めて開いた時点)の配置を自動で控える
   React.useEffect(() => { try { const t0 = new Date(); t0.setHours(0, 0, 0, 0); const isos = []; for (let i = 0; i <= 7; i++) { const d = new Date(t0); d.setDate(t0.getDate() + i); isos.push(_iso(d)); } _stampHanded(isos); } catch {} }, [plans]); // eslint-disable-line react-hooks/exhaustive-deps
-  const _stampHanded = (isos) => { try { const at = syncNow(); let np = null; (isos || []).forEach(iso => ['AM','PM'].forEach(sl => { const k = `${iso}_${sl}`; const pl = plans[k]; if (!pl || pl._base) return; if (![...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length) return; const { _draft, ...rest } = pl; np = np || { ...plans }; np[k] = { ...rest, _base: _snapPlan(pl), _baseAt: at, _baseId: at, _savedAt: at }; })); if (np) onSave({ ...appData, transportPlans: np }, { silent: true }); } catch {} };
+  const _stampHanded = (isos) => { try { const at = syncNow(); let np = null; (isos || []).forEach(iso => ['AM','PM'].forEach(sl => { const k = `${iso}_${sl}`; const pl = plans[k]; if (!pl || pl._base) return; if (![...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length) return; const { _draft, ...rest } = pl; np = np || { ...plans }; np[k] = { ...rest, _base: _snapPlan(pl, iso, sl), _baseAt: at, _baseId: at, _savedAt: at }; })); if (np) onSave({ ...appData, transportPlans: np }, { silent: true }); } catch {} };
   const _pname = (pid) => (appData.patients||[]).find(p => p.id === pid)?.name || '';
   const _noWhy = (m) => { const { why, ...rest } = m || {}; return rest; }; // ★ 2026-10-01: その他の理由は「その他」から出たら消す
   const _otherLabel = (m) => `${_pname(m.pid)}${m && m.why ? `（${m.why}）` : ''}`;
@@ -39746,7 +39775,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   // ★ 週の「完成」確定と、完成後に変えた箇所の自動赤丸(2026-09-26 ユーザー要望・2026-09-28 実装)
   //   完成時に各コマの配置(車・乗車順・時刻・徒歩/その他・運転者)を _final に控え、以後の表示/印刷で差分に●を付ける
-  const _snapPlan = (pl) => { const cars = {}; Object.keys(pl?.cars||{}).forEach(cid => { cars[cid] = (pl.cars[cid]||[]).map(m => ({ pid: m.pid, t: _fmtT(m.t) })); }); return { cars, walkers: (pl?.walkers||[]).map(m=>m.pid), walkT: Object.fromEntries((pl?.walkers||[]).map(m => [m.pid, /\d/.test(String(m.t||'')) ? _fmtT(m.t) : ''])), others: (pl?.others||[]).map(m=>m.pid), driver: { ...(pl?.driver||{}) } }; };
+  // ★ 2026-11-16 trial583(ユーザー「『なし→13:15』の『なし』は大抵 臨時や休止。休止から再開した、欠席、臨時、休業が分かるように」):
+  //   配布・確定の控えに「その時に送迎表にいなかった方の理由」(欠席/休業/休止)も abs として控える。後から「欠席→13:15」と出すため。
+  //   臨時/振替は後からでも月間表・提供記録で分かるので控えない。iso/sl を渡したときだけ(比較用の _snapPlan(pl) は従来どおり)
+  const _absMapOf = (pl, iso, sl) => { const m = {}; try { if (!iso || !sl) return m; const inPlan = new Set([...Object.values(pl?.cars || {}).flat(), ...(pl?.walkers || []), ...(pl?.others || [])].filter(Boolean).map(x => x.pid));
+    const d = new Date(iso + 'T00:00:00'); const dow = d.getDay(); const hol = (appData.holidays || []).find(h => (h && (h.date || h)) === iso); const holHit = !!(hol && (!hol.ampm || hol.ampm === '1日' || hol.ampm === sl));
+    (appData.patients || []).forEach(p => { if (!p || inPlan.has(p.id) || !isPatientListable(p)) return; const bs = getScheduleOnDate(p, iso)?.[dow] || ''; const sched = bs === sl || bs === '1日';
+      if (holHit) { if (sched) m[p.id] = '休業'; return; }
+      if (getPauseReasonOnDate(p, iso)) { m[p.id] = '休止'; return; }
+      const ov = appData.monthlyShifts?.[iso.slice(0, 7)]?.[p.id]?.[`${d.getDate()}_${sl}`]; const recs = tpRecsOnG(appData, p.id, iso);
+      if (ov === '欠席' || recs.some(r => r.status === '欠席')) m[p.id] = '欠席'; else if (ov === '休業' || recs.some(r => r.status === '休業')) m[p.id] = '休業'; else if (recs.some(r => r.status === '休止')) m[p.id] = '休止'; }); } catch {} return m; };
+  const _snapPlan = (pl, iso, sl) => { const cars = {}; Object.keys(pl?.cars||{}).forEach(cid => { cars[cid] = (pl.cars[cid]||[]).map(m => ({ pid: m.pid, t: _fmtT(m.t) })); }); return { cars, walkers: (pl?.walkers||[]).map(m=>m.pid), walkT: Object.fromEntries((pl?.walkers||[]).map(m => [m.pid, /\d/.test(String(m.t||'')) ? _fmtT(m.t) : ''])), others: (pl?.others||[]).map(m=>m.pid), driver: { ...(pl?.driver||{}) }, ...(iso && sl ? { abs: _absMapOf(pl, iso, sl) } : {}) }; };
+  const _addReasonOf = (pl, pid, iso) => { try { const k = Object.keys(plans || {}).find(x => plans[x] === pl) || ''; const sl = k.endsWith('_PM') ? 'PM' : 'AM'; return tpAddReasonG(appData, iso || k.slice(0, 10), sl, pid, pl); } catch { return 'なし'; } }; // ★ trial583: 控えに無かった方の「前」の字(臨時/振替/欠席/休業/休止/なし)
   const _locOf = (snap, pid) => { for (const cid of Object.keys(snap?.cars||{})) { const i = (snap.cars[cid]||[]).findIndex(m => m.pid === pid); if (i >= 0) return { zone: cid, idx: i, t: snap.cars[cid][i].t || '' }; } if ((snap?.walkers||[]).includes(pid)) return { zone: 'walk', wt: snap.walkT ? (snap.walkT[pid] || '') : null }; if ((snap?.others||[]).includes(pid)) return { zone: 'other' }; return null; };
   // ★ 2026-10-05(ユーザー報告「確定を解除してから時間を変えたのに赤くならない」・要望「休みの反映で確定を自動解除・変わった車をハイライト」):
   //   確定を解除しても、その時の控えを _base に残して「運行表を出した後の変更」を比べ続ける(作成中でも赤丸・黄色の枠が出る)。
@@ -39776,7 +39816,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _chgOf = (pl, pid, iso) => { const now = _locOf(_snapPlan(pl), pid); if (!now) return '';
     const ref = _cbRefOf(iso, pl, pid);
     if (ref && now.zone !== 'other' && now.zone !== 'walk') { const tN = _tOfLoc(now); return _hmN(tN) !== _hmN(ref) ? `${ref}→${_tLbl(now)}` : ''; }
-    const fin = _baseOf(pl); if (!fin) return ''; const was = _locOf(fin, pid); if (!was) return `なし→${_tLbl(now)}`; /* ★ trial579: 「配布後に追加」→「なし→時間」 */
+    const fin = _baseOf(pl); if (!fin) return ''; const was = _locOf(fin, pid); if (!was) return `${_addReasonOf(pl, pid, iso)}→${_tLbl(now)}`; /* ★ trial579: 「配布後に追加」→「なし→時間」 ★ trial583: なし→臨時/振替/欠席/休業/休止(分かるとき) */
     const tN = _tOfLoc(now), tW = _tOfLoc(was); if (tN !== tW || ((now.zone === 'walk') !== (was.zone === 'walk'))) return `${_tLbl(was)}→${_tLbl(now)}`; return ''; };
   // ★ 2026-10-02(ユーザー要望「赤丸は、前の来所日の連絡帳を渡した後に変わった分だけ」):
   //   確定後の変更ごとに「変えた時刻」を pl._chgAt[pid] に控える(位置が変わるたびに更新・元に戻れば消す)。
@@ -39864,7 +39904,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const np = { ...plans }; const at = syncNow(); let n = 0;
     days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = getPlan(iso, sl); const { _draft, _base, _baseAt, _baseId, ...rest } = pl;
       // 解除中(控えあり)の再確定は控えを基準のまま戻す。それ以外(初めて・確定の更新)は今の内容を新しい基準にする
-      np[`${iso}_${sl}`] = (_base && !pl._final && !already) ? { ...rest, _final: _base, _finalAt: at, _finalId: _baseId || _baseAt || at, _savedAt: at } : { ...rest, _final: _snapPlan(pl), _finalAt: at, _finalId: at, _savedAt: at }; n++; }));
+      np[`${iso}_${sl}`] = (_base && !pl._final && !already) ? { ...rest, _final: _base, _finalAt: at, _finalId: _baseId || _baseAt || at, _savedAt: at } : { ...rest, _final: _snapPlan(pl, iso, sl), _finalAt: at, _finalId: at, _savedAt: at }; n++; }));
     // ★ 2026-10-07(ユーザー要望「確定したら自動でダウンロードする機能はなくていい」): 確定後の運行表の自動ダウンロードは廃止。必要なときは「ダウンロード」から
     setTpEdit(false); // ★ 2026-10-03: 確定後は一覧(確定済み表示)に戻る
     _saveBulk('確定', np, { manual: true, message: `✓ 送迎表 ${_mon.getMonth()+1}/${_mon.getDate()}週を確定にしました(${n}コマ)` });
