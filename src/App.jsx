@@ -44111,9 +44111,13 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   // ★ 編集中のリセット防止: 同じ患者編集中の appData.patients 更新では localPatient を上書きしない
   //   patient ID が変わった (別利用者を選択) ときだけ localPatient を読み直す
   // ★ リモート利用者 → 編集用ローカルコピーを構築 (家族名の自動反映・旧データ分割を含む)
+  // ★ 2026-11-16 1116e: ご家族アカウントから自動で入れた分(代表・追加の緊急連絡先)は、開いた時点でそのまま保存する(下の useEffect)。
+  //   これまでは「保存」を押すまで手元だけだったので、そのままフェイスシート(保存済みのデータを読む)を開くと「未登録」に見えた
+  const _ecAutoRef = React.useRef(null);
   const _buildLocalPatient = (p) => {
     if (!p) return null;
     let lp = JSON.parse(JSON.stringify(p));
+    const _auto = { prim: false, ec: false }; _ecAutoRef.current = _auto;
     // ★ ケアマネは緊急連絡先に含めない。 古いデータで混入していれば編集スナップショット時点で除去し、
     //   保存すると恒久的に消える(「削除しても復活」不具合の後始末)。
     // ★ ケアマネ由来 と 完全に空の連絡先 は除外(空の「1件目」が出続けたり、削除済みが復活するのを防ぐ)。 保存時に恒久的に消える。
@@ -44128,6 +44132,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       const ec = (lp.emergencyContacts||[])[0];
       const src = acc || ec;
       if (src) {
+        if (acc) _auto.prim = true; // ★ 1116e: ご家族アカウントから入れた代表は開いた時点で保存する
         const nm = (src.lastName||src.firstName) ? {last:src.lastName||'',first:src.firstName||''} : _sp(src.displayName||src.name||'');
         lp.familyName = src.displayName || src.name || `${nm.last} ${nm.first}`.trim();
         lp.familyLastName = nm.last; lp.familyFirstName = nm.first;
@@ -44150,6 +44155,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         if ((lp.emergencyContacts || []).some(c => _nz(c && c.name) === key)) return;
         if (_tombNames.has(key)) return;
         lp.emergencyContacts = [...(lp.emergencyContacts || []), { name: nm, lastName: a.lastName || '', firstName: a.firstName || '', kana: a.kana || '', kanaLast: a.kanaLast || '', kanaFirst: a.kanaFirst || '', relation: a.relation || '', phone: a.phone || '', phoneMobile: a.phoneMobile || '', email: a.email || '', _famAt: Date.parse(a.createdAt || '') || Date.now() }];
+        _auto.ec = true;
       });
     } catch {}
     // 旧データ互換: 氏名/ふりがなが未分割なら姓/名へ自動分割
@@ -44165,7 +44171,17 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         lastLoadedPatientSigRef.current = JSON.stringify(p || null);
         _pendingExBaseRef.current = null; // ★ 利用者切替=運動メニューの反映日確認の基準値をリセット
         if (exPendingRef) exPendingRef.current = false;
-        setLocalPatient(_buildLocalPatient(p));
+        const _lp0 = _buildLocalPatient(p);
+        setLocalPatient(_lp0);
+        // ★ 2026-11-16 1116e: ご家族アカウントから自動で入れた代表・追加の緊急連絡先は、開いた時点で保存する(手元だけだと、そのままフェイスシートを開いたとき「未登録」に見える)。
+        //   書くのはその項目だけ(ほかの項目は触らない)。保存の流れで項目時刻(_PT_FL)が刻まれる
+        try { const _a = _ecAutoRef.current; _ecAutoRef.current = null;
+          if (p && _lp0 && _a && (_a.prim || _a.ec) && onSave) {
+            const _patch = {}; if (_a.ec) _patch.emergencyContacts = _lp0.emergencyContacts;
+            if (_a.prim) ['familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail'].forEach(k => { _patch[k] = _lp0[k]; });
+            lastLoadedPatientSigRef.current = JSON.stringify({ ...p, ..._patch });
+            onSave({ ...appData, patients: (appData.patients || []).map(x => x && x.id === p.id ? { ...x, ..._patch } : x) }, { silent: true });
+          } } catch (e) { console.warn('[ec auto-save] failed', e); }
       }
     } else {
       setLocalPatient(null);
@@ -63993,7 +64009,9 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     else { patch.familyName=''; patch.familyLastName=''; patch.familyFirstName=''; patch.familyKana=''; patch.familyRelation=''; patch.familyPhone=''; patch.familyPhoneMobile=''; patch.familyEmail=''; }
     // ★ ケアマネ由来の連絡先は保持し、家族(非ケアマネ)分はフェイスシートの編集結果で置き換える(=削除を反映)。
     const cmContacts = (patient.emergencyContacts||[]).filter(isCmContact);
-    patch.emergencyContacts = [...cmContacts, ...rest];
+    // ★ 2026-11-16 1116e: ご家族の登録で入った印(_famAt)は、フェイスシートで直しても引き継ぐ(端末間の付き合わせで「登録で入った方」と分かるように)
+    const _famOf = (c) => { const k = (x) => String(x && x.name || '').normalize('NFKC').replace(/[\s　]/g, ''); const hit = (patient.emergencyContacts||[]).find(x => x && x._famAt && k(x) === k(c)); return hit ? { _famAt: hit._famAt } : {}; };
+    patch.emergencyContacts = [...cmContacts, ...rest.map(c => ({ ...c, ..._famOf(c) }))];
     // ★ 消した家族連絡先は墓石(_deletedEC)に記録し、同期の加算マージで復活しないようにする。
     const cleanKeys = new Set(clean.map(_ecKey));
     const removedKeys = getAllContactsRaw(patient).map(_ecKey).filter(k => k && k !== '|||' && !cleanKeys.has(k));

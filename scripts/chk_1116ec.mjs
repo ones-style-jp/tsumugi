@@ -1,4 +1,4 @@
-// 2026-11-16 1116d: ご家族の登録で入った緊急連絡先が、店舗の端末の保存で消えないように(ある店舗の利用者の長女の件)
+// 2026-11-16 1116d/1116e: ご家族の登録で入った緊急連絡先が、店舗の端末の保存で消えないように(1116e: 開いた時点で保存・フェイスシートにも出る)(ある店舗の利用者の長女の件)
 //   ① 利用者マスタを開くと、ご家族アカウント(本人・ケアマネを除く)で代表にも追加の緊急連絡先にも居ない方が「追加の緊急連絡先」に戻る(保存で確定・_famAt 付き・_fieldTs.emergencyContacts が刻まれる)
 //   ② 消した控え(墓石 _deletedEC)に名前がある方は戻さない
 //   ③ 代表のご家族と同じ名前・続柄「本人」・ケアマネのアカウントは戻さない
@@ -32,18 +32,34 @@ const txtA = (await page.locator('body').innerText()).replace(/\s/g, '');
 r.a_daughter_shown = /検家一子/.test(txtA) && !/検家ケア/.test(txtA) && !/追加の緊急連絡先なし/.test(txtA);
 const ecNames = await page.locator('input[placeholder="氏名"]').evaluateAll(els => els.map(e => e.value));
 r.a_only_daughter = ecNames.filter(v => /検家/.test(v)).join('|') === '検家 一子';
+// ★ 1116e: 開いた時点で保存される(保存を押す前に端末の控えに入っている・フェイスシートを開いても出る)
+await page.waitForTimeout(2000);
+const d0 = await page.evaluate(() => JSON.parse(localStorage.getItem('daycareAppData_v3'))); const A0 = d0.patients.find(p => p.id === S.aId);
+r.a_auto_saved = (A0.emergencyContacts || []).some(c => c.name === '検家 一子' && c._famAt) && !!(A0._fieldTs && A0._fieldTs.emergencyContacts);
+await page.locator('button:visible', { hasText: /フェイスシートで編集/ }).last().click(); await page.waitForTimeout(1500);
+const fsNames = await page.locator('input:visible').evaluateAll(els => els.map(e => e.value));
+r.a_facesheet_shows = fsNames.some(v => v === '検家 一子');
+await page.keyboard.press('Escape').catch(() => {}); await page.locator('button:visible', { hasText: /^(閉じる|×|✕)$/ }).last().click({ timeout: 800 }).catch(() => {}); await page.waitForTimeout(600);
 // 保存 → 端末の控えに _famAt 付きで入り、項目時刻が刻まれる
-await page.locator('button:visible', { hasText: /^保存$/ }).last().click(); await page.waitForTimeout(1500);
+await page.locator('button:visible', { hasText: /^保存$/ }).last().click().catch(() => {}); await page.waitForTimeout(1500);
 const d1 = await page.evaluate(() => JSON.parse(localStorage.getItem('daycareAppData_v3')));
 const A1 = d1.patients.find(p => p.id === S.aId);
-r.a_saved = (A1.emergencyContacts || []).length === 1 && A1.emergencyContacts[0].name === '検家 一子' && A1.emergencyContacts[0].relation === '長女' && A1.emergencyContacts[0].phoneMobile === '09000000001' && !!A1.emergencyContacts[0]._famAt;
+r.a_saved = (A1.emergencyContacts || []).length === 1 && A1.emergencyContacts[0].name === '検家 一子' && A1.emergencyContacts[0].relation === '長女' && A1.emergencyContacts[0].phoneMobile === '09000000001' && !!A1.emergencyContacts[0]._famAt; // 1116e: フェイスシートを開いて閉じたあとも _famAt が残る
 r.a_fieldTs = !!(A1._fieldTs && A1._fieldTs.emergencyContacts);
 r.a_primary_kept = A1.familyName === '検家 花子';
-// ② B: 墓石に名前がある次女は戻らない
-await page.evaluate((pid) => { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'master', pid, t: Date.now() })); }, S.bId);
-await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(3000); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {});
-const txtB = (await page.locator('body').innerText()).replace(/\s/g, '');
-const ecNamesB = await page.locator('input[placeholder="氏名"]').evaluateAll(els => els.map(e => e.value));
+// ② B: 墓石に名前がある次女は戻らない(別のブラウザ文脈で B だけを仕込む)
+await page.context().close();
+const page2 = await (await b.newContext({ viewport: { width: 1366, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' })).newPage(); page2.on('dialog', d => d.accept());
+await page2.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' }); await page2.waitForTimeout(700);
+if (await page2.getByText('担当者を選択', { exact: false }).count()) { await page2.locator('button', { hasText: /見本|例示|架空/ }).first().click().catch(() => {}); await page2.waitForTimeout(700); }
+await page2.evaluate(() => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const ps = d.patients.filter(p => p.status === '利用中' && !p.endDate); const B = ps[1];
+  B.name = '検家 次郎'; B.familyName = '検家 梅子'; B.familyLastName = '検家'; B.familyFirstName = '梅子'; B.familyRelation = '妻'; B.emergencyContacts = []; B._deletedEC = ['検家 二子|次女||09000000002']; delete B._fieldTs;
+  d.familyAccounts = [{ id: 'fam_t5', patientId: B.id, kind: 'family', role: 'child', relation: '次女', displayName: '検家 二子', phoneMobile: '09000000002', createdAt: '2026-11-15' }];
+  localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0');
+  sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'master', pid: B.id, t: Date.now() })); });
+await page2.reload({ waitUntil: 'networkidle' }); await page2.waitForTimeout(3000); await page2.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {});
+const txtB = (await page2.locator('body').innerText()).replace(/\s/g, '');
+const ecNamesB = await page2.locator('input[placeholder="氏名"]').evaluateAll(els => els.map(e => e.value));
 r.b_tomb_not_restored = /検家次郎/.test(txtB) && /検家梅子/.test(txtB) && !/検家二子/.test(txtB) && !ecNamesB.some(v => /二子/.test(v)); // 画面の緊急連絡先は代表の梅子だけ(編集用の欄にも二子は無い)
 await b.close();
 // ④ 計算部品(店舗の端末の保存=push と同じ計算): 取り込み前の端末(時刻なし・一覧は登録前)が土台でも、クラウドの登録分は残る
