@@ -15,7 +15,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
 import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
-import { PATIENT_TEXT_FL } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL)
+import { PATIENT_TEXT_FL, mergeEmergencyContacts } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL) ★ 2026-11-16 1116d: 緊急連絡先の付き合わせ
 import {
   isSupabaseEnabled,
   supabaseCreateInvite,
@@ -23071,7 +23071,14 @@ export default function App() {
                   const lp = _byId.get(String(cp.id));
                   if (!lp) return cp;
                   const lt = Number(lp._savedAt) || 0, ct = Number(cp._savedAt) || 0;
-                  if (lt > ct) { _kept++; return lp; }
+                  if (lt > ct) {
+                    _kept++;
+                    // ★ 2026-11-16 1116d: 手元を保つときも、クラウドにだけある「ご家族の登録で入った緊急連絡先」は足す(push 側 mergePatientBackfill と同じ計算)
+                    try { const _m = mergeEmergencyContacts(lp, cp, true); if (_m.emergencyContacts !== undefined && JSON.stringify(_m.emergencyContacts) !== JSON.stringify(lp.emergencyContacts || [])) {
+                      const _ft = { ...(lp._fieldTs || {}) }; const _mx = Math.max(Number(_ft.emergencyContacts) || 0, Number(cp._fieldTs && cp._fieldTs.emergencyContacts) || 0); if (_mx) _ft.emergencyContacts = _mx;
+                      return { ...lp, emergencyContacts: _m.emergencyContacts, ...(_m._deletedEC.length ? { _deletedEC: _m._deletedEC } : {}), ...(Object.keys(_ft).length ? { _fieldTs: _ft } : {}) }; } } catch {}
+                    return lp;
+                  }
                   return cp;
                 });
                 const _cloudIds = new Set(merged.patients.filter(p=>p&&p.id!=null).map(p=>String(p.id)));
@@ -24457,7 +24464,7 @@ export default function App() {
         // ★ フィールド単位保護対象(基本利用日/送迎/緊急連絡先/介護度等)は、変更された項目だけ _fieldTs に刻む。
         //   これで別項目を編集して _savedAt 全体が更新されても、触っていない項目は古い端末で巻き戻らない。
         // ★ 2026-10-29: 建物名・部屋番号(addressBuilding/addressRoom)も項目別に(部屋番号を空にして建物名へ移したのが、古い端末の値で戻らないように・supabase.js の PATIENT_FIELDLEVEL と同じ)
-        const _PT_FL = ['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','addressBuilding','addressRoom','familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail', ...PATIENT_TEXT_FL]; // ★ 2026-10-29: 電話・住所・メール・既往歴など基本情報の文字の項目も(消して保存しても前の値で戻らないように)
+        const _PT_FL = ['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','addressBuilding','addressRoom','emergencyContacts','familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail', ...PATIENT_TEXT_FL]; // ★ 2026-10-29: 電話・住所・メール・既往歴など基本情報の文字の項目も(消して保存しても前の値で戻らないように)
         const stamped = newData.patients.map(p => {
           if (!p || p.id == null) return p;
           const old = prevMap.get(String(p.id));
@@ -44175,6 +44182,20 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         lp.familyEmail = src.email || '';
       }
     }
+    // ★ 2026-11-16 1116d(五位渕様の長女): ご家族の登録で入ったはずの連絡先が同期で消えていた分の後始末。
+    //   この利用者のご家族アカウント(本人・ケアマネ・関係者を除く)で、代表にも追加の緊急連絡先にも居ない方は、
+    //   消した控え(墓石 _deletedEC)に名前が無ければ追加の緊急連絡先に戻す(画面に出し、保存で確定)
+    try {
+      const _nz = s => String(s || '').normalize('NFKC').replace(/[\s　]/g, '');
+      const _prim = _nz(lp.familyName || `${lp.familyLastName || ''}${lp.familyFirstName || ''}`);
+      const _tombNames = new Set((Array.isArray(lp._deletedEC) ? lp._deletedEC : []).map(k => _nz(String(k).split('|')[0])));
+      (appData.familyAccounts || []).filter(a => a && a.patientId === lp.id && (a.kind || 'family') === 'family' && !String(a.relation || '').includes('本人') && !isCmContact(a)).forEach(a => {
+        const nm = String(a.displayName || `${a.lastName || ''} ${a.firstName || ''}`).trim(); const key = _nz(nm); if (!key || key === _prim) return;
+        if ((lp.emergencyContacts || []).some(c => _nz(c && c.name) === key)) return;
+        if (_tombNames.has(key)) return;
+        lp.emergencyContacts = [...(lp.emergencyContacts || []), { name: nm, lastName: a.lastName || '', firstName: a.firstName || '', kana: a.kana || '', kanaLast: a.kanaLast || '', kanaFirst: a.kanaFirst || '', relation: a.relation || '', phone: a.phone || '', phoneMobile: a.phoneMobile || '', email: a.email || '', _famAt: Date.parse(a.createdAt || '') || Date.now() }];
+      });
+    } catch {}
     // 旧データ互換: 氏名/ふりがなが未分割なら姓/名へ自動分割
     if (lp.familyName && !lp.familyLastName && !lp.familyFirstName) { const s=_sp(lp.familyName); lp.familyLastName=s.last; lp.familyFirstName=s.first; }
     if (lp.familyKana && !lp.familyKanaLast && !lp.familyKanaFirst) { const s=_sp(lp.familyKana); lp.familyKanaLast=s.last; lp.familyKanaFirst=s.first; }

@@ -11,6 +11,34 @@
 //   ここ(ご家族・ケアマネの保存)でも、直した項目に時刻を刻む(刻まないと事業所の端末の古い時刻に負けて、ご家族の直しが戻る)
 export const PATIENT_TEXT_FL = ['phone','phoneMobile','email','zipCode','address','prefecture','city','addressLine','building','kiou','ryui','doctor','medicalInstitution','medicalContact','hihokenNum','kana','kanaLast','kanaFirst','gender','birthDate'];
 
+// ★ 2026-11-16 1116d: 緊急連絡先(emergencyContacts)の端末間の付き合わせ【store の push(supabase.js)・pull(App.jsx)で共通】
+//   ご家族の登録で増えた連絡先が、まだ取り込んでいない店舗の端末の保存(=手元の一覧が丸ごと勝つ)で消えていた(五位渕様の長女の件)。
+//   ① 項目時刻 _fieldTs.emergencyContacts の新しい方の一覧を土台にする(どちらにも無ければ aIsBase の側)
+//   ② 負けた側にだけある「ご家族の登録で入った連絡先(_famAt)」は、墓石(_deletedEC=消した控え)に無く・名前+続柄が同じ方が居なければ足す(ケアマネ由来は足さない)
+//   ③ 墓石は両方の和集合。 返り値: { emergencyContacts(両方に無ければ undefined), _deletedEC }
+export const EC_TOMB_KEY = c => `${(c && c.name || '').trim()}|${(c && c.relation || '').trim()}|${(c && c.phone || '').trim()}|${(c && c.phoneMobile || '').trim()}`;
+export const isCmContactLike = c => !!(c && (c.cmOffice || c.officePhone || c.officeFax || /ケアマネ|介護支援|居宅/.test(String(c.relation || ''))));
+export function mergeEmergencyContacts(a, b, aIsBase) {
+  const aL = Array.isArray(a && a.emergencyContacts) ? a.emergencyContacts : null;
+  const bL = Array.isArray(b && b.emergencyContacts) ? b.emergencyContacts : null;
+  const tomb = [...new Set([...(Array.isArray(a && a._deletedEC) ? a._deletedEC : []), ...(Array.isArray(b && b._deletedEC) ? b._deletedEC : [])].map(String))];
+  if (!aL && !bL) return { emergencyContacts: undefined, _deletedEC: tomb };
+  const tset = new Set(tomb);
+  const at = Number(a && a._fieldTs && a._fieldTs.emergencyContacts) || 0, bt = Number(b && b._fieldTs && b._fieldTs.emergencyContacts) || 0;
+  const aWins = (at || bt) ? (at >= bt) : !!aIsBase;
+  const win = (aWins ? aL : bL) || [], lose = (aWins ? bL : aL) || [];
+  const nr = c => `${String(c && c.name || '').normalize('NFKC').replace(/[\s　]/g, '')}|${String(c && c.relation || '').trim()}`;
+  const res = win.filter(c => !isCmContactLike(c)); // ケアマネ由来は緊急連絡先に残さない(従来の方針)
+  lose.forEach(c => {
+    if (!c || !c._famAt || isCmContactLike(c)) return;
+    if (!String(c.name || '').trim()) return;
+    if (tset.has(EC_TOMB_KEY(c))) return;
+    const k = nr(c); if (res.some(x => nr(x) === k)) return;
+    res.push(c);
+  });
+  return { emergencyContacts: res, _deletedEC: tomb };
+}
+
 export function portalMergePatientFromFamily(cloud, patientId, patientPatch, extra) {
     const currentData = cloud;
     if (!currentData) return null; // 店舗行が無い → 何もしない
@@ -32,7 +60,7 @@ export function portalMergePatientFromFamily(cloud, patientId, patientPatch, ext
             (ex.name||'').trim() === (c.name||'').trim() &&
             (ex.relation||'').trim() === (c.relation||'').trim()
           );
-          if (!dup) mergedContacts = [...mergedContacts, c];
+          if (!dup) mergedContacts = [...mergedContacts, { ...c, _famAt: Date.now() }]; // ★ 2026-11-16 1116d: ご家族の登録で入った印(_famAt)。端末間の付き合わせで消えないように(mergeEmergencyContacts)
         });
       }
       // relatedParties (その他関係者) も配列マージ (同名+同事業所は重複防止)
@@ -63,7 +91,7 @@ export function portalMergePatientFromFamily(cloud, patientId, patientPatch, ext
         const incRel = String(patientPatch.familyRelation||'').trim();
         const dup2 = mergedContacts2.some(c => (c.name||'').trim() === incName && (c.relation||'').trim() === incRel);
         if (incName && !dup2) {
-          mergedContacts2 = [...mergedContacts2, { name: incName, relation: incRel, phone: patientPatch.familyPhone||'', phoneMobile: patientPatch.familyPhoneMobile||'', email: patientPatch.familyEmail||'' }];
+          mergedContacts2 = [...mergedContacts2, { name: incName, relation: incRel, phone: patientPatch.familyPhone||'', phoneMobile: patientPatch.familyPhoneMobile||'', email: patientPatch.familyEmail||'', _famAt: Date.now() }];
         }
       }
       // ★ docUpdates(更新通知ログ)は id で和集合マージ → 家族/CMの操作を事業所へ確実に届ける(上書きで消さない)
@@ -103,6 +131,12 @@ export function portalMergePatientFromFamily(cloud, patientId, patientPatch, ext
       // ★ 2026-10-29: 基本情報(電話・住所・既往歴など)と介護度も、値が変わった項目だけ時刻を刻む(変わっていない項目は刻まない=事業所で直したばかりの値に勝たない)
       { const _txKeys = [...PATIENT_TEXT_FL, 'careLevel'].filter(k => filteredPatch[k] !== undefined && JSON.stringify(filteredPatch[k]) !== JSON.stringify(p[k]));
         if (_txKeys.length) { _cmTs = { ...(p._fieldTs || {}), ...(_cmTs || {}) }; const _tnow = Date.now(); _txKeys.forEach(k => { _cmTs[k] = _tnow; }); } }
+      // ★ 2026-11-16 1116d(五位渕様の長女: 「新規アカウント登録」のお知らせは来たのに緊急連絡先に居ない):
+      //   ここは時刻を刻まずに書いていたので、まだ取り込んでいない店舗の端末が何か保存すると、端末側の代表家族(空)や緊急連絡先(登録前の一覧)が勝って消えていた
+      //   (お知らせ docUpdates は和集合なので残る)。代表家族の項目(値が変わったものだけ)と、増えた緊急連絡先に項目時刻を刻む
+      { let _ecCh; try { _ecCh = JSON.stringify(mergedContacts2) !== JSON.stringify(p.emergencyContacts || []); } catch { _ecCh = true; }
+        const _famKeys = FAMILY_PRIMARY.filter(k => filteredPatch[k] !== undefined && String(filteredPatch[k]) !== String(p[k] ?? ''));
+        if (_ecCh || _famKeys.length) { _cmTs = { ...(p._fieldTs || {}), ...(_cmTs || {}) }; const _tnow = Date.now(); if (_ecCh) _cmTs.emergencyContacts = _tnow; _famKeys.forEach(k => { _cmTs[k] = _tnow; }); } }
       return { ...p, ...filteredPatch, emergencyContacts: mergedContacts2, relatedParties: mergedRelated, docUpdates: mergedDocUpdates, personalFile: mergedPersonalFile, ...(_cmTs ? { _fieldTs: _cmTs } : {}) };
     });
     // ★ ケアマネ事業所/担当者マスタ (systemSettings) も、家族(関係者)登録で増えた分を統合 (重複は追加しない)
