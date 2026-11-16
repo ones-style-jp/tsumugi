@@ -381,7 +381,7 @@ describe('計画書の自立度をフェイスシートへ反映する(backfillF
   });
 });
 
-import { pushEmptyGuard, pushShrinkGuard } from './logic';
+import { pushEmptyGuard, pushShrinkGuard, tsuMonScrub } from './logic';
 describe('クラウドへ書く直前の関所(pushEmptyGuard・2026-11-02 水元店の事故)', () => {
   const cloud = { patients: Array.from({ length: 75 }, (_, i) => ({ id: i + 1 })) };
   it('起動直後の空の状態(利用者0・_sbStoreId なし)は書かない', () => {
@@ -407,6 +407,33 @@ describe('クラウドへ書く直前の関所(pushEmptyGuard・2026-11-02 水�
   });
 });
 
+import { tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './logic.js';
+describe('名前の空白を半角1つにそろえる(2026-11-09 trial532)', () => {
+  it('全角・連続・前後の空白を半角1つに。空白のない名前はそのまま', () => {
+    expect(tsuNameSpace('見本　太郎')).toBe('見本 太郎');
+    expect(tsuNameSpace('  見本 　 太郎 ')).toBe('見本 太郎');
+    expect(tsuNameSpace('見本太郎')).toBe('見本太郎');
+    expect(tsuNameSpace(null)).toBe('');
+  });
+  it('姓と名に分ける(全角でも半角でも)', () => {
+    expect(tsuSplitName('見本　太郎')).toEqual({ last: '見本', first: '太郎' });
+    expect(tsuSplitName('見本 太郎')).toEqual({ last: '見本', first: '太郎' });
+    expect(tsuSplitName('見本太郎')).toEqual({ last: '見本太郎', first: '' });
+  });
+  it('利用者の名前の項目と緊急連絡先の名前を直す。直す所がなければ同じ参照・fixed に名前は入れない', () => {
+    const pats = [{ id: 1, name: '見本　太郎', kana: 'みほん たろう', familyName: '見本　花子', cmName: '鈴木　一郎', emergencyContacts: [{ name: '見本　次郎', phone: '0' }] }, { id: 2, name: '例示 一郎', emergencyContacts: [] }];
+    const r = healNameSpaces(pats);
+    expect(r.patients[0].name).toBe('見本 太郎'); expect(r.patients[0].kana).toBe('みほん たろう'); expect(r.patients[0].familyName).toBe('見本 花子'); expect(r.patients[0].cmName).toBe('鈴木 一郎');
+    expect(r.patients[0].emergencyContacts[0].name).toBe('見本 次郎'); expect(r.patients[0].emergencyContacts[0].phone).toBe('0');
+    expect(r.patients[1]).toBe(pats[1]); expect(r.fixed.length).toBe(4); expect(JSON.stringify(r.fixed)).not.toMatch(/見本|鈴木/);
+    expect(healNameSpaces([{ id: 3, name: '例示 二郎' }]).fixed.length).toBe(0);
+  });
+  it('ケアマネ担当者マスタの名前も直し、前の鍵を返す', () => {
+    const r = healCareManagerNames([{ office: 'A', name: '鈴木　一郎' }, { office: 'B', name: '佐藤 花子' }]);
+    expect(r.managers[0].name).toBe('鈴木 一郎'); expect(r.fixed).toEqual([{ office: 'A', oldKey: 'cm|A|鈴木　一郎' }]);
+  });
+});
+
 // ★ trial545: 保存の合成でクラウドより減るとき(墓石なし)は止める
 describe('pushShrinkGuard', () => {
   const C = { patients: [{ id: 1 }, { id: 2 }, { id: 81 }], dailyLogs: [{ id: 'a' }, { id: 'b' }] };
@@ -426,5 +453,32 @@ describe('pushShrinkGuard', () => {
   });
   it('クラウドが空の配列なら見ない', () => {
     expect(pushShrinkGuard({ patients: [] }, { patients: [] }, {}, ['patients'])).toBeNull();
+  });
+});
+
+describe('tsuMonScrub(モニタリングの文から、無いものに触れた文を落とす・trial570)', () => {
+  it('計画書が無い: 計画に触れた文だけ落ち、ほかは残る', () => {
+    const r = tsuMonScrub('今回は計画通りに沿えなかった。運動プログラムには意欲的に取り組まれた。計画書が確認できないため目標の評価は難しい。', { hasPlan: false, hasFitness: true });
+    expect(r).toBe('運動プログラムには意欲的に取り組まれた。');
+  });
+  it('計画書がある: 計画の文は残す', () => {
+    const r = tsuMonScrub('通所介護計画に基づきサービスを提供した。概ね計画どおり実施できた。', { hasPlan: true, hasFitness: true });
+    expect(r).toBe('通所介護計画に基づきサービスを提供した。概ね計画どおり実施できた。');
+  });
+  it('体力測定が無い: 「行っていませんが」の文も、測定に触れた文も落ちる', () => {
+    const r = tsuMonScrub('体力測定は行っていませんが、歩行の様子は安定している。血圧は平均130mmHgで落ち着いていた。体力測定の数値は確認できなかった。', { hasPlan: true, hasFitness: false });
+    expect(r).toBe('血圧は平均130mmHgで落ち着いていた。');
+  });
+  it('体力測定がある: 残す', () => {
+    expect(tsuMonScrub('体力測定では握力が前回より伸びた。', { hasPlan: true, hasFitness: true })).toBe('体力測定では握力が前回より伸びた。');
+  });
+  it('目標が未設定という断り書きは、計画書の有無にかかわらず落ちる', () => {
+    expect(tsuMonScrub('目標が設定されていないため評価は困難。下肢筋力は維持されている。', { hasPlan: true, hasFitness: true })).toBe('下肢筋力は維持されている。');
+  });
+  it('全部落ちたら空・空は空', () => {
+    expect(tsuMonScrub('計画書が未作成。', { hasPlan: false })).toBe(''); expect(tsuMonScrub('', {})).toBe(''); expect(tsuMonScrub(null, {})).toBe('');
+  });
+  it('改行で区切った文も同じに扱う', () => {
+    expect(tsuMonScrub('体力測定は未実施\n運動は継続中', { hasFitness: false, hasPlan: true })).toBe('運動は継続中');
   });
 });

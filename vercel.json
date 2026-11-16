@@ -7,6 +7,10 @@
     {
       "path": "/api/push",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/backup-photos",
+      "schedule": "30 18 * * *"
     }
   ],
   "headers": [
@@ -55,6 +59,10 @@
     "api/state-cas.js": {
       "maxDuration": 30,
       "memory": 512
+    },
+    "api/backup-photos.js": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   }
 }

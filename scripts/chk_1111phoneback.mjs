@@ -37,15 +37,15 @@ await page.getByTestId('tsu-tab-diary').click(); await page.waitForTimeout(900);
 await swipe(120, 500, 300, 505); await page.waitForTimeout(700);
 ok(/日誌/.test(await title()), '端ではない左→右スワイプでは戻らない(日誌のまま=日送り)');
 // ①b trial562: 重なりがあれば、まずそれを閉じる(画面は変わらない)
-await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(400);
+await page.getByTestId('hdr-menu-btn').click(); await page.waitForTimeout(400);
 await swipe(8, 500, 160, 505); await page.waitForTimeout(600);
-ok((await page.getByTestId('tsu-phone-menu').count()) === 0 && /日誌/.test(await title()), 'メニューを開いていれば、左端からの戻るはメニューを閉じるだけ(日誌のまま)');
+ok(!/tsu-tabbar-hide/.test((await page.getByTestId('tsu-tabbar').getAttribute('class')) || '') && /日誌/.test(await title()), '3本線でサイドバーを開いていれば、左端からの戻るは閉じるだけ(日誌のまま)(trial568)');
 await swipe(384, 500, 240, 505); await page.waitForTimeout(700);
 ok(/tsu-tabbar-hide/.test((await page.getByTestId('tsu-tabbar').getAttribute('class')) || ''), 'サイドバーを開く');
 await swipe(8, 500, 160, 505); await page.waitForTimeout(700);
 ok(!/tsu-tabbar-hide/.test((await page.getByTestId('tsu-tabbar').getAttribute('class')) || '') && /日誌/.test(await title()), 'サイドバーを開いていれば閉じるだけ(日誌のまま)');
 // 自由枠を選ぶ小窓(メニューの下のボタンから)を開いて戻る → 小窓だけ閉じて画面はそのまま
-await page.getByTestId('tsu-tab-menu').click(); await page.waitForTimeout(400); await page.getByTestId('tsu-phone-menu-tabpick').click(); await page.waitForTimeout(500);
+await page.evaluate(() => window.dispatchEvent(new Event('tsumugi-tabpick-open'))); await page.waitForTimeout(500); // trial568: 自由枠を選ぶ小窓は各種設定の「選ぶ」(合図)から
 { const had = (await page.getByTestId('tsu-tabpick').count()) === 1; const before = (await title()).trim();
   await swipe(8, 500, 160, 505); await page.waitForTimeout(600);
   ok(had && (await page.getByTestId('tsu-tabpick').count()) === 0 && (await title()).trim() === before, `自由枠の小窓を開いて戻る → 小窓だけ閉じて画面はそのまま(${before})`); }

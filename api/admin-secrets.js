@@ -75,6 +75,26 @@ async function runTest(id) {
       return { error: `つながりませんでした: ${j.status || r.status}${j.error_message ? ' / ' + j.error_message : ''}` };
     }
     if (kind === 'gmail') { const { verifyGmail } = await import('./_mail.js'); return await verifyGmail(); } // ★ 2026-11-02
+    if (kind === 's3') { // ★ 2026-11-16 写真の控え(AWS S3)
+      const { s3FromSecrets, maskAws } = await import('./_s3.js');
+      const s3 = await s3FromSecrets();
+      if (!s3) return { error: 'アクセスキーID・シークレットアクセスキー・バケット名のどれかが未設定です' };
+      try {
+        await s3.listObjects('manifest/', null, 1);                       // 読める(ListBucket)
+        const stamp = new Date(Date.now() + 9 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+        await s3.putObject('health/last_test.txt', Buffer.from(`つむぎ 接続テスト ${stamp} JST\n`, 'utf8'), 'text/plain; charset=utf-8'); // 置ける(PutObject)
+        const last = await s3.getJson('manifest/last_run.json', null);  // 最後の控え(あれば)
+        const when = last && last.finishedAt ? new Date(new Date(last.finishedAt).getTime() + 9 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' JST' : 'まだ実行されていません';
+        return { ok: true, detail: `バケット ${s3.bucket}（${s3.region}）に書き込めました。最後の控え: ${when}` };
+      } catch (e) {
+        const m = maskAws(String((e && e.message) || e));
+        if (/InvalidAccessKeyId|SignatureDoesNotMatch/.test(m)) return { error: 'アクセスキーIDまたはシークレットアクセスキーが違います' };
+        if (/NoSuchBucket/.test(m)) return { error: 'バケット名が違います(見つかりません)' };
+        if (/PermanentRedirect|AuthorizationHeaderMalformed|IllegalLocationConstraint/.test(m)) return { error: 'リージョンが違います(大阪なら ap-northeast-3)' };
+        if (/AccessDenied/.test(m)) return { error: '権限が足りません。IAM ポリシー(s3:PutObject / GetObject / ListBucket)をご確認ください' };
+        return { error: 'つながりませんでした: ' + m.slice(0, 160) };
+      }
+    }
     if (kind === 'brevo') {
       const key = await getSecret('BREVO_API_KEY', 'brevo_api_key');
       if (!key) return { error: 'APIキーが未設定です' };

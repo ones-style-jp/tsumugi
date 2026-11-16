@@ -378,3 +378,52 @@ export function pushShrinkGuard(merged, cloud, tomb, keys) {
   }
   return null;
 }
+
+// ★ 2026-11-09 trial532(ユーザー要望「利用者名・緊急連絡先・ケアマネの姓と名の間が半角か全角かでバラバラ。全部半角で統一」):
+//   名前の中の空白(全角・半角・連続)を半角1つにそろえる。前後の空白は外す。空白のない名前はそのまま(分けられない)
+export const tsuNameSpace = (s) => String(s ?? '').replace(/[\s　]+/g, ' ').trim();
+// 姓と名に分ける(全角・半角どちらの空白でも)。名が2語以上なら半角1つでつなぐ
+export const tsuSplitName = (full) => { const a = tsuNameSpace(full).split(' ').filter(Boolean); return { last: a[0] || '', first: a.slice(1).join(' ') }; };
+// 利用者の名前の項目(本人・フリガナ・代表家族・担当ケアマネ・送迎の連絡先)と緊急連絡先の名前を半角1つにそろえる。直した方だけ新しい参照。fixed には値を入れない(個人情報を記録に残さない)
+export const PATIENT_NAME_FIELDS = ['name', 'kana', 'familyName', 'cmName', 'pickupCallName'];
+export const healNameSpaces = (patients) => {
+  const fixed = []; if (!Array.isArray(patients)) return { patients, fixed };
+  const out = patients.map(p => {
+    if (!p || typeof p !== 'object') return p; let np = null;
+    PATIENT_NAME_FIELDS.forEach(k => { const v = p[k]; if (typeof v !== 'string' || !v) return; const n = tsuNameSpace(v); if (n === v) return; np = np || { ...p }; np[k] = n; fixed.push({ id: p.id, field: k }); });
+    if (Array.isArray(p.emergencyContacts)) {
+      let ch = false;
+      const ec = p.emergencyContacts.map(c => { if (!c || typeof c.name !== 'string' || !c.name) return c; const n = tsuNameSpace(c.name); if (n === c.name) return c; ch = true; fixed.push({ id: p.id, field: 'emergencyContacts.name' }); return { ...c, name: n }; });
+      if (ch) { np = np || { ...p }; np.emergencyContacts = ec; }
+    }
+    return np || p;
+  });
+  return { patients: fixed.length ? out : patients, fixed };
+};
+// ケアマネ担当者マスタ(systemSettings.careManagers)の名前も同じく。名前が変わった人の「前の鍵(cm|事業所|前の名前)」を返す(呼び出し側で墓石にする=和集合マージで前の名前が戻らないように)
+export const healCareManagerNames = (managers) => {
+  const fixed = []; if (!Array.isArray(managers)) return { managers, fixed };
+  const out = managers.map(c => { if (!c || typeof c.name !== 'string' || !c.name) return c; const n = tsuNameSpace(c.name); if (n === c.name) return c; fixed.push({ office: String(c.office || '').trim(), oldKey: `cm|${String(c.office || '').trim()}|${String(c.name || '').trim()}` }); return { ...c, name: n }; });
+  return { managers: fixed.length ? out : managers, fixed };
+};
+
+// ★ 2026-11-12 trial570(ユーザー: 計画書を作っていない利用者のモニタリングに「計画通りに沿えなかった」と出てケアマネから
+//   「ケアプランができていなかった？」と焦った連絡が来た。体力測定をしていない店舗で「体力測定は行っていませんが」も同様):
+//   モニタリングの文は「本当にあるデータだけ」で。無いもの(計画書・体力測定)には触れない。AI や定型文の出力から、
+//   無いものに触れた文(。区切り)を落とす。全部落ちたら空文字。
+const _MON_PLAN_RE = /計画書|ケアプラン|計画(通り|どおり|に沿|に添|に基づ|の目標|の内容|が(未|無|な)|は(未|無|な)|を(確認|立て|作成))|目標(が|は)(未|無|な|設定され)/;
+const _MON_FIT_RE = /体力測定|体力テスト/;
+const _MON_MISSING_RE = /(未作成|未設定|未実施|未記入|記録(が|は)(な|無)|データ(が|は)(な|無)|確認でき(ません|ない|なかった)|行(っ|われ)てい(ません|ない)|(実施|設定|作成|策定)(し|され)てい(ません|ない|なかった))/;
+export function tsuMonScrub(text, opt) {
+  const o = opt || {}; const hasPlan = !!o.hasPlan, hasFitness = !!o.hasFitness;
+  const src = String(text == null ? '' : text); if (!src.trim()) return '';
+  const parts = src.split(/(?<=[。．\n])/);
+  const kept = parts.filter(x => {
+    const t = x.trim(); if (!t) return false;
+    if (!hasPlan && _MON_PLAN_RE.test(t)) return false;
+    if (!hasFitness && _MON_FIT_RE.test(t)) return false;
+    if (_MON_MISSING_RE.test(t) && (/計画|目標|体力|測定|評価表|アセスメント/.test(t))) return false;
+    return true;
+  });
+  return kept.join('').replace(/\n{3,}/g, '\n\n').trim();
+}

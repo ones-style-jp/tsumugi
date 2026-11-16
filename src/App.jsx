@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels } from './lib/logic';
+import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
 import { PATIENT_TEXT_FL } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL)
 import {
   isSupabaseEnabled,
@@ -12079,13 +12079,49 @@ function TsuPhonePin({ children, testId, z = 30, on = true }) {
     <div ref={ref} data-testid={testId} className="tsu-pin" style={{ position: 'fixed', top: 'var(--tsu-pin-top, 47px)', left: 0, right: 0, zIndex: z }}>{children}</div>{/* ★ trial540: 見出しを消す画面(html.tsu-nohdr)は 0 */}
   </>);
 }
+// ★ 2026-11-12 trial567(ユーザー報告「操作の小窓から印刷設定を開くと下に出て見えない」・他の画面も調査): 「操作」の小窓(下から出る)の中のボタンから開く
+//   小さなポップアップ(position:absolute で下に出るもの)は、小窓の下へはみ出して画面の外に出る。スマホ幅では画面の中央の小窓(portal)に出す。
+//   使い方: {open && <TsuPhonePop onClose={close}>{従来のポップアップ}</TsuPhonePop>}。iPad・PCは children をそのまま返す(従来どおり)。中の absolute は CSS .tsu-phone-pop で解く
+// ★ trial568: 「操作」の小窓(上から出る)が開いていれば、その下に続けて出す(上から下へ)。無ければ中央
+const tsuPhonePopTop = () => { try { const el = document.querySelector('.tsu-fold-sheet'); const r = el && el.getBoundingClientRect(); return (r && r.bottom > 0 && r.bottom < window.innerHeight - 180) ? Math.round(r.bottom) + 8 : null; } catch { return null; } };
+// ★ 2026-11-12 trial569(ユーザー「操作を押してからの画面が分裂していてまとまりがない・後ろがスクロールできず下の操作ができない」):
+//   「操作」の小窓(TsuPhoneFold sheet)の中から開く小窓(印刷設定・各種入力・絞り込み・並び替え)は、別の幕を重ねず
+//   同じ小窓の中(ボタンの下)に続けて出す。小窓は1つ・幕は1枚・スクロールも1つ。小窓を閉じたら中の小窓も閉じる
+const TsuFoldPanelCtx = React.createContext(null);
+function TsuPhonePop({ children, onClose, testId }) {
+  const phone = typeof window !== 'undefined' && window.innerWidth < 768;
+  const ctx = React.useContext(TsuFoldPanelCtx);
+  const host = phone && ctx && ctx.hostEl ? ctx.hostEl : null;
+  const onCloseRef = React.useRef(onClose); onCloseRef.current = onClose;
+  React.useEffect(() => {
+    if (!host || !ctx) return;
+    ctx.register(onCloseRef);
+    try { const sc = host.closest('.tsu-fold-sheet'); if (sc) { const hr = host.getBoundingClientRect(), cr = sc.getBoundingClientRect(); if (hr.top > cr.bottom - 120) sc.scrollTop += (hr.top - cr.top) - 52; } } catch {} // ボタンの下に見えていればそのまま。隠れているときだけ、頭が見えるところまで送る
+    return () => ctx.unregister(onCloseRef);
+  }, [host]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!phone) return children;
+  if (host) return ReactDOM.createPortal(<div data-testid={testId || 'tsu-phone-pop'} className="tsu-phone-pop tsu-fold-panel no-print">{children}</div>, host);
+  const top = tsuPhonePopTop();
+  return ReactDOM.createPortal(
+    <div data-testid={testId || 'tsu-phone-pop'} className="no-print" style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: top != null ? 'flex-start' : 'center', justifyContent: 'center', padding: 12, paddingTop: top != null ? top : 12 }} onClick={onClose}>
+      <div className="tsu-phone-pop" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: top != null ? `calc(100vh - ${top + 16}px)` : 'calc(100vh - 80px)', overflowY: 'auto' }}>{children}</div>
+    </div>, document.body);
+}
 function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true, below = null, sheet = false }) {
   // ★ 2026-11-10 trial540(ユーザー「上部に固定されているものが大きすぎる」): sheet=true なら「操作」の中身を下に押し広げず、下から出る小窓(下のバーの上)に出す。開閉は覚えない
   const isPhone = useTsuIsPhone();
   const [open, setOpen] = React.useState(() => { if (sheet) return false; try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
   const foldRef = React.useRef(null); // ★ 2026-10-08: フックは必ず早期 return より前(向きを変えてスマホ幅⇔それ以外が切り替わると「フックの数が違う」エラーで画面が落ちていた)
+  // ★ 2026-11-12 trial568(ユーザー「操作を押したら上にそのまま出て、印刷設定などはその下に。上から下へ目を動かす形に統一」): 小窓は帯のすぐ下(上)から出す。帯の下端を測って top にする
+  const [sheetTop, setSheetTop] = React.useState(95);
+  React.useLayoutEffect(() => { if (!sheet || !open) return; try { const r = foldRef.current && foldRef.current.getBoundingClientRect(); if (r && r.bottom > 0) setSheetTop(Math.round(r.bottom)); } catch {} }, [sheet, open]);
+  // ★ trial569: 小窓の中の「続きの小窓」(TsuPhonePop)を受ける場所と、閉じるときに中の小窓も閉じる仕組み
+  const [hostEl, setHostEl] = React.useState(null);
+  const panelsRef = React.useRef(new Set());
+  const panelCtx = React.useMemo(() => ({ hostEl, register: (r) => { panelsRef.current.add(r); }, unregister: (r) => { panelsRef.current.delete(r); } }), [hostEl]);
+  const closePanels = () => { try { [...panelsRef.current].forEach(r => { try { r.current && r.current(); } catch {} }); } catch {} };
   if (!isPhone) return children;
-  const tog = () => { setOpen(v => { const nv = !v; if (!sheet) { try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} } return nv; }); };
+  const tog = () => { const nv = !open; if (!sheet) { try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} } if (!nv) closePanels(); setOpen(nv); };
   const _inner = (
     <div ref={foldRef} data-testid={`fold-${storageKey}`} className={`bg-white border-b border-slate-200 shadow-sm ${className}`}>
       <div className="flex items-center gap-1.5 px-2 py-1.5" style={{minHeight:48}}>
@@ -12096,10 +12132,14 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
         </button>
       </div>
       {/* 閉じているときも中身は消さずに高さ0で隠す(中にある確認の小窓=画面全体に出る窓 が開けなくならないように) */}
-      {sheet && open && <div data-testid={`fold-sheet-back-${storageKey}`} className="tsu-fold-sheet-back" onClick={tog} aria-hidden="true" />}
-      <div data-testid={`fold-body-${storageKey}`} data-open={open ? '1' : '0'} aria-hidden={!open} className={open ? (sheet ? 'tsu-fold-sheet' : 'border-t border-slate-200') : ''} style={open ? undefined : { height: 0, overflow: 'hidden' }}>
+      {/* ★ trial569: 幕の上で指を動かしたら(後ろをスクロールしようとしたら)小窓を閉じる。「閉じないと下が動かせない」の迷いをなくす */}
+      {sheet && open && <div data-testid={`fold-sheet-back-${storageKey}`} className="tsu-fold-sheet-back" onClick={tog} onTouchMove={tog} aria-hidden="true" />}
+      <div data-testid={`fold-body-${storageKey}`} data-open={open ? '1' : '0'} aria-hidden={!open} className={open ? (sheet ? 'tsu-fold-sheet' : 'border-t border-slate-200') : ''} style={open ? (sheet ? { top: sheetTop, maxHeight: `calc(100dvh - ${sheetTop + 90}px)` } : undefined) : { height: 0, overflow: 'hidden' }}>
         {sheet && open && <div className="tsu-fold-sheet-head"><span>操作</span><button type="button" data-testid={`fold-sheet-close-${storageKey}`} onClick={tog} aria-label="閉じる"><X size={20} /></button></div>}
-        {children}
+        <TsuFoldPanelCtx.Provider value={sheet && open ? panelCtx : null}>
+          {children}
+          {sheet && open && <div ref={setHostEl} data-testid={`fold-panel-${storageKey}`} className="tsu-fold-panel-host" />}
+        </TsuFoldPanelCtx.Provider>
       </div>
       {/* ★ 2026-10-28: 帯のすぐ下に重ねて出す行(提供記録の「印」など)。帯の高さは変えない(下の表・カードの位置が動かない) */}
       {below ? <div className="relative" style={{ height: 0 }}><div className="absolute left-0 right-0 top-0">{below}</div></div> : null}
@@ -12204,10 +12244,11 @@ const tsuTabBarOn = () => { try { return localStorage.getItem(TSU_TABBAR_KEY) !=
 //   ②画面の右端から左へスワイプで縦のメニュー(サイドバー)(trial558で左端→右端に) ③下のバーの4つ目は「この端末の自由枠」(長押しで選ぶ・既定は連絡帳)
 const TSU_TABCUSTOM_KEY = 'tsumugiPhoneTabCustom';
 const tsuTabCustom = () => { try { return localStorage.getItem(TSU_TABCUSTOM_KEY) || ''; } catch { return ''; } }; // ''=未設定(既定は App で決める: 送迎表の店は日誌・使わない店はカレンダー)
-function TsuPhonePairTabs({ items, active, onPick }) {
+function TsuPhonePairTabs({ items, active, onPick, onMenu }) {
   return (
     <div data-testid="tsu-pair" className="tsu-pairtabs no-print" data-on={active} role="tablist" aria-label="提供記録と連絡帳">{/* ★ trial548: class 名は html の印 tsu-pair と別にする(同じ名前だと html 自体が固定・高さ40pxになり縦にスクロールできなくなった) */}
       {items.map(it => <button key={it.key} type="button" role="tab" aria-selected={active === it.key} data-testid={`tsu-pair-${it.key}`} className={active === it.key ? 'on' : ''} onClick={() => { if (active !== it.key) onPick(it.key); }}>{it.label}</button>)}
+      {onMenu && <button type="button" className="tsu-pair-menu" data-testid="tsu-pair-menu" onClick={onMenu} aria-label="メニュー"><Menu size={22} /></button>}{/* ★ trial568: 右上の3本線(見出しが無い画面) */}
     </div>
   );
 }
@@ -12242,8 +12283,8 @@ function TsuPhoneTabPicker({ open, onClose, groups, current, onPick }) {
   if (!open) return null;
   return ReactDOM.createPortal(
     <div className="tsu-tabpick-back" data-testid="tsu-tabpick-back" onClick={onClose}>
-      <div className="tsu-tabpick" data-testid="tsu-tabpick" role="dialog" aria-label="下のバーの4つ目に出す画面" onClick={e => e.stopPropagation()}>
-        <div className="head"><span>下のバーの4つ目に出す画面</span><button type="button" data-testid="tsu-tabpick-close" onClick={onClose} aria-label="閉じる"><X size={20} /></button></div>
+      <div className="tsu-tabpick" data-testid="tsu-tabpick" role="dialog" aria-label="下のバーのいちばん右（自由枠）に出す画面" onClick={e => e.stopPropagation()}>
+        <div className="head"><span>下のバーのいちばん右（自由枠）に出す画面</span><button type="button" data-testid="tsu-tabpick-close" onClick={onClose} aria-label="閉じる"><X size={20} /></button></div>
         <div className="note">この端末だけの設定です。札の長押し・メニューの下・各種設定→システム から、いつでも変えられます。</div>
         <div className="list">
           {groups.flatMap(g => g.items).map(it => (
@@ -12320,7 +12361,9 @@ function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
   const pick = (iso) => { setSel(iso); if (mode === 'month' && iso.slice(0, 7) !== mon) setMon(iso.slice(0, 7)); };
   const goCal = (iso) => { try { sessionStorage.setItem('tsumugiSchDay', iso); } catch {} onClose(); navigateTo && navigateTo('schedule'); };
   const onTS = (e) => { const t = e.touches && e.touches[0]; swRef.current = (t && e.touches.length === 1) ? { x: t.clientX, y: t.clientY, t: Date.now() } : null; };
-  const onTE = (e) => { const s0 = swRef.current; swRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dy <= -60 && Math.abs(dy) >= Math.abs(dx) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} onClose(); } };
+  // ★ 2026-11-12 trial566(ユーザー「ここでも左右にスワイプすれば週や月が切り替わるように」): 左へ=次の週／次の月・右へ=前の週／前の月。後ろの画面の横スワイプ(画面の切り替え)には渡さない(_tsuConsumed)
+  const shift = (dir) => { if (mode === 'month') moveMon(dir); else { const n = tsuIsoAdd(sel, dir * 7); setSel(n); } };
+  const onTE = (e) => { const s0 = swRef.current; swRef.current = null; const t = e.changedTouches && e.changedTouches[0]; if (!s0 || !t) return; const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900) return; if (dy <= -60 && Math.abs(dy) >= Math.abs(dx) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} onClose(); return; } if (Math.abs(dx) >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} shift(dx < 0 ? 1 : -1); } };
   const timeOf = (e) => tsuEvMulti(e) ? tsuEvRangeLabel(e) : (e.start ? `${e.start}${e.end ? `〜${e.end}` : ''}` : '終日');
   const row = (key, color, left, main, sub, onClick) => (
     <button key={key} type="button" onClick={onClick} style={{ textAlign: 'left', width: '100%', display: 'flex', alignItems: 'baseline', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderLeft: `4px solid ${color}`, borderRadius: 8, padding: '8px 10px', minHeight: 44 }}>
@@ -12350,7 +12393,7 @@ function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
             </div>
           ) : <div style={{ flex: 1 }} />}
           {sel !== today && <button type="button" data-testid="tsu-today-today" onClick={() => { setSel(today); setMon(today.slice(0, 7)); }} style={{ minHeight: 36, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 'bold' }}>今日</button>}
-          <button type="button" data-testid="tsu-today-close" onClick={onClose} aria-label="閉じる" style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569' }}><X size={20} /></button>
+          <button type="button" data-testid="tsu-today-close" onClick={onClose} aria-label="閉じる" style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flex: 'none' }}><X size={20} /></button>{/* ★ trial566: × が枠の左に寄っていた → 中央 */}
         </div>
         {mode === 'week' ? (
           <div data-testid="tsu-today-week" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, padding: '0 10px 6px' }}>{week.map(w => dayBtn(w, false))}</div>
@@ -12377,7 +12420,7 @@ function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
             <div style={{ fontSize: 12, fontWeight: 'bold', color: '#c2410c', marginBottom: 4 }}>申し送り {memos.length ? `${memos.length}件` : ''}</div>
             {memos.length ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{memos.map(m => row(`m${m.id}`, TSU_MEMO_COLOR, '', m.title || '', pname(m.patientId), () => { onClose(); navigateTo && navigateTo('dashboard'); }))}</div> : <div style={{ fontSize: 13, color: '#94a3b8' }}>ありません</div>}
           </div>
-          <div className="tsu-hint-row"><TsuHint>画面の上の端から下へ引くと、どの画面でもこの小窓が出ます。日を押すとその日の予定がここに出ます。「カレンダーを開く」で選んだ日のカレンダーへ。上へ戻すか、暗い部分を押すと閉じます。</TsuHint></div>
+          <div className="tsu-hint-row"><TsuHint>画面の上の端から下へ引くと、どの画面でもこの小窓が出ます。日を押すとその日の予定がここに出ます。左右にスワイプすると前後の週（月のときは前後の月）へ。「カレンダーを開く」で選んだ日のカレンダーへ。上へ戻すか、暗い部分を押すと閉じます。</TsuHint></div>
         </div>
       </div>
     </div>, document.body);
@@ -12392,9 +12435,9 @@ function TsuPhoneMenu({ open, onClose, groups, footer }) {
   if (!open) return null;
   return ReactDOM.createPortal(
     <div data-testid="tsu-phone-menu" className="tsu-phone-menu no-print" role="dialog" aria-modal="true" aria-label="メニュー" onTouchStart={_onTS} onTouchEnd={_onTE} onTouchCancel={() => { _swRef.current = null; }}>
-      <div className="tsu-phone-menu-head">
-        <button type="button" data-testid="tsu-phone-menu-close" onClick={onClose} aria-label="閉じる"><X size={22} /></button>
+      <div className="tsu-phone-menu-head">{/* ★ 2026-11-12 trial566(ユーザー「×は右上にあった方が押しやすい」): 題名を左・× を右端に */}
         <div className="ttl">メニュー</div>
+        <button type="button" data-testid="tsu-phone-menu-close" onClick={onClose} aria-label="閉じる"><X size={22} /></button>
       </div>
       <div className="tsu-phone-menu-body">
         {groups.filter(g => g.items.length).map(g => (
@@ -13474,7 +13517,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
     const pages = Math.ceil((total||0)/size);
     if (pages <= 1) return null;
     const p = Math.min(Math.max(0,page), pages-1);
-    const btn = (active,dim) => ({ minWidth:26, height:26, borderRadius:6, fontSize:12, fontWeight:'bold', border:'1px solid '+(active?'#4338ca':'#e2e8f0'), background:active?'#4338ca':'white', color:active?'white':'#475569', cursor:dim?'default':'pointer', padding:'0 6px', opacity:dim?0.4:1 });
+    const btn = (active,dim) => ({ minWidth:26, height:26, borderRadius:6, fontSize:12, fontWeight:'bold', border:'1px solid '+(active?'#2f7a3d':'#e2e8f0'), background:active?'#2f7a3d':'white', color:active?'white':'#475569', cursor:dim?'default':'pointer', padding:'0 6px', opacity:dim?0.4:1 });
     return (
       <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,marginTop:10,flexWrap:'wrap'}}>
         <button onClick={()=>setPage(Math.max(0,p-1))} disabled={p<=0} style={btn(false,p<=0)}>‹</button>
@@ -13492,7 +13535,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
       <div className="tsu-ph-cards tsu-wide" style={{maxWidth:1040,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:16}}>{/* ★ 2026-10-21: 大きい画面では広く(index.css tsu-wide) */}
         {/* ★ 2026-10-23(ユーザー要望「稼働率などもろもろ一目で分かるものをホームに」→「予定は午前/午後で分けて・本日/今週/今月の業務を」→「マス目状で見にくい。今日の予定など大元が分かるデザインに」):
               1枚の「今日」の板: 上の帯=日付・挨拶・今日の予定(午前/午後)・今月の稼働率、下=本日の業務(大)・今週/今月の業務(小) */}
-        {(() => { const _greet = <div style={{display:'flex',alignItems:'baseline',flexWrap:'wrap',gap:'4px 14px'}}><div style={{fontSize:20,fontWeight:'bold',whiteSpace:'nowrap'}}>{now.getFullYear()}年{now.getMonth()+1}月{now.getDate()}日（{dow}）</div><div style={{fontSize:13,opacity:0.9}}>{activeRecorder?.name ? `${activeRecorder.name} さん、今日もよろしくお願いします。` : 'ようこそ'}</div></div>;
+        {(() => { const _greet = <div data-testid="home-greet" style={{display:'flex',alignItems:'baseline',flexWrap:'wrap',gap:'4px 14px'}}>{/* ★ 2026-11-12 trial567(ユーザー「日付は見出しのホームの横に・挨拶は不要・誰が入っているかだけ」): 日付は上の見出し(ホーム 11月12日（木）)へ。ここは記録者だけ */}<div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',whiteSpace:'nowrap'}}>{activeRecorder?.name ? <><span style={{fontSize:11,color:'#64748b',marginRight:6}}>記録者</span>{activeRecorder.name}</> : <span style={{color:'#94a3b8'}}>記録者が選ばれていません</span>}</div></div>;
           try {
           const ss = appData.systemSettings || {};
           const pats = (appData.patients||[]).filter(p => p && p.status === '利用中');
@@ -13519,6 +13562,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             if (status === '欠席') abs++; else if (status === '休止') pause++; else if (status === '振替') { furi++; att++; } else if (status === '臨時') { rinji++; att++; } else att++;
           }); return { att, abs, furi, rinji, pause, n: att + abs + pause }; };
           const am = slotStats('AM'), pm = slotStats('PM');
+          const _subOf = (x) => [['欠席', x.abs], ['振替', x.furi], ['臨時', x.rinji], ['休止', x.pause]].filter(([, n]) => n > 0).map(([l, n]) => `${l} ${n}`).join('・'); // ★ trial567: 該当する数だけ(0 は出さない)
           // 今月の稼働率(定員ベース・今日まで): 延べ利用コマ ÷ (定員 × 営業コマ)。分析(稼働)の periodCapStats と同じ考え方の簡易版(1日利用=2コマ)
           const cap = Number(ss.facilityInfo?.capacity) || 10; const closed = ss.facilityInfo?.closedDays || [0];
           const holMap = new Map(); (appData.holidays||[]).forEach(h => { const d = String((h && (h.date||h)) || ''); if (d) holMap.set(d, (h && h.ampm && h.ampm !== '1日') ? h.ampm : '1日'); });
@@ -13601,7 +13645,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           }
           // ★ 2026-10-25(ユーザー): 「来週の送迎表 未作成」はホームに出さない(確定の廃止とあわせて)
           const _ph3 = tsuViewW() < 640;
-          const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'white',border:'1px solid rgba(255,255,255,0.6)',borderRadius:12,padding: _ph3 ? '6px 8px' : '6px 14px',color:'#1e293b',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto',boxShadow:'0 1px 3px rgba(0,0,0,0.15)'}}><div style={{fontSize:11,color:'#4f46e5',fontWeight:'bold',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</div><div style={{fontSize: _ph3 ? 20 : 22,fontWeight:'bold',lineHeight:1.15,color:'#1e293b'}}>{value}</div>{sub && <div style={{fontSize:10,color:'#64748b',whiteSpace: _ph3 ? 'normal' : 'nowrap',lineHeight:1.35}}>{sub}</div>}</button>; // ★ 2026-10-27: スマホは3つを1行に(下の小さい字は折り返す・文字はそのまま)
+          const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12,padding: _ph3 ? '6px 8px' : '6px 14px',color:'#1e293b',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto'}}><div style={{fontSize:11,color:'#2f7a3d',fontWeight:'bold',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</div><div style={{fontSize: _ph3 ? 20 : 22,fontWeight:'bold',lineHeight:1.15,color:'#1e293b'}}>{value}</div>{sub && <div style={{fontSize:10,color:'#64748b',whiteSpace: _ph3 ? 'normal' : 'nowrap',lineHeight:1.35}}>{sub}</div>}</button>; // ★ 2026-10-27: スマホは3つを1行に(下の小さい字は折り返す・文字はそのまま)
           const _taskBtnPlain = (t, big) => (
             <button key={t.key} type="button" data-testid={`home-task-${t.key}`} title={t.sub || ''} onClick={() => { if (t.onOpen) { t.onOpen(); return; } try { if (t.jump) sessionStorage.setItem('tsumugiTpJump', t.jump); if (t.ss) sessionStorage.setItem(t.ss[0], t.ss[1]); } catch {} navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',maxWidth:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>{/* ★ 2026-11-04 trial517: 本日の業務は横に並ぶ札 */}
               <span style={{fontSize: big ? 14 : 12.5,fontWeight:'bold',color:'#1e293b'}}>{t.label}</span>{/* ★ 2026-10-27(ユーザー): 「開く →」は不要(押せば飛ぶと分かる) */}
@@ -13618,18 +13662,18 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             </div>);
           const section = (tier, title, tid, big) => (
             <div key={tier} data-testid={tid} style={{flex: '1 1 320px',minWidth:0}}>{/* ★ 2026-11-04 trial518: 本日(左)と1週間(右)の2列 */}
-              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:6,paddingBottom:4,borderBottom:`2px solid ${tier === 'today' ? '#f59e0b' : tier === 'week' ? '#93c5fd' : '#cbd5e1'}`}}>
-                <span style={{fontSize: big ? 15 : 13,fontWeight:'bold',color: tier === 'today' ? '#b45309' : tier === 'week' ? '#1e40af' : '#475569'}}>{title}</span>
+              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:6,paddingBottom:4,borderBottom:'2px solid #e2e8f0'}}>{/* ★ trial567: 色を減らす */}
+                <span style={{fontSize: big ? 15 : 13,fontWeight:'bold',color: '#2f7a3d'}}>{title}</span>
                 <span style={{fontSize:11,color:'#94a3b8'}}>{tier === 'today' ? '期限が今日まで' : tier === 'week' ? `今日から7日間（〜${weekEnd.getMonth()+1}/${weekEnd.getDate()}）` : `〜${monthEnd.getMonth()+1}/${monthEnd.getDate()}`}</span>
-                {tier === 'today' && <span style={{marginLeft:'auto',display:'flex',gap:4}}>{todayEvents.some(e => !isRead(e.id)) && <button type="button" onClick={()=>{ todayEvents.forEach(e => { if (!isRead(e.id)) markRead(e.id); }); }} style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>全て既読</button>}</span>}{/* ★ 2026-10-27(ユーザー): 「カレンダー →」は不要 */}
+                {tier === 'today' && <span style={{marginLeft:'auto',display:'flex',gap:4}}>{todayEvents.some(e => !isRead(e.id)) && <button type="button" onClick={()=>{ todayEvents.forEach(e => { if (!isRead(e.id)) markRead(e.id); }); }} style={{fontSize:10,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>全て既読</button>}</span>}{/* ★ 2026-10-27(ユーザー): 「カレンダー →」は不要 */}
               </div>
               {tier === 'today' && _evOn && todayEvents.length > 0 && (
                 <div data-testid="home-today-events" style={{display:'flex',flexDirection:'column',gap:4,marginBottom:6}}>
                   {todayEvents.map(e => { const pt = e.patientId ? (appData.patients||[]).find(x=>x.id===e.patientId) : null; const _r = isRead(e.id); return (
                     <button key={e.id} type="button" data-testid={`home-today-event-${e.id}`} onClick={()=>openDetail({id:e.id,badge:'予定',badgeColor:e.color||'#6366f1',date:'',title:e.title,body:`時間：${tsuEvMulti(e) ? tsuEvRangeLabel(e) : e.start?`${e.start}${e.end?`〜${e.end}`:''}`:'終日'}${pt?`\n利用者：${pt.name} 様`:''}${e.note?`\n\n${e.note}`:''}`, patientId: e.patientId || undefined, view: 'schedule'})} /* ★ 2026-10-27(ユーザー): 予定を押したら担当者会議の記録・利用者マスタへ行ける(カレンダーと同じ) */
-                      style={{textAlign:'left',cursor:'pointer',width:'100%',display:'flex',alignItems:'baseline',gap:8,background:_r?'#f8fafc':'#eef2ff',border:`1px solid ${_r?'#e2e8f0':'#c7d2fe'}`,borderLeft:`4px solid ${e.color||'#6366f1'}`,borderRadius:8,padding:'6px 12px'}}>
-                      <span style={{fontSize:13,fontWeight:'bold',color:'#4338ca',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums'}}>{tsuEvMulti(e) ? tsuEvRangeLabel(e) : e.start?`${e.start}${e.end?`〜${e.end}`:''}`:'終日'}</span>
-                      <span style={{fontSize:14,fontWeight:'bold',color:_r?'#64748b':'#1e293b',flex:1,minWidth:0}}>{e.title}{pt && <span style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:4,padding:'0 5px',marginLeft:6}}>{pt.name} 様</span>}</span>
+                      style={{textAlign:'left',cursor:'pointer',width:'100%',display:'flex',alignItems:'baseline',gap:8,background:_r?'#f8fafc':'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${e.color||'#6366f1'}`,borderRadius:8,padding:'6px 12px'}}>
+                      <span style={{fontSize:13,fontWeight:'bold',color:'#475569',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums'}}>{tsuEvMulti(e) ? tsuEvRangeLabel(e) : e.start?`${e.start}${e.end?`〜${e.end}`:''}`:'終日'}</span>
+                      <span style={{fontSize:14,fontWeight:'bold',color:_r?'#64748b':'#1e293b',flex:1,minWidth:0}}>{e.title}{pt && <span style={{fontSize:10,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'0 5px',marginLeft:6}}>{pt.name} 様</span>}</span>
                       {_r && <span style={{fontSize:9,color:'#64748b'}}>既読</span>}
                     </button>); })}
                 </div>
@@ -13638,10 +13682,10 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 (() => { const L = tasks[tier].slice().sort((a, b) => { const _dated = (k) => String(k).startsWith('events_') || String(k).startsWith('task_'); const ea = (tier === 'week' && !_dated(a.key) && a._due >= weekEnd) ? 1 : 0, eb = (tier === 'week' && !_dated(b.key) && b._due >= weekEnd) ? 1 : 0; return (ea - eb) || (a._due - b._due) || 0; }); const LIM = 5; const more = L.length - LIM; const show = htMore[tier] || more <= 0 ? L : L.slice(0, LIM);
                   // ★ 2026-10-26(ユーザー「今週の業務は曜日ごとに分けると見やすい」): 今週は日付(曜日)ごとに見出しを付ける。期限が「今週中」(日曜)のもの(体力測定など)は最後に「今週中」
                   const _gk = (t) => (tier === 'week') ? ((!(String(t.key).startsWith('events_') || String(t.key).startsWith('task_')) && t._due >= weekEnd) ? '1週間以内' : `${t._due.getMonth()+1}/${t._due.getDate()}（${'日月火水木金土'[t._due.getDay()]}）`) : '';
-                  const _rows = []; let _lastG = null; show.forEach(t => { const g = _gk(t); if (g && g !== _lastG) { _rows.push(<div key={`g_${g}`} data-testid="home-week-day" style={{fontSize:11,fontWeight:'bold',color:'#1e40af',marginTop:_rows.length ? 4 : 0}}>{g}</div>); _lastG = g; } _rows.push(taskBtn(t, big)); });
+                  const _rows = []; let _lastG = null; show.forEach(t => { const g = _gk(t); if (g && g !== _lastG) { _rows.push(<div key={`g_${g}`} data-testid="home-week-day" style={{fontSize:11,fontWeight:'bold',color:'#475569',marginTop:_rows.length ? 4 : 0}}>{g}</div>); _lastG = g; } _rows.push(taskBtn(t, big)); });
                   return (
                 <div data-testid={`home-tasks-rows-${tier}`} data-chips="0" style={{display:'flex',flexDirection:'column',gap:6}}>{_rows}{/* ★ trial517 の横並びの札は見づらい(ユーザー)→ trial518 で縦の一覧に戻し、2列にした */}
-                  {more > 0 && <button type="button" data-testid={`home-tasks-more-${tier}`} onClick={() => setHtMore(m => ({ ...m, [tier]: !m[tier] }))} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>{htMore[tier] ? '少なく表示' : `他${more}件を見る`}</button>}
+                  {more > 0 && <button type="button" data-testid={`home-tasks-more-${tier}`} onClick={() => setHtMore(m => ({ ...m, [tier]: !m[tier] }))} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>{htMore[tier] ? '少なく表示' : `他${more}件を見る`}</button>}
                 </div>); })() /* ★ 2026-10-26(ユーザー「予定が多いと下に溜まる」): 期限が近い順・5件まで・残りは「他n件」 */
               )}
             </div>
@@ -13657,12 +13701,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                     </>);
           return (
             <div data-testid="home-hero" style={{background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',overflow:'hidden'}}>
-              <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',color:'white',padding:'14px 20px',display:'flex',flexDirection:'column',gap:10}}>
+              <div style={{background:'white',color:'#1e293b',padding:'12px 20px',display:'flex',flexDirection:'column',gap:10,borderBottom:'1px solid #e2e8f0'}}>{/* ★ trial567: 色を減らす(紫の帯→白) */}
                 {/* ★ 2026-10-26(ユーザー報告「表示設定とカレンダーの位置が被っている」): 表示設定は業務の欄に重ねず、上の帯の右端に置く */}
                 <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
                   <div style={{flex:1,minWidth:0}}>{_greet}</div>
                   {onSave && <div style={{position:'relative',flex:'none'}}>
-                    <button type="button" data-testid="home-tasks-cfg" onClick={() => setHtCfgOpen(v => !v)} title="ホームに出す業務の種類を選びます" style={{fontSize:11,fontWeight:'bold',color:'white',background:'rgba(255,255,255,0.18)',border:'1px solid rgba(255,255,255,0.55)',borderRadius:8,padding:'3px 10px',cursor:'pointer',whiteSpace:'nowrap'}}>表示設定</button>
+                    <button type="button" data-testid="home-tasks-cfg" onClick={() => setHtCfgOpen(v => !v)} title="ホームに出す業務の種類を選びます" style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'white',border:'1px solid #cbd5e1',borderRadius:8,padding:'3px 10px',cursor:'pointer',whiteSpace:'nowrap'}}>表示設定</button>
                     {htCfgOpen && (
                       <div data-testid="home-tasks-cfg-panel" style={{position:'absolute',right:0,top:30,zIndex:40,background:'white',color:'#1e293b',border:'1px solid #cbd5e1',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,0.18)',padding:12,width:300,textAlign:'left'}}>
                         {_htCfgBody}
@@ -13671,8 +13715,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                   </div>}
                 </div>
                 <div data-testid="home-today" style={tsuViewW() < 640 ? {display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:6} : {display:'flex',gap:8,flexWrap:'wrap'}}>{/* ★ 2026-10-27(ユーザー): スマホは3つを1行に */}
-                  {chip('home-today-am', '午前の出席者', `${am.att}名`, `欠席 ${am.abs}・振替 ${am.furi}・臨時 ${am.rinji}・休止 ${am.pause}`, 'record')}
-                  {chip('home-today-pm', '午後の出席者', `${pm.att}名`, `欠席 ${pm.abs}・振替 ${pm.furi}・臨時 ${pm.rinji}・休止 ${pm.pause}`, 'record')}
+                  {chip('home-today-am', '午前の出席者', `${am.att}名`, _subOf(am), 'record')}{/* ★ trial567(ユーザー「0のものは出さない」) */}
+                  {chip('home-today-pm', '午後の出席者', `${pm.att}名`, _subOf(pm), 'record')}
                   {chip('home-today-rate', '今月の稼働率', `${rate}%`, _rateSub, 'dash_operation')}
                 </div>
               </div>
@@ -13685,7 +13729,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               </div>
             </div>
           );
-        } catch { return <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',borderRadius:16,color:'white',padding:'12px 22px'}}>{_greet}</div>; } })()}
+        } catch { return <div style={{background:'white',border:'1px solid #e2e8f0',borderRadius:16,color:'#1e293b',padding:'12px 22px'}}>{_greet}</div>; } })()}
         {/* ★ 2026-10-23: つむぎ運営のお知らせは下(本日のスケジュールの場所)へ。来週の送迎表の未確定の赤い帯は「今週の業務」の1行に */}
         {/* 本日のスケジュール + お知らせ */}
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16,alignItems:'start'}}>{/* ★ trial517: 中身が無い札は低いまま(高さをそろえない) */}
@@ -13693,7 +13737,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
         {/* つむぎ運営(管理局)からのお知らせ = 管理局で追加したものが全店に配信される + 組み込み告知 */}
         {(() => {
           const nowT = Date.now();
-          const sevMeta = { info:{label:'お知らせ',emoji:'',color:'#0369a1',bg:'#f0f9ff'}, warning:{label:'メンテナンス',emoji:'',color:'#c2410c',bg:'#fff7ed'}, critical:{label:'重要',emoji:'',color:'#dc2626',bg:'#fef2f2'} };
+          const sevMeta = { info:{label:'お知らせ',emoji:'',color:'#2f7a3d',bg:'#f1f8ee'}, warning:{label:'メンテナンス',emoji:'',color:'#c2410c',bg:'#fff7ed'}, critical:{label:'重要',emoji:'',color:'#c2410c',bg:'#fff7ed'} };
           const fromHq = (notices||[]).filter(n=>!(n.ends_at && new Date(n.ends_at).getTime()<nowT)).map(n=>({ id:n.id, date:(n.created_at?String(n.created_at).slice(0,10):''), m: sevMeta[n.severity]||sevMeta.info, title:n.title, body:n.body }));
           const builtin = DEV_ANNOUNCEMENTS.map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body }; });
           // ★ update-notes.json からライブ取得した更新内容(再読み込みなしで反映)
@@ -13706,12 +13750,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const _devShown = [..._unreadL.slice(0, 10), ...(devOld ? _pageSlice(_readL, devPage, (tsuViewW() < 768 ? 5 : 10)) : [])];
           const _unread = _unreadL.length;
           return (
-            <Card style={{borderColor: _unread>0 ? '#c7d2fe' : '#e2e8f0', padding: devOpen ? 16 : 10}}>
+            <Card style={{borderColor: _unread>0 ? '#fdba74' : '#e2e8f0', padding: devOpen ? 16 : 10}}>
               {/* 閉じた状態=薄いバー。 新着があれば件数バッジで知らせる */}
               <button onClick={()=>setDevOpen(o=>!o)} style={{width:'100%',background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:10,padding:0,textAlign:'left'}}>
-                <span style={{fontSize:13,fontWeight:'bold',color:'#4338ca',whiteSpace:'nowrap'}}>つむぎ運営からのお知らせ</span>
+                <span style={{fontSize:13,fontWeight:'bold',color:'#2f7a3d',whiteSpace:'nowrap'}}>つむぎ運営からのお知らせ</span>
                 {_unread>0
-                  ? <span style={{fontSize:11,fontWeight:'bold',color:'white',background:'#dc2626',borderRadius:999,padding:'2px 10px',whiteSpace:'nowrap'}}>新着 {_unread}件</span>
+                  ? <span style={{fontSize:11,fontWeight:'bold',color:'white',background:'#ea580c',borderRadius:999,padding:'2px 10px',whiteSpace:'nowrap'}}>新着 {_unread}件</span>
                   : <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>新着なし</span>}
                 <span style={{marginLeft:'auto',fontSize:11,color:'#64748b',fontWeight:'bold',whiteSpace:'nowrap'}}>{devOpen?'閉じる ▲':'開く ▼'}</span>
               </button>
@@ -13721,7 +13765,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 {/* ★ まとめて既読にする(未読が残っているときだけ表示) */}
                 {all.some(x => !isRead(x.id)) && (
                   <button onClick={()=>{ all.forEach(x => { if (!isRead(x.id)) markRead(x.id); }); }}
-                    style={{marginLeft:'auto',fontSize:11,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'4px 10px',cursor:'pointer',whiteSpace:'nowrap'}}>
+                    style={{marginLeft:'auto',fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'4px 10px',cursor:'pointer',whiteSpace:'nowrap'}}>
                     全て既読
                   </button>
                 )}
@@ -13763,9 +13807,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               <Card style={_padCard}>
                 {/* ★ 2026-11-04 trial518(ユーザー): 運営からのお知らせと同じ「閉じた1行」。未読があれば件数の札 */}
                 <button type="button" data-testid="home-family-open" onClick={()=>setFamOpen(o=>!o)} style={{width:'100%',background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:10,padding:0,textAlign:'left'}}>
-                  <span style={{fontSize:13,fontWeight:'bold',color:'#b45309',whiteSpace:'nowrap'}}>家族・ケアマネからの更新</span>
-                  {_unread>0 ? <span style={{fontSize:11,fontWeight:'bold',color:'white',background:'#f59e0b',borderRadius:999,padding:'2px 10px',whiteSpace:'nowrap'}}>新着 {_unread}件</span> : <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>{_recent.length ? `7日以内 ${_recent.length}件` : '新着なし'}</span>}
-                  {_unread > 0 && famOpen && <span role="button" onClick={(e)=>{ e.stopPropagation(); ext.forEach(u => { if (!isRead(u.id)) markRead(u.id); }); }} style={{fontSize:11,fontWeight:'bold',color:'#b45309',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,padding:'3px 10px',whiteSpace:'nowrap'}}>全て既読</span>}
+                  <span style={{fontSize:13,fontWeight:'bold',color:'#2f7a3d',whiteSpace:'nowrap'}}>家族・ケアマネからの更新</span>
+                  {_unread>0 ? <span style={{fontSize:11,fontWeight:'bold',color:'white',background:'#ea580c',borderRadius:999,padding:'2px 10px',whiteSpace:'nowrap'}}>新着 {_unread}件</span> : <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>{_recent.length ? `7日以内 ${_recent.length}件` : '新着なし'}</span>}
+                  {_unread > 0 && famOpen && <span role="button" onClick={(e)=>{ e.stopPropagation(); ext.forEach(u => { if (!isRead(u.id)) markRead(u.id); }); }} style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #fde68a',borderRadius:8,padding:'3px 10px',whiteSpace:'nowrap'}}>全て既読</span>}
                   <span style={{marginLeft:'auto',fontSize:11,color:'#64748b',fontWeight:'bold',whiteSpace:'nowrap'}}>{famOpen?'閉じる ▲':'開く ▼'}</span>
                 </button>
                 {famOpen && (<div style={{marginTop:10}}>
@@ -13775,13 +13819,13 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 </>) : (<>
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>
                   {/* ★ 1行表示(2026-08-21): 利用者名・更新内容・日時のみ。 タップで詳細(更新者含む) */}
-                  {(extOld ? _extShown : _recent.slice(0, _homePer)).map(u=>{ const _r=isRead(u.id); const _c=u.by==='caremanager'?'#0891b2':'#7c3aed'; return (
+                  {(extOld ? _extShown : _recent.slice(0, _homePer)).map(u=>{ const _r=isRead(u.id); const _c=u.by==='caremanager'?'#2f7a3d':'#475569'; return (
                     <button key={u.id} onClick={()=>{ const _d = (u) => ({id:u.id,badge:u.by==='caremanager'?'ケアマネ':'ご家族',badgeColor:_c,date:_fmt(u.at),title:`利用者：${u._pname} 様`,body:`更新内容：${(u.items||[]).join('・')||'更新'}${docUpdateChangesText(u) ? `\n\n【変更の内容】\n${docUpdateChangesText(u)}` : ''}${u.byName?`\n更新者：${u.byName}`:''}`,patientId:u._pid}); openDetail(_d(u), ext.map(_d)); }}
                       style={{textAlign:'left',background:_r?'#f8fafc':'#fffbeb',border:`1px solid ${_r?'#e2e8f0':'#fde68a'}`,borderRadius:8,padding:'6px 10px',cursor:'pointer',opacity:_r?0.72:1,display:'flex',alignItems:'center',gap:8,minWidth:0,width:'100%'}}>
                       <span style={{fontSize:9,fontWeight:'bold',color:'white',background:_r?'#94a3b8':_c,borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{u.by==='caremanager'?'ケアマネ':'ご家族'}</span>
                       <span style={{fontSize:12.5,fontWeight:'bold',color:_r?'#64748b':'#1e293b',whiteSpace:'nowrap',flexShrink:0}}>{u._pname} 様</span>
                       <span style={{fontSize:11.5,color:_r?'#94a3b8':'#78350f',fontWeight:'bold',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',flex:1,minWidth:0}}>{(u.items||[]).join('・')||'更新'}</span>
-                      <span style={{fontSize:10,color:'#b45309',whiteSpace:'nowrap',flexShrink:0}}>{_fmt(u.at)}</span>
+                      <span style={{fontSize:10,color:'#94a3b8',whiteSpace:'nowrap',flexShrink:0}}>{_fmt(u.at)}</span>
                       <span style={{fontSize:9,color:'#94a3b8',flexShrink:0}}>{_r?'既読':'詳細 ›'}</span>
                     </button>
                   ); })}
@@ -13795,9 +13839,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           })()}
           {_hcfg.news?.on !== false && (<Card style={{padding: newsOpen ? 16 : 10}}>{/* ★ trial517: 表示設定・最新3件＋すべて見る ★ trial518: 閉じた1行が既定 */}
             <button type="button" data-testid="home-news-open" onClick={()=>setNewsOpen(o=>!o)} style={{width:'100%',background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:10,padding:0,textAlign:'left'}}>
-              <span style={{fontSize:13,fontWeight:'bold',color:'#0369a1',whiteSpace:'nowrap'}}>お知らせ</span>
+              <span style={{fontSize:13,fontWeight:'bold',color:'#2f7a3d',whiteSpace:'nowrap'}}>お知らせ</span>
               <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>{news.length ? `${news.length}件` : 'なし'}</span>
-              <span role="button" onClick={(e)=>{ e.stopPropagation(); navigateTo('family_admin'); }} style={{fontSize:11,fontWeight:'bold',color:'#0369a1',background:'#e0f2fe',borderRadius:8,padding:'3px 10px',whiteSpace:'nowrap'}}>投稿管理 →</span>
+              <span role="button" onClick={(e)=>{ e.stopPropagation(); navigateTo('family_admin'); }} style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',borderRadius:8,padding:'3px 10px',whiteSpace:'nowrap'}}>投稿管理 →</span>
               <span style={{marginLeft:'auto',fontSize:11,color:'#64748b',fontWeight:'bold',whiteSpace:'nowrap'}}>{newsOpen?'閉じる ▲':'開く ▼'}</span>
             </button>
             {newsOpen && (<div style={{marginTop:10}}>
@@ -13805,7 +13849,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               <div style={{display:'flex',flexDirection:'column',gap:6}}>
                 {/* ★ #4: 事業所からのお知らせは既読管理しない(投稿したら表示のみ)。 タップで詳細は見られるが既読は付けない。 */}
                 {/* ★ 1行表示(2026-08-21): バッジ+日付+題名(+写真枚数)。 タップで詳細モーダル(本文・写真) */}
-                {(newsAll ? _pageSlice(news, newsPage, (tsuViewW() < 768 ? 5 : 10)) : news.slice(0, 3)).map(a=>{ const _c=a._kind==='個別'?'#b45309':'#1d4ed8'; const _ph=(Array.isArray(a.photos)?a.photos.length:0); return (
+                {(newsAll ? _pageSlice(news, newsPage, (tsuViewW() < 768 ? 5 : 10)) : news.slice(0, 3)).map(a=>{ const _c=a._kind==='個別'?'#475569':'#2f7a3d'; const _ph=(Array.isArray(a.photos)?a.photos.length:0); return (
                   <button key={a.id} onClick={()=>{ const _d = (a) => ({ ...{id:a.id,badge:a._group==='mon' ? `個別・${a.members.length}名` : `${a._kind}${a.patientId?`・${patName(a.patientId)}`:''}`,badgeColor:_c,date:(a.postedAt?String(a.postedAt).slice(0,10):(a.date||'')),title:a.title||'(写真)',body:a.body,patientId:a.patientId,photos:a.photos}, _read: false }); openDetail(_d(a), news.map(_d)); }}
                     style={{textAlign:'left',width:'100%',cursor:'pointer',background:'#ffffff',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}} data-testid="home-news-row">{/* ★ 2026-10-22: ハイライトなし(店舗から送ったお知らせのため) */}
                     <span style={{fontSize:9,fontWeight:'bold',color:_c,background:(a._kind==='個別'?'#fef3c7':'#dbeafe'),borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{a._group==='mon' ? `個別・${a.members.length}名` : <>{a._kind}{a.patientId?`・${patName(a.patientId)}`:''}</>}</span>
@@ -13815,7 +13859,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                     <span style={{fontSize:9,color:'#94a3b8',flexShrink:0}}>詳細 ›</span>
                   </button>
                 ); })}
-                {newsAll ? renderPager(news.length, (tsuViewW() < 768 ? 5 : 10), newsPage, setNewsPage) : (news.length > 3 && <button type="button" data-testid="home-news-all" onClick={() => setNewsAll(true)} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#0369a1',background:'#e0f2fe',border:'1px solid #bae6fd',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>すべて見る（{news.length}件）</button>)}
+                {newsAll ? renderPager(news.length, (tsuViewW() < 768 ? 5 : 10), newsPage, setNewsPage) : (news.length > 3 && <button type="button" data-testid="home-news-all" onClick={() => setNewsAll(true)} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #bae6fd',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>すべて見る（{news.length}件）</button>)}
               </div>
             )}
             </div>)}
@@ -13883,7 +13927,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             </div>
             <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:10,lineHeight:1.4}}>{noticeDetail.title}</div>
             {Array.isArray(noticeDetail.items) && noticeDetail.items.length > 0 ? (() => { // ★ 2026-10-26(ユーザー要望): 変更点を「場所・原因→変更」で分かりやすく。文でだらだら書かない
-              const KINDS = [['bug','不具合の修正','#dc2626','#fef2f2'],['feat','新機能','#2563eb','#eff6ff'],['change','変更','#0f766e','#ecfdf5']];
+              const KINDS = [['bug','不具合の修正','#c2410c','#fff7ed'],['feat','新機能','#2f7a3d','#f1f8ee'],['change','変更','#0f766e','#ecfdf5']];
               const its = noticeDetail.items.filter(x => x && (x.change || x.what));
               const places = Array.from(new Set(its.map(x => x.where).filter(Boolean)));
               return (<div data-testid="notice-items">
@@ -13905,9 +13949,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               </div>
             )}
             <div style={{display:'flex',gap:8,marginTop:20,justifyContent:'flex-end'}}>
-              {noticeDetail.view === 'schedule' && <button data-testid="notice-to-calendar" onClick={()=>{ setNoticeDetail(null); navigateTo('schedule'); }} style={{padding:'9px 18px',borderRadius:10,border:'1px solid #c7d2fe',background:'#eef2ff',color:'#4338ca',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>カレンダーへ</button>}{/* ★ 2026-10-27 */}
+              {noticeDetail.view === 'schedule' && <button data-testid="notice-to-calendar" onClick={()=>{ setNoticeDetail(null); navigateTo('schedule'); }} style={{padding:'9px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'white',color:'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>カレンダーへ</button>}{/* ★ 2026-10-27 */}
               {noticeDetail.patientId && <button data-testid="notice-to-meeting" onClick={()=>{const pid=noticeDetail.patientId; try{sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({patientId:pid, tab:'cat_3', focus:'meeting'}));}catch{} setNoticeDetail(null); navigateTo('master',pid);}} style={{padding:'9px 18px',borderRadius:10,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>担当者会議を記録</button>}
-              {noticeDetail.patientId && <button onClick={()=>{const pid=noticeDetail.patientId;setNoticeDetail(null);navigateTo('master',pid);}} style={{padding:'9px 18px',borderRadius:10,border:'none',background:'#4338ca',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>利用者を開く</button>}
+              {noticeDetail.patientId && <button onClick={()=>{const pid=noticeDetail.patientId;setNoticeDetail(null);navigateTo('master',pid);}} style={{padding:'9px 18px',borderRadius:10,border:'none',background:'#2f7a3d',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>利用者を開く</button>}
               <button onClick={()=>setNoticeDetail(null)} style={{whiteSpace:'nowrap',padding:'9px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'#f8fafc',color:'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
             </div>
           </div>
@@ -13926,6 +13970,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
 const TSU_MEMO_COLOR = '#f97316';
 const TSU_MEMO_MAX = 200;
 const tsuIsMemo = (e) => !!e && e.kind === 'memo';
+// ★ 2026-11-13 trial574(ユーザー「カレンダーからも申し送りを入れたい。予定と同じく いつからいつまで表示するかを」): endDate があれば その日まで毎日出す
+const tsuMemoEndOf = (m) => (m && m.endDate && String(m.endDate) > String(m.date)) ? m.endDate : (m ? m.date : '');
+const tsuMemoOnDay = (m, iso) => !!m && !!iso && String(m.date || '') <= String(iso) && String(iso) <= String(tsuMemoEndOf(m));
 const tsuIsoAdd = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return _isoOf(d); };
 const tsuNextOpenIso = (appData, iso) => forwardOpenDate(tsuIsoAdd(iso, 1), appData?.systemSettings?.facilityInfo?.closedDays || [0], appData?.holidays);
 // 'M/D（曜）'。rel=true なら今日・あすを前に付ける
@@ -13935,7 +13982,7 @@ const tsuMemosOf = (appData) => (Array.isArray(appData?.scheduleEvents) ? appDat
 // 提供記録入力の名前の印用: 日付ごとに 利用者ID → その日の申し送り(予定の配列が変わるまで覚えておく)
 const _tsuMemoIdxCache = new WeakMap();
 const tsuMemoIndex = (appData, iso) => { const arr = appData?.scheduleEvents; if (!Array.isArray(arr) || !iso) return null; let c = _tsuMemoIdxCache.get(arr); if (!c) { c = {}; _tsuMemoIdxCache.set(arr, c); }
-  if (!c[iso]) { const mp = new Map(); arr.forEach(e => { if (tsuIsMemo(e) && e.date === iso && e.patientId !== '' && e.patientId != null) { const L = mp.get(e.patientId) || []; L.push(e); mp.set(e.patientId, L); } }); mp.forEach(L => L.sort(tsuMemoSort)); c[iso] = mp; } return c[iso]; };
+  if (!c[iso]) { const mp = new Map(); arr.forEach(e => { if (tsuIsMemo(e) && tsuMemoOnDay(e, iso) && e.patientId !== '' && e.patientId != null) { const L = mp.get(e.patientId) || []; L.push(e); mp.set(e.patientId, L); } }); mp.forEach(L => L.sort(tsuMemoSort)); c[iso] = mp; } return c[iso]; };
 const tsuMemoSave = (appData, onSave, memo) => {
   const list = Array.isArray(appData.scheduleEvents) ? appData.scheduleEvents : [];
   const prev = memo.id ? list.find(e => e.id === memo.id) : null;
@@ -13944,6 +13991,7 @@ const tsuMemoSave = (appData, onSave, memo) => {
   const text = String(memo.title || '').trim().slice(0, TSU_MEMO_MAX);
   const ev = { ...(prev || {}), id, kind: 'memo', color: TSU_MEMO_COLOR, date: memo.date, title: text, patientId: memo.patientId ?? '', by: prev ? (prev.by || '') : me, at: prev ? (prev.at || nowIso) : nowIso, _savedAt: syncNow() };
   if (prev && me && me !== (prev.by || '')) ev.editedBy = me;
+  if (memo.endDate !== undefined) { if (memo.endDate && String(memo.endDate) > String(ev.date)) ev.endDate = memo.endDate; else delete ev.endDate; } // ★ trial574: いつまで表示(開始と同じ・空なら その日だけ)
   let patients = appData.patients, patChanged = false;
   if (memo.toSupport && ev.patientId !== '' && ev.patientId != null && !ev.spId) {
     const p = (appData.patients || []).find(x => x.id === ev.patientId);
@@ -14035,14 +14083,14 @@ function TsuMemoEditor({ appData, onSave, init, onClose }) {
   useTsuBackLock(true);
   const _ph = tsuViewW() < 640; const _touch = tsuTouchDev(); const today = tsuTodayIso();
   const prev = init && init.id ? (appData.scheduleEvents || []).find(e => e.id === init.id) : null;
-  const [d, setD] = React.useState(() => ({ id: prev ? prev.id : '', date: (prev && prev.date) || (init && init.date) || today, patientId: (prev && prev.patientId) || (init && init.patientId) || '', title: (prev && prev.title) || '', toSupport: false }));
+  const [d, setD] = React.useState(() => ({ id: prev ? prev.id : '', date: (prev && prev.date) || (init && init.date) || today, patientId: (prev && prev.patientId) || (init && init.patientId) || '', title: (prev && prev.title) || '', endDate: (prev && prev.endDate) || (init && init.endDate) || '', toSupport: false }));
   // ★ 2026-10-30(ユーザー要望「退所した方は名前の選択に出さない」): 利用者マスタの「退所済み」(利用終了日を過ぎた・退所/終了)は出さない。直すときに選んであった方だけは残す
   const pts = React.useMemo(() => (appData.patients || []).filter(p => String(p.name || '').trim() && (isPatientListable(p) || (prev && prev.patientId !== '' && prev.patientId != null && p.id === prev.patientId))).slice().sort((a, b) => String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja')), [appData.patients]);
   const fs = (_ph || _touch) ? 16 : 14; const hh = _ph ? 44 : _touch ? 40 : 38; // ★ 指で使う端末は16px(iPhone/iPad は16px未満の欄で拡大される)
   const field = { width: '100%', fontSize: fs, minHeight: hh, border: '1px solid #cbd5e1', borderRadius: 10, padding: '6px 10px', background: 'white', color: '#1e293b', boxSizing: 'border-box' };
   const lab = { fontSize: 12, fontWeight: 'bold', color: '#64748b', marginBottom: 4 };
   const chip = (on) => ({ minHeight: hh, fontSize: _ph ? 15 : 13, fontWeight: 'bold', borderRadius: 10, padding: '0 12px', cursor: 'pointer', whiteSpace: 'nowrap', border: `1px solid ${on ? '#fb923c' : '#e2e8f0'}`, background: on ? '#fff7ed' : 'white', color: on ? '#c2410c' : '#475569' });
-  const save = () => { const t = String(d.title || '').trim(); if (!t) { alert('申し送りの内容を入力してください'); return; } if (!d.date) { alert('表示する日を選んでください'); return; } tsuMemoSave(appData, onSave, { ...d, title: t }); onClose(); };
+  const save = () => { const t = String(d.title || '').trim(); if (!t) { alert('申し送りの内容を入力してください'); return; } if (!d.date) { alert('表示する日を選んでください'); return; } if (d.endDate && String(d.endDate) < String(d.date)) { alert('「いつまで」は、表示する日より後の日を選んでください'); return; } tsuMemoSave(appData, onSave, { ...d, title: t, endDate: d.endDate || '' }); onClose(); };
   const del = () => { if (!prev) return; if (!window.confirm(`この申し送りを削除しますか？${prev.spId ? '\n（支援経過表に残した行はそのまま残ります）' : ''}`)) return; tsuMemoDelete(appData, onSave, prev.id); onClose(); };
   return (
     <div data-testid="memo-editor" style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: _ph ? 'stretch' : 'center', justifyContent: 'center', padding: _ph ? 0 : 16 }}>
@@ -14071,7 +14119,12 @@ function TsuMemoEditor({ appData, onSave, init, onClose }) {
             <input type="date" data-testid="memo-date" value={d.date} onChange={e => { const v = e.target.value; setD(x => ({ ...x, date: v })); }} style={{ ...field, height: hh, width: 'auto', flex: '1 1 150px' }} />
             <button type="button" data-testid="memo-date-today" onClick={() => setD(x => ({ ...x, date: today }))} style={chip(d.date === today)}>今日</button>{/* ★ 2026-10-30(ユーザー): 次の営業日のボタンは不要(ほかの日は日付で選ぶ・あとから「複製」) */}
           </div>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>その日だけホームに出ます。日が過ぎたら、カレンダーのその日に残ります。</div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>{/* ★ trial574: 予定と同じく いつまで表示するか */}
+            <span style={{ fontSize: fs, color: '#1e293b', whiteSpace: 'nowrap' }}>いつまで</span>
+            <input type="date" data-testid="memo-end" value={d.endDate || ''} min={d.date || undefined} onChange={e => { const v = e.target.value; setD(x => ({ ...x, endDate: v })); }} style={{ ...field, height: hh, width: 'auto', flex: '1 1 150px' }} />
+            {d.endDate && <button type="button" data-testid="memo-end-clear" onClick={() => setD(x => ({ ...x, endDate: '' }))} style={chip(false)}>その日だけ</button>}
+          </div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{d.endDate && String(d.endDate) > String(d.date) ? `${tsuMemoDayLabel(d.date)}から${tsuMemoDayLabel(d.endDate)}まで、毎日ホームに出ます。` : 'その日だけホームに出ます。'}日が過ぎたら、カレンダーのその日に残ります。</div>
         </div>
         {d.patientId !== '' && d.patientId != null && (prev && prev.spId
           ? <div data-testid="memo-sp-done" style={{ fontSize: 13, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '8px 12px' }}>支援経過表に残しました{prev.spAt ? `（${tsuMemoDayLabel(prev.spAt)}）` : ''}。ここで直しても、支援経過表の行は変わりません。</div>
@@ -14125,14 +14178,14 @@ function TsuMemoRow({ appData, onSave, m, onEdit, showDate }) {
   const [cp, setCp] = React.useState(false);
   const pt = (m.patientId !== '' && m.patientId != null) ? (appData.patients || []).find(p => p.id === m.patientId) : null;
   const btn = { minHeight: _ph ? 44 : _tp ? 40 : 30, fontSize: _ph ? 14 : 12, fontWeight: 'bold', borderRadius: 8, padding: '0 10px', cursor: 'pointer', whiteSpace: 'nowrap' };
-  const meta = [m.by || '', m.copyOf && m.fromDate ? `${tsuMemoDayLabel(m.fromDate)}から` : '', m.spId ? '支援経過表に残しました' : ''].filter(Boolean).join('・');
+  const meta = [(m.endDate && String(m.endDate) > String(m.date)) ? `${tsuMemoDayLabel(m.date)}〜${tsuMemoDayLabel(m.endDate)}` : '', m.by || '', m.copyOf && m.fromDate ? `${tsuMemoDayLabel(m.fromDate)}から` : '', m.spId ? '支援経過表に残しました' : ''].filter(Boolean).join('・'); // ★ trial574: 期間つきは「いつからいつまで」を添える
   const del = () => { if (!window.confirm(`この申し送りを削除しますか？${m.spId ? '\n（支援経過表に残した行はそのまま残ります）' : ''}`)) return; tsuMemoDelete(appData, onSave, m.id); };
   return (
-    <div data-testid={`memo-row-${m.id}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: _ph ? 'wrap' : 'nowrap', background: '#fff7ed', border: '1px solid #fed7aa', borderLeft: `4px solid ${TSU_MEMO_COLOR}`, borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
+    <div data-testid={`memo-row-${m.id}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: _ph ? 'wrap' : 'nowrap', background: 'white', border: '1px solid #e2e8f0', borderLeft: `4px solid ${TSU_MEMO_COLOR}`, borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
       <div style={{ flex: '1 1 220px', minWidth: 0 }}>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 2 }}>
           {showDate && <span style={{ fontSize: 12, fontWeight: 'bold', color: '#9a3412', whiteSpace: 'nowrap' }}>{tsuMemoDayLabel(m.date, true)}</span>}
-          <span style={{ fontSize: 12, fontWeight: 'bold', color: pt ? '#9a3412' : '#475569', background: pt ? '#ffedd5' : '#f1f5f9', borderRadius: 6, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pt ? `${pt.name} 様` : '全体'}</span>
+          <span style={{ fontSize: 12, fontWeight: 'bold', color: '#475569', background: '#f1f5f9', borderRadius: 6, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pt ? `${pt.name} 様` : '全体'}</span>
           {meta && <span style={{ fontSize: 11, color: '#9a3412' }}>{meta}</span>}
         </div>
         <div data-testid={`memo-text-${m.id}`} style={{ fontSize: _ph ? 16 : 14, color: '#1e293b', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.5 }}>{m.title}</div>
@@ -14150,7 +14203,7 @@ function TsuMemoRow({ appData, onSave, m, onEdit, showDate }) {
 function TsuHomeMemos({ appData, onSave, isRead, markRead }) {
   const _ph = tsuViewW() < 640; const _tp = tsuTouchDev(); const today = tsuTodayIso();
   const all = tsuMemosOf(appData);
-  const todayL = all.filter(m => m.date === today).sort(tsuMemoSort);
+  const todayL = all.filter(m => tsuMemoOnDay(m, today)).sort(tsuMemoSort); // ★ trial574: 期間(date〜endDate)の中なら毎日出す
   const upcoming = all.filter(m => String(m.date || '') > today).sort(tsuMemoSort);
   const [ed, setEd] = React.useState(null); const [showUp, setShowUp] = React.useState(false);
   // 見たら既読(サイドバーの「ホーム」の新着の数から外す)
@@ -14160,12 +14213,12 @@ function TsuHomeMemos({ appData, onSave, isRead, markRead }) {
   const groups = []; upcoming.forEach(m => { const g = groups[groups.length - 1]; if (g && g.date === m.date) g.list.push(m); else groups.push({ date: m.date, list: [m] }); });
   return (
     <div data-testid="home-memos" style={{ flex: '1 1 100%', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6, paddingBottom: 4, borderBottom: '2px solid #fb923c' }}>
-        <span style={{ fontSize: 15, fontWeight: 'bold', color: '#c2410c' }}>今日の申し送り</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6, paddingBottom: 4, borderBottom: '2px solid #e2e8f0' }}>
+        <span style={{ fontSize: 15, fontWeight: 'bold', color: '#2f7a3d' }}>今日の申し送り</span>
         {todayL.length > 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>{todayL.length}件</span>}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {upcoming.length > 0 && <button type="button" data-testid="home-memos-upcoming" onClick={() => setShowUp(v => !v)} style={{ ...hb, color: '#9a3412', background: 'white', border: '1px solid #fed7aa' }}>{showUp ? 'これからの分を閉じる' : `これからの申し送り ${upcoming.length}件`}</button>}
-          {onSave && <button type="button" data-testid="home-memo-add" onClick={() => setEd({ date: today })} style={{ ...hb, color: 'white', background: TSU_MEMO_COLOR, border: 'none' }}>＋ 申し送りを書く</button>}
+          {upcoming.length > 0 && <button type="button" data-testid="home-memos-upcoming" onClick={() => setShowUp(v => !v)} style={{ ...hb, color: '#475569', background: 'white', border: '1px solid #cbd5e1' }}>{showUp ? 'これからの分を閉じる' : `これからの申し送り ${upcoming.length}件`}</button>}
+          {onSave && <button type="button" data-testid="home-memo-add" onClick={() => setEd({ date: today })} style={{ ...hb, color: 'white', background: '#3c8d47', border: 'none' }}>＋ 申し送りを書く</button>}
         </span>
       </div>
       {todayL.length === 0
@@ -14236,7 +14289,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const _memoAll = (appData.scheduleEvents || []).filter(tsuIsMemo);
   const events = (appData.scheduleEvents || []).filter(e => !tsuIsMemo(e));
   const save = (list, msg) => onSave({ ...appData, scheduleEvents: [...list, ..._memoAll] }, msg ? { manual:true, message: msg } : undefined);
-  const _memoByDate = {}; _memoAll.forEach(m => { if (!_memoByDate[m.date]) _memoByDate[m.date] = []; _memoByDate[m.date].push(m); });
+  const _memoByDate = {}; _memoAll.forEach(m => { const _end = tsuMemoEndOf(m); let _d = m.date, _n = 0; while (_d && String(_d) <= String(_end) && _n < 62) { if (!_memoByDate[_d]) _memoByDate[_d] = []; _memoByDate[_d].push(m); _d = tsuIsoAdd(_d, 1); _n++; } }); // ★ trial574: いつまで表示 の各日に
   const memosOf = (ds) => (_memoByDate[ds] || []).slice().sort(tsuMemoSort);
   const [memoEd, setMemoEd] = useState(null);
   // ★ 色ラベル(カテゴリ): 色を押すとタイトルが自動で入る。 各種設定不要でここで編集・保存。
@@ -14644,7 +14697,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
               <button type="button" aria-label="閉じる" data-testid="sch-modal-close" onClick={()=>setModal(null)} style={{width:42,height:42,borderRadius:21,border:'1px solid #e2e8f0',background:'white',fontSize:22,lineHeight:1,color:'#334155',cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
               <div style={{flex:1,display:'flex',background:'#e2e5ea',borderRadius:21,padding:3,minWidth:0}}>
-                {[['', '予定'], ['task', 'タスク']].map(([k, l]) => { const on = (modal.kind || '') === k; return <button key={l} type="button" data-testid={`sch-kind-${k || 'event'}`} onClick={()=>setModal(m=>({ ...m, kind: k || undefined, ...(k === 'task' ? { end: '', notify: false, endDate: '', _allDay: undefined } : {}) }))} style={{flex:1,minWidth:0,padding:'8px 6px',borderRadius:18,border:on?`2px solid ${k?TSU_TASK_COLOR:'#6366f1'}`:'2px solid transparent',background:on?'white':'transparent',color:on?'#1e293b':'#64748b',fontWeight:'bold',fontSize:15,cursor:'pointer',boxShadow:on?'0 1px 3px rgba(0,0,0,0.12)':'none',whiteSpace:'nowrap'}}>{l}</button>; })}
+                {[['', '予定'], ['task', 'タスク'], ['memo', '申し送り']].map(([k, l]) => { const on = (modal.kind || '') === k; return <button key={l} type="button" data-testid={`sch-kind-${k || 'event'}`} onClick={()=>{ if (k === 'memo') { setMemoEd({ date: modal.date || selDay, endDate: modal.endDate || '' }); setModal(null); return; } /* ★ trial574: 申し送りは申し送りの入力画面へ(同じ日・終わりの日を引き継ぐ) */ setModal(m=>({ ...m, kind: k || undefined, ...(k === 'task' ? { end: '', notify: false, endDate: '', _allDay: undefined } : {}) })); }} style={{flex:1,minWidth:0,padding:'8px 6px',borderRadius:18,border:on?`2px solid ${k==='task'?TSU_TASK_COLOR:k==='memo'?TSU_MEMO_COLOR:'#6366f1'}`:'2px solid transparent',background:on?'white':'transparent',color:on?'#1e293b':'#64748b',fontWeight:'bold',fontSize:15,cursor:'pointer',boxShadow:on?'0 1px 3px rgba(0,0,0,0.12)':'none',whiteSpace:'nowrap'}}>{l}</button>; })}
               </div>
               <button data-testid="sch-modal-save" onClick={upsert} style={{whiteSpace:'nowrap',background:'#6366f1',border:'none',color:'white',borderRadius:21,padding:'10px 20px',fontWeight:'bold',fontSize:15,cursor:'pointer',flexShrink:0,minHeight:42}}>保存</button>
             </div>
@@ -24238,10 +24291,15 @@ export default function App() {
     // ★ 2026-10-30(柴又店: 休止の終了日を過ぎたのに状態が休止中のまま): 最新の休止の終了日が昨日以前なら状態を「利用中」に(再開の操作と同じ・statusUpdatedAt を刻む)
     const h2 = healPausedStatus(h.patients, tsuTodayIso());
     const h3 = healInsuranceNo(h2.patients); // ★ 2026-10-30(ユーザー指示): 被保険者番号を10桁に(前に0・LIFE と同じ)
-    if (!h.fixed.length && !h2.fixed.length && !h3.fixed.length) return;
-    try { console.warn('[利用者の修復]', [...h.fixed.map(f => `${f.id}:${f.field} ${f.from}→${f.to}`), ...h2.fixed.map(f => `${f.id}:休止→利用中(終了 ${f.toDate})`)].join(' / ')); } catch {}
-    const _msg = [h.fixed.length ? `日付の書き方 ${h.fixed.length}か所` : '', h2.fixed.length ? `休止の終了日を過ぎた方を利用中に ${h2.fixed.length}名` : '', h3.fixed.length ? `被保険者番号を10桁に ${h3.fixed.length}名` : ''].filter(Boolean).join('・');
-    handleSaveToCloud({ ...appData, patients: h3.patients }, { manual: true, message: `✓ 利用者の情報をそろえました（${_msg}）` });
+    // ★ 2026-11-09 trial532(ユーザー指示「姓と名の間は全部半角で統一」): 利用者名・フリガナ・代表家族・緊急連絡先・担当ケアマネの名前の空白を半角1つに。
+    //   ケアマネ担当者マスタの名前も同時に直す(利用者の cmName と事業所+名前で照合しているので片方だけ直すと番号が引けなくなる)。前の名前の鍵は墓石(和集合マージで戻らないように)
+    const h4 = healNameSpaces(h3.patients);
+    const _ss0 = (appData && appData.systemSettings) || {}; const h5 = healCareManagerNames(_ss0.careManagers);
+    if (!h.fixed.length && !h2.fixed.length && !h3.fixed.length && !h4.fixed.length && !h5.fixed.length) return;
+    try { console.warn('[利用者の修復]', [...h.fixed.map(f => `${f.id}:${f.field} ${f.from}→${f.to}`), ...h2.fixed.map(f => `${f.id}:休止→利用中(終了 ${f.toDate})`), ...h4.fixed.map(f => `${f.id}:${f.field} 空白`)].join(' / ')); } catch {}
+    const _msg = [h.fixed.length ? `日付の書き方 ${h.fixed.length}か所` : '', h2.fixed.length ? `休止の終了日を過ぎた方を利用中に ${h2.fixed.length}名` : '', h3.fixed.length ? `被保険者番号を10桁に ${h3.fixed.length}名` : '', (h4.fixed.length + h5.fixed.length) ? `名前の姓と名の間を半角に ${h4.fixed.length + h5.fixed.length}か所` : ''].filter(Boolean).join('・');
+    const _ssNext = h5.fixed.length ? { ..._ss0, careManagers: h5.managers, cmTombstones: { ...(_ss0.cmTombstones || {}), ...Object.fromEntries(h5.fixed.map(f => [f.oldKey, syncNow()])) }, _updatedAt: syncNow() } : null;
+    handleSaveToCloud({ ...appData, patients: h4.patients, ...(_ssNext ? { systemSettings: _ssNext } : {}) }, { manual: true, message: `✓ 利用者の情報をそろえました（${_msg}）` });
   } catch (e) { try { console.warn('[利用者の修復] 失敗', e); } catch {} } }, [appData && appData.patients, staffSession]);
   // ★ 2026-11-01(ユーザー了承・10/30 柴又店の件の続き「日誌や分析が休止中に保存された記録をそのまま読む」): 休止の期間が終わった方の、
   //   今日以降の『状態=休止』の記録(休止中に自動保存された残骸)を開いたときに出席へ戻す。判定は logic.js の healStalePauseRecords
@@ -26046,6 +26104,7 @@ export default function App() {
                 {/* ★ 2026-09-18 運営推進会議の要望: 災害時にご家族・ケアマネへ一斉メール+家族画面お知らせ */}
                 {tsumugiSideShown(appData, 'emergency') && <SidebarItem icon={<AlertTriangle size={18} />} label="災害時" active={currentView === 'emergency'} onClick={() => _sideNav('emergency')} />}
                 <SidebarItem icon={<Settings size={18} />} label="各種設定" active={currentView === 'settings'} onClick={() => _sideNav('settings')} />
+                <SidebarItem icon={<History size={18} />} label="変更ログ" active={false} onClick={() => { setAuditLogOpen(true); try { if (tsuViewW() < 1024) setIsSidebarOpen(false); } catch {} }} />{/* ★ trial568: 右上から移動 */}
                 {/* ★ 不具合レポート (管理者のみ) */}
                 {activeRecorder && isMemberAdmin(activeRecorder, appData.systemSettings) && (
                   <button onClick={()=>setBugReport({desc:'',sending:false,sent:false,err:''})} className="w-full mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-bold text-amber-200 hover:bg-amber-900/40 transition-colors">
@@ -26069,7 +26128,7 @@ export default function App() {
               {/* ★ 2026-11-10 trial536: スマホで下のバーを使っている間は左上の3本線を出さない(メニューは下の「メニュー」から) */}
               {!_tabBarOn && <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>}
               <h1 className="text-base md:text-lg font-bold text-slate-700 truncate whitespace-nowrap">
-                {currentView === 'dashboard' ? 'ホーム' :
+                {currentView === 'dashboard' ? <span data-testid="hdr-home-title">ホーム<span className="ml-2 text-sm font-bold text-slate-500">{(() => { const d = new Date(); return `${d.getMonth() + 1}月${d.getDate()}日（${'日月火水木金土'[d.getDay()]}）`; })()}</span></span> : /* ★ trial567(ユーザー「日付はホームの横に」) */
                  currentView === 'record' ? <span data-testid="hdr-record-title">{/* ★ 2026-10-28(ユーザー要望「スマホは『2026年10月…』と切れる。画面を見ればサービス提供記録と分かるので日付だけで」) */}<span className="hidden sm:inline">サービス提供記録 入力　</span>{formatDateDisplay(selectedDate)}</span> :
                  currentView === 'ticket' ? 'サービス提供記録' :
                  currentView === 'print' ? '連絡帳 作成・印刷' :
@@ -26142,17 +26201,14 @@ export default function App() {
               className="flex items-center gap-1 shrink-0 mr-1 md:mr-2 text-[10px] md:text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2 md:px-2.5 py-1 whitespace-nowrap active:scale-95">
               全画面
             </button>}
-            {/* ★ 変更ログ(監査)ビューアを開くボタン */}
-            <button onClick={()=>setAuditLogOpen(true)} title="いつ・どの端末で・何を変更したかの履歴"
-              className="flex items-center gap-1 shrink-0 mr-1 md:mr-2 text-[10px] md:text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2 md:px-2.5 py-1 whitespace-nowrap active:scale-95">
-              変更ログ
-            </button>
+            {/* ★ 2026-11-12 trial568(ユーザー「変更ログは毎日使うものではないので右上から外し、サイドバーの下の方へ」): 右上の「変更ログ」は廃止(サイドバーの各種設定の下) */}
             {/* ジャンプナビをヘッダー右側に配置。 ★ 2026-10-06(ユーザー要望「iPad縦でも移動を出して」)・2026-10-07(スマホ縦でも): 常に表示。タイトルは省略されて縮むのでボタンは切れない */}
             {['ticket','fitness','master','dash_personal','monitoring'].includes(currentView) && (
               <div className="flex items-center shrink-0">
                 <QuickNav navigateTo={navigateTo} currentView={currentView} patientId={targetPatientId} appData={appData}/>
               </div>
             )}
+            {_tabBarOn && <button type="button" data-testid="hdr-menu-btn" onClick={() => setIsSidebarOpen(v => !v)} aria-label="メニュー" title="メニュー" className="shrink-0 ml-1 w-11 h-11 -mr-2 flex items-center justify-center text-slate-600 rounded-lg active:bg-slate-100"><Menu size={24} /></button>}{/* ★ trial568(ユーザー「変更ログがあった右上に3本線を置き、下のバーのメニューは無くす」): 押すと右のサイドバー */}
           </header>
 
           <main className="tsu-app-main flex-1 overflow-auto relative min-w-0 flex flex-col" style={{padding:0}}>
@@ -26280,12 +26336,13 @@ export default function App() {
         const _customKey = tsuTabCustom() || (tsumugiTransportOn(appData) ? 'diary' : 'schedule');
         const _customBase = _allItems.find(i => i.key === _customKey) || _allItems.find(i => i.key === 'diary') || _allItems.find(i => i.key === 'print') || item('print', '連絡帳', <Printer size={22} />);
         const _custom = { ..._customBase, onLongPress: () => _setTabPickOpen(true) };
+        // ★ 2026-11-12 trial568(ユーザー「メニューは右上の3本線に。下は ホーム・送迎表・提供記録・利用者・いちばん右を自由枠に」): メニューの札を外し、4つ目は利用者マスタ・5つ目が自由枠(長押しで選ぶ)
         const tabs = [
           item('dashboard', 'ホーム', <CalendarCheck size={24} />, { badge: _homeUnreadCount }),
           second,
           item('record', '提供記録', <ClipboardList size={24} />, { badge: _recTodayMissing, views: ['record', 'print'] }),
+          item('master', '利用者', <Users size={24} />, { views: ['master', 'ticket'] }),
           _custom,
-          { key: 'menu', label: 'メニュー', icon: <Menu size={24} />, active: _phoneMenuOpen, onClick: () => _setPhoneMenuOpen(v => !v) },
         ];
         const _pickTab = (k) => { try { localStorage.setItem(TSU_TABCUSTOM_KEY, k); } catch {} _setTabPickOpen(false); try { window.dispatchEvent(new Event('tsumugi-tabbar-change')); } catch {} };
         const footer = (
@@ -26300,9 +26357,9 @@ export default function App() {
           </div>
         );
         return (<>
-          {_pairOn && <TsuPhonePairTabs items={[{ key: 'record', label: '提供記録' }, { key: 'print', label: '連絡帳' }]} active={currentView} onPick={_goPair} />}
+          {_pairOn && <TsuPhonePairTabs items={[{ key: 'record', label: '提供記録' }, { key: 'print', label: '連絡帳' }]} active={currentView} onPick={_goPair} onMenu={() => setIsSidebarOpen(v => !v)} />}{/* ★ trial568: 見出しの無い画面でも右上に3本線 */}
           <TsuPhoneTabBar items={tabs} hidden={isSidebarOpen} />
-          <TsuPhoneMenu open={_phoneMenuOpen} onClose={() => _setPhoneMenuOpen(false)} groups={groups} footer={footer} />
+          {/* ★ trial568: 札のメニュー(TsuPhoneMenu)は下のバーから外した(メニューは右上の3本線→サイドバー)。部品は残す */}
           <TsuPhoneTabPicker open={_tabPickOpen} onClose={() => _setTabPickOpen(false)} groups={groups} current={_customKey} onPick={_pickTab} />
         </>);
       })()}
@@ -36722,7 +36779,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   //   B6のPDFが左上に原寸で出る。ダウンロード直後に「用紙サイズを○○に」を出す(10秒・×で閉じる)
   const [cbPaperTip, setCbPaperTip] = useState(null);
   const _paperName = () => { const ss = appData.systemSettings || {}; return ss.renrakuMode === '1' ? (ss.renrakuPaper === 'b6port' ? 'B6（JIS）・縦' : 'B5（JIS）・横') : 'B5（JIS）・横'; };
-  const _showPaperTip = () => { const t = Date.now(); setCbPaperTip({ t, paper: _paperName() }); setTimeout(() => setCbPaperTip(v => (v && v.t === t) ? null : v), 12000); };
+  const _showPaperTip = () => {}; // ★ 2026-11-12 trial567(ユーザー「PDFを印刷するときは用紙サイズをB5に、は不要」): 出さない(部品は残す)
   const [mobileCardLimit, setMobileCardLimit] = useState(6); // ★ スマホは重いカードを少しずつ描画(メモリ対策)
   const [printingIds, setPrintingIds] = useState([]); // ★ 印刷時に描画する利用者ID(全員ではなく印刷対象だけ描画)
   const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
@@ -37440,9 +37497,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
               各種入力
               {miss > 0 && <span className="ml-1.5 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">次回未入力{miss}名</span>}
             </button>
-            {inputHub && ReactDOM.createPortal((
-              <div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-start justify-center p-4 pt-20" onClick={() => setInputHub(false)}>
-                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()} data-testid="cb-input-hub-modal">
+            {inputHub && (() => { const _hubPhone = (typeof window !== 'undefined' && window.innerWidth < 768); const _hubCard = (
+                <div className={_hubPhone ? "bg-white rounded-2xl border border-slate-300 shadow-xl w-full overflow-hidden" : "bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"} onClick={e => e.stopPropagation()} data-testid="cb-input-hub-modal">
                   <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
                     <div className="font-bold text-slate-800">各種入力 <span className="text-xs font-normal text-slate-500 ml-1">{selectedDate.replace(/-/g,'/')}・{displayRecords.length}名</span></div>
                     <button onClick={() => setInputHub(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><X size={18}/></button>
@@ -37472,8 +37528,9 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     {/* ★ 2026-10-26: 「次回の日付」カードは「次回予定」に統合(日付は各行の「月間で変える」から) */}
                   </div>
                 </div>
-              </div>
-            ), document.body)}
+              ); /* ★ trial569: スマホは「操作」の小窓の中(ボタンの下)に続けて出す。iPad/PC は従来どおり画面の上の方の小窓 */
+              return _hubPhone ? <TsuPhonePop testId="cb-input-hub-wrap" onClose={() => setInputHub(false)}>{_hubCard}</TsuPhonePop>
+                : ReactDOM.createPortal(<div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-start justify-center p-4 pt-20" onClick={() => setInputHub(false)}>{_hubCard}</div>, document.body); })()}
           </>);
         })()}
         {/* ★ 詳細設定: 面数(1面/2面)・用紙・補助線(カット線/パンチ点)をここで選ぶ */}
@@ -37482,17 +37539,15 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             印刷設定
           </button>
           {showPrintSettings && (()=>{
+            const _phonePS = (typeof window !== 'undefined' && window.innerWidth < 768); // ★ 2026-11-12 trial567(ユーザー報告「操作の小窓から印刷設定を開くと下に出て見えない・選べない」): スマホは画面の中央の小窓(portal)で出す
             const ss = appData.systemSettings || {};
             const mode = ss.renrakuMode === '1' ? '1' : '2'; // 既定はB5横2面
             const paper = ss.renrakuPaper === 'b6port' ? 'b6port' : 'b5land';
             const guideCut = ss.renrakuGuideCut !== false, guidePunch = ss.renrakuGuidePunch !== false;
             const setSS = (patch)=>onSave({ ...appData, systemSettings: { ...ss, ...patch } });
             const tabBtn = (on)=>`flex-1 px-2 py-1.5 rounded-lg text-xs font-bold border ${on?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`;
-            return (
-              <div ref={(n)=>{ /* ★ 2026-10-16(ユーザー報告「スマホで印刷設定の左が見切れる」): スマホ幅は画面の左右 8px に合わせて固定表示 */
-                     try { if (!n) return; if (window.innerWidth >= 768) { n.style.position=''; n.style.left=''; n.style.right=''; n.style.top=''; n.style.width=''; return; }
-                       const r = n.parentElement.getBoundingClientRect(); n.style.position='fixed'; n.style.left='8px'; n.style.right='8px'; n.style.width='auto'; n.style.top=`${Math.round(r.bottom+6)}px`; n.style.maxHeight=`calc(100vh - ${Math.round(r.bottom+6)}px - 12px)`; } catch {} }}
-                   className="absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3 overflow-y-auto" style={{maxHeight:'calc(100vh - 140px)'}} data-testid="cb-print-settings">
+            const _panel = (
+              <div className={_phonePS ? "bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-full text-left space-y-3 overflow-y-auto" : "absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3 overflow-y-auto"} style={_phonePS ? undefined : {maxHeight: 'calc(100vh - 140px)'}} data-testid="cb-print-settings" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between"><span className="text-sm font-bold text-slate-700">印刷設定</span><button onClick={()=>setShowPrintSettings(false)} className="text-slate-400 hover:text-slate-700 text-lg leading-none">×</button></div>
                 {/* ★ 2026-10-16(ユーザー要望「店舗によって次回のお迎え時間を色付きで印刷したい」): 時刻の色(黒/赤/青)と太さ */}
                 <div>
@@ -37579,7 +37634,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 })()}
                 <label className="flex items-center gap-2 text-xs text-slate-700 py-0.5 cursor-pointer"><input type="checkbox" checked={ss.renrakuShowQr !== false} onChange={e=>setSS({renrakuShowQr:e.target.checked})}/>ご家族専用ページのQRコードを連絡帳に印字する</label>
               </div>
-            );
+            ); return _phonePS ? <TsuPhonePop testId="cb-print-settings-wrap" onClose={()=>setShowPrintSettings(false)}>{_panel}</TsuPhonePop> : _panel; /* ★ trial569: スマホは「操作」の小窓の中(ボタンの下)に続けて出す(TsuPhonePop) */
           })()}
         </div>
         <button onClick={handlePrintBlank} data-testid="cb-blank" title="氏名・記録が空欄の連絡帳をPDFにします（手書き用）" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap shrink-0">
@@ -41226,8 +41281,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const used = new Set([tp.mobile, tp.fixed].map(_digits).filter(Boolean)); const nk = _contactNameKey({ name: tp.key });
       return (getAllContacts(pt) || []).find(c => c && ((c.name || '').trim() || (c.phoneMobile || c.phone || '').trim()) && !(nk && _contactNameKey(c) === nk) && ![c.phoneMobile, c.phone].map(_digits).filter(Boolean).some(x => used.has(x))) || null;
     } catch { return null; } };
+    // ★ 2026-11-09 trial532(ユーザー指示「40行を35行にして行を高く、緊急連絡先の名前を大きく。下の注記は『個人情報を含むので取り扱い・保管に注意』の1行だけにして、その分も使う」)
     // ★ 2026-11-10 1110c(ユーザー「下が空白で2〜3行入る」): 本文の高さは 283mm=1069px(題字 約28px・注記 約16px を除く)。1030 は控えめすぎて下に60px ほど余っていた → 1064 にして1枚の行数を3行増やす
-    const ROWS_MAX = 45, ONE_PAGE_MAX = 50, ROWS_MIN = 30, PAGE_H = 1069, TITLE_H = 26, NOTE_H = 16, headH = 18; // ★ 1110d: 題字・注記・見出しの高さを固定して詰め、行を増やす(用紙 283mm=1069px) // BODY_H=本文(283mm)の高さの目安(px)
+    const ROWS_MAX = 40, ONE_PAGE_MAX = 45, ROWS_MIN = 30, PAGE_H = 1069, TITLE_H = 26, NOTE_H = 16, headH = 18; // ★ 1110d: 題字・注記・見出しの高さを固定して詰め、もう1行(用紙 283mm=1069px) // BODY_H=本文(283mm)の高さの目安(px)
     const n = pts.length; const rowsPer = n <= ONE_PAGE_MAX ? Math.max(ROWS_MIN, n) : ROWS_MAX;
     // ★ 2026-11-10 1110b(ユーザー「緊急連絡先がある人とない人で行の高さが違う。全員そろえて」): 行の高さは表の高さ÷行数で固定(tr に height)。
     //   これまでは表の高さだけ決めて行は成り行きだったので、2段(相手の名前＋番号)の行だけ高くなっていた。文字の大きさも2段の欄が収まる上限で決める
@@ -41239,7 +41295,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // 文字: 1行の高さに収まる大きさ・11〜16px。住所の欄が狭くなりすぎないように
     let fz = Math.max(11, Math.min(16, Math.floor((rowH - 6) / 1.3), Math.floor((rowH + 2.05) / 2.05))); // 2段: 名前(fz-3)×1.0 + 番号(fz-1)×1.05 + 余白1 ≦ rowH
     while (fz > 11 && colW(fz).addr < 230) fz--;
-    const w = colW(fz); const fT = Math.max(9, fz - 1); const fA0 = fz; /* ★ 1110d: 住所は名前と同じ大きさ(長い住所はその行だけ縮む) */ const fS = Math.max(8, fT - 4); // fS=相手の名前・続柄の小さい文字
+    const w = colW(fz); const fT = Math.max(9, fz - 1); const fA0 = fz; /* ★ 1110d: 住所は名前と同じ大きさ(長い住所はその行だけ縮む) */ const fS = Math.max(9, fT - 2); // fS=相手の名前・続柄の文字(★ 2026-11-09 trial532: 行が高くなった分、前より2px大きく)
     const tbl = (list) => {
       const rows = list.map(pt => ({ pt, ini: _kanaIni(pt) }));
       while (rows.length < rowsPer) rows.push(null);
@@ -45370,7 +45426,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         {localPatient ? (<>
           {/* ★ 2026-11-05 trial524(ユーザー「スマホは名前の右にケアマネ事業所と名前、その下の1行に個人ファイル・アカウント管理・保存」): スマホは2段(上=名前とケアマネ・下=ボタン)。iPad/PC は今のまま */}
           {/* ★ 2026-11-08 trial530(ユーザー「スマホで利用者マスタを開くと利用者名が真ん中に来る」): 「ml-auto を持つ折返しバーは右寄せ」の全体CSS(10/13)が名前の行(ケアマネの ml-auto)にも効いて、名前が右へ押されていた → この行は左から */}
-          <div data-testid="master-head" className="px-4 sm:px-6 py-3 border-b border-slate-200 bg-white flex flex-col items-stretch gap-2 sm:flex-row sm:justify-between sm:items-center shrink-0 z-10 shadow-sm">
+          <div data-testid="master-head" className="px-4 sm:px-6 py-2 sm:py-3 border-b border-slate-200 bg-white flex flex-col items-stretch gap-1.5 sm:gap-2 sm:flex-row sm:justify-between sm:items-center shrink-0 z-10 shadow-sm">
             <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap" style={{justifyContent:'flex-start'}}><div className="order-1 sm:order-none min-w-0"><span className="text-[10px] font-bold text-slate-400">ID:{String(localPatient.id).padStart(4, '0')}</span>{localPatient.kana && <span className="text-[11px] font-bold text-slate-500 leading-none block mt-0.5 mb-0.5">{localPatient.kana}</span>}<h2 className="text-xl font-bold text-slate-800 leading-tight">{localPatient.name} <span className="text-base font-normal">様</span>{calcAge(localPatient.birthDate)!==null && <span className="text-sm font-bold text-slate-500 ml-1">（{calcAge(localPatient.birthDate)}）</span>}</h2></div>{localPatient.careLevel && <span className="order-2 sm:order-none text-sm font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-lg">{localPatient.careLevel}</span>}
               {(() => {
                 const hist = localPatient.careLevelHistory || [];
@@ -45401,7 +45457,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     </span>
                   ))}
                 </>);
-              })()}{(localPatient.cmOffice||localPatient.cmName) && <div data-testid="master-head-cm" className="order-3 sm:order-none ml-auto sm:ml-0 flex flex-col text-right sm:text-left min-w-0"><span className="text-[13px] font-bold text-slate-900">{localPatient.cmOffice}</span><span className="text-[13px] font-bold text-slate-900">{localPatient.cmName}</span></div>}<div className="order-4 basis-full h-0 sm:hidden" aria-hidden="true" />{localPatient.startDate && <span className="order-5 sm:order-none text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">{dTxt(dBtw(localPatient.startDate,new Date()))}利用</span>}</div>{isResigned && <span className="text-xs font-bold bg-slate-200 text-slate-600 px-3 py-1 rounded-lg">終了</span>}
+              })()}{(localPatient.cmOffice||localPatient.cmName) && <div data-testid="master-head-cm" className="order-3 sm:order-none basis-full sm:basis-auto sm:ml-0 flex flex-row sm:flex-col flex-wrap gap-x-2 text-left min-w-0 -mt-1 sm:mt-0"><span className="text-[12px] sm:text-[13px] font-bold text-slate-600 sm:text-slate-900">{localPatient.cmOffice}</span><span className="text-[12px] sm:text-[13px] font-bold text-slate-600 sm:text-slate-900">{localPatient.cmName}</span></div>}<div className="order-4 basis-full h-0 sm:hidden" aria-hidden="true" />{localPatient.startDate && <span className="order-5 sm:order-none text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">{dTxt(dBtw(localPatient.startDate,new Date()))}利用</span>}</div>{isResigned && <span className="text-xs font-bold bg-slate-200 text-slate-600 px-3 py-1 rounded-lg">終了</span>}
             <div className="tsu-mhead-btns flex items-center gap-2">{isResigned ? (<>{!isEditingResigned && <button onClick={() => setIsEditingResigned(true)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Lock size={14} className="mr-1" />編集</button>}{isEditingResigned && <button onClick={() => { saveMasterInfo(); setIsEditingResigned(false); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center active:scale-95"><Save size={14} className="mr-1" />保存</button>}{_canDeletePatient && <button onClick={() => setDeleteConfirmModal(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm flex items-center shadow-lg active:scale-95"><Trash2 size={14} className="mr-1" />完全削除</button>}</>) : (<div className="flex gap-2 flex-wrap justify-end">{_canDeletePatient && <button onClick={() => setDeleteConfirmModal(true)} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-xl font-bold text-sm flex items-center whitespace-nowrap shrink-0 active:scale-95" title={localPatient.startDate ? '利用中の利用者を削除します (関連記録も削除されます)' : '利用者を削除'}><Trash2 size={14} className="mr-1" />削除</button>}<button onClick={()=>setPersonalFileModal({patient:localPatient})} className="px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-xl font-bold text-sm flex items-center whitespace-nowrap shrink-0 active:scale-95" title="個人ファイル: フェイスシート・契約書・ケアプラン・モニタリング 等"><BookOpen size={14} className="mr-1"/>個人ファイル</button><button onClick={()=>setFamilyShareModal({patient:localPatient})} className="px-3 py-2 bg-violet-100 hover:bg-violet-200 text-violet-700 rounded-xl font-bold text-sm flex items-center whitespace-nowrap shrink-0 active:scale-95" title="家族・ケアマネ用ログインアカウントを発行・管理"><QrCode size={14} className="mr-1"/>アカウント管理</button>{/* ★ onClick={saveMasterInfo} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
     運動メニュー変更時の「いつから適用」モーダルが出ずに当日付で確定し、保存トーストも出なかった。 明示的に auto=false で呼ぶ。 */}
 <button onClick={()=>saveMasterInfo(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center whitespace-nowrap shrink-0 shadow-lg active:scale-95 text-sm">保存</button></div>)}</div>
@@ -46471,7 +46527,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         // ★ 2026-10-30(扇橋店: 取り込んだ生年月日・利用開始日が「S15.5.15」「45444(Excel の通し番号)」のような文字のまま入り、提供記録入力に出ない・年齢が出ない):
         //   日付はどの書き方でも読む(lib/logic.js dateIsoAny・和暦/区切りなし/通し番号/月日年)。読めない文字は入れずに、取り込み完了の知らせに出す(前は文字のまま入れていた)
         const normDate = (s) => dateIsoAny(s);
-        const splitName = (full) => { const a=String(full||'').trim().split(/[\s　]+/).filter(Boolean); return { last:a[0]||'', first:a.slice(1).join(' ')||'' }; };
+        const splitName = (full) => tsuSplitName(full); // ★ 2026-11-09 trial532: 全角・半角どちらの空白でも姓と名に分ける(lib/logic.js)。つなぐときは半角1つ
         // ★ 取り込み値の正規化 (カイポケ等の表記ゆれをアプリの選択肢に合わせる)
         const _toHalf = (s) => String(s||'').replace(/[０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[Ａ-Ｚａ-ｚ]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
         const normGender = (s) => { const t=String(s||'').trim(); if(!t) return ''; if(/^(男性|男|m|male)$/i.test(t)) return '男性'; if(/^(女性|女|f|female)$/i.test(t)) return '女性'; return t; };
@@ -46488,6 +46544,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               id:          findCol(header,['利用者id','利用者番号'],['緊急','連絡先']),
               name:        findCol(header,['氏名','利用者名','お名前','名前'],['カナ','かな','緊急','連絡先','事業所','医']),
               kana:        findCol(header,['フリガナ','ふりがな','カナ','かな'],['緊急','連絡先','事業所']),
+              // ★ 2026-11-09 trial532(ユーザー要望「CSV でも姓と名を分けて」): 「姓」「名」(フリガナは「セイ」「メイ」)の列があればそちらを使う(見出しは完全一致)。無ければ氏名の列を空白で分ける
+              lastName:    header.findIndex(h => /^(姓|氏|名字|苗字|利用者姓|姓漢字)$/.test(norm(h))),
+              firstName:   header.findIndex(h => /^(名|利用者名名|名漢字)$/.test(norm(h))),
+              kanaLastC:   header.findIndex(h => /^(セイ|せい|姓カナ|姓かな|姓フリガナ|姓ふりがな|フリガナ姓|ふりがな姓|カナ姓)$/.test(norm(h))),
+              kanaFirstC:  header.findIndex(h => /^(メイ|めい|名カナ|名かな|名フリガナ|名ふりがな|フリガナ名|ふりがな名|カナ名)$/.test(norm(h))),
               gender:      findCol(header,['性別']),
               birthDate:   findCol(header,['生年月日','誕生']),
               zipCode:     findCol(header,['郵便','〒'],['緊急','連絡先']),
@@ -46557,6 +46618,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             const normTel = (v) => { let t = _toHalf(String(v||'')).trim().replace(/[\s　]/g, '').replace(/[－‐–—ー]/g, '-').replace(/[()（）]/g, ''); const dg = t.replace(/-/g, ''); if (/^\d{9,10}$/.test(dg) && !dg.startsWith('0')) t = '0' + t; return t; };
             const normLevel = (v) => _toHalf(String(v||'')).trim().replace(/\s/g, '').replace(/^(J|A|B|C)([12])$/i, (m, a, b) => a.toUpperCase() + b).replace(/^(Ⅱ|II)([ab])$/i, (m, a, b) => 'Ⅱ' + b.toLowerCase()).replace(/^(Ⅲ|III)([ab])$/i, (m, a, b) => 'Ⅲ' + b.toLowerCase()).replace(/^(Ⅳ|IV)$/i, 'Ⅳ').replace(/^(Ⅰ|I)$/, 'Ⅰ').replace(/^M$/i, 'M');
             const val = (row,i) => (i>=0 ? String(row[i]||'').trim() : '');
+            // ★ 2026-11-09 trial532: 行の氏名・フリガナ(姓・名の列があれば半角1つでつなぐ。氏名の列なら全角・半角の空白を半角1つに)
+            const nameOfRow = (row) => { const ln = val(row,col.lastName), fn = val(row,col.firstName); return tsuNameSpace((ln || fn) ? `${ln} ${fn}` : val(row,col.name)); };
+            const kanaOfRow = (row) => { const kl = val(row,col.kanaLastC), kf = val(row,col.kanaFirstC); return tsuNameSpace((kl || kf) ? `${kl} ${kf}` : val(row,col.kana)); };
+            // ★ 2026-11-09 trial532(ユーザー要望「古い CSV を読み込んでも、こちらで直した内容は上書きされないように」): 「CSV より後にこちらで直した項目は残す」を選んだとき、
+            //   項目の更新時刻(_fieldTs・無い項目はその方の _updatedAt)が CSV のファイルの日付より新しく、今の値が空でなく CSV と違う項目には CSV の値を入れない。ファイルを選んだときだけ(貼り付けは日付が分からない)
+            const _keepNewer = csvModal.keepMode === 'keepNewer' && Number(csvModal.fileTime) > 0; const _fileT = Number(csvModal.fileTime) || 0; let keptN = 0; const keptWho = new Set();
             const existing = [...(appData.patients||[])];
             const existingIds = new Set(existing.map(p=>p.id));
             // ★ 採番は「これまでの最大ID」を上限にした連番 (patientIdSeq)。 削除しても番号は戻さず増やし続けるため、
@@ -46573,7 +46640,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               const _seen = new Set();
               for (let r=1;r<rows.length;r++){
                 const row = rows[r]; if(!row.some(c=>(c||'').trim())) continue;
-                const nm = val(row,col.name);
+                const nm = nameOfRow(row);
                 const _idE = parseInt(val(row,col.id));
                 if (!isNaN(_idE) && existingIds.has(_idE)) continue; // ID指定は常に更新
                 if (!nm) continue;
@@ -46611,7 +46678,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             for (let r=1;r<rows.length;r++){
               const _sc = schedFromRow(rows[r] || []);
               const row = rows[r]; if(!row.some(c=>(c||'').trim())) continue;
-              const name = val(row,col.name), kana = val(row,col.kana);
+              const name = nameOfRow(row), kana = kanaOfRow(row); // ★ 2026-11-09 trial532: 姓と名の間は半角1つ
               // ★ 氏名が空の行はスキップ (既存IDの更新行を除く)。 名前の無い空の利用者が量産されるのを防ぐ
               const _idEarly = parseInt(val(row,col.id));
               const _isExistingIdRow = !isNaN(_idEarly) && existingIds.has(_idEarly);
@@ -46656,12 +46723,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               set('careLevelTo', dateOf(col.careLevelTo, '認定有効期間（終了）'));
               set('costBurden', normBurden(val(row,col.costBurden)));
               set('cmOffice', val(row,col.cmOffice));
-              set('cmName', val(row,col.cmName));
+              set('cmName', tsuNameSpace(val(row,col.cmName))); // ★ 2026-11-09 trial532: 姓と名の間は半角1つ
               set('cmPhone', normTel(val(row,col.cmPhone)));
               set('cmFax', normTel(val(row,col.cmFax)));
               const _cmOfficePhone = normTel(val(row,col.cmOfficePhone));
               if (_cmOfficePhone) rec.cmOfficePhone = _cmOfficePhone;
-              const emName=val(row,col.emName), emRel=val(row,col.emRelation), emPhone=normTel(val(row,col.emPhone)), doctor=val(row,col.doctor);
+              const emName=tsuNameSpace(val(row,col.emName)), emRel=val(row,col.emRelation), emPhone=normTel(val(row,col.emPhone)), doctor=val(row,col.doctor); // ★ 2026-11-09 trial532: 緊急連絡先の名前も半角1つ
               const emMobile=normTel(val(row,col.emMobile)), emEmail=val(row,col.emEmail);
               // ★ 2026-10-12: フェイスシートの項目(空欄は上書きしない)。1つでも入れば更新日=今日・最終更新=CSV取込
               const fsPatch = {};
@@ -46689,7 +46756,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               if (_sc.err) schedErr.push(`${name || ('ID:' + idNum)}（${_sc.err}）`);
               if (target) {
                 const idx = existing.findIndex(p=>p.id===target.id);
-                const _np = applyEx({ ...existing[idx], ...rec }, emName, emRel, emPhone, doctor, emMobile, emEmail, fsPatch);
+                // ★ 2026-11-09 trial532: 「CSV より後にこちらで直した項目は残す」(上の _keepNewer)。緊急連絡先・フェイスシートも同じ考え(直した後なら、値のある項目は触らない)
+                let _emKeep = false, _fsKeep = false;
+                if (_keepNewer) { const ex = existing[idx]; const fts = ex._fieldTs || {}; const pT = Number(ex._updatedAt) || 0;
+                  Object.keys(rec).forEach(k => { if (k === '_roomIn') return; const t = Number(fts[k]) || pT; if (t > _fileT && String(ex[k] ?? '').trim() !== '' && String(ex[k]) !== String(rec[k])) { delete rec[k]; keptN++; keptWho.add(ex.name || `ID:${ex.id}`); } });
+                  const fmT = Number(fts.familyName) || pT; if (fmT > _fileT && String(ex.familyName || '').trim() && (emName || emRel || emPhone || emMobile || emEmail)) { _emKeep = true; keptN++; keptWho.add(ex.name || `ID:${ex.id}`); }
+                  const fsO = (ex.personalFile || {}).faceSheet || {}; const fsT = Date.parse(fsO.updatedAt) || Number(fsO.updatedAt) || 0; if (fsT > _fileT) _fsKeep = true; }
+                const _fsP = _fsKeep ? Object.fromEntries(Object.entries(fsPatch).filter(([k]) => String((((existing[idx].personalFile||{}).faceSheet||{})[k]) ?? '').trim() === '')) : fsPatch;
+                const _np = applyEx({ ...existing[idx], ...rec }, _emKeep ? '' : emName, _emKeep ? '' : emRel, _emKeep ? '' : emPhone, doctor, _emKeep ? '' : emMobile, _emKeep ? '' : emEmail, _fsP);
                 if (rec._roomIn) _np.addressBuilding = tsuBldRoom(tsuBldRoom(existing[idx].addressBuilding, existing[idx].addressRoom), rec._roomIn); delete _np._roomIn; // ★ 2026-10-29
                 // ★ 2026-10-28: すでにいる方の基本利用曜日は、曜日が空・変更履歴なし・記録なし(=まだ利用していない)ときだけ入れる。利用している方は画面で(適用日と履歴が要る)
                 if (_sc.s && !_sc.err && (_np.scheduleAmPm || []).join('|') !== _sc.s.join('|')) {
@@ -46733,7 +46807,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             setCsvModal({isOpen:false, mode:null, importText:'', error:''});
             const _lst = (a) => a.slice(0, 5).join('、') + (a.length > 5 ? ` ほか${a.length - 5}名` : '');
             const _schedMsg = [dateErr.length ? `日付が読めず入れていません（「1940/5/15」「昭和15年5月15日」のように書いてください）: ${_lst(dateErr)}` : '', schedSet ? `基本利用曜日: ${schedSet}名に入れました` : '', schedKept.length ? `基本利用曜日は、すでに利用している方は変えていません（利用者マスタの画面で変更してください）: ${_lst(schedKept)}` : '', schedErr.length ? `基本利用曜日が読めず入れていません（「基本利用曜日（午前）」「基本利用曜日（午後）」の列に「月、水」のように書いてください）: ${_lst(schedErr)}` : ''].filter(Boolean).join('\n');
-            alert(`取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件${skipped?` / スキップ ${skipped} 件`:''}${_schedMsg ? '\n' + _schedMsg : ''}\n（空欄の項目は既存データを上書きしません／氏名が空の行・スキップ指定は取り込みません／ケアマネ事業所・担当者はマスタにも自動登録しました）`);
+            const _keptMsg = _keepNewer ? (keptN ? `こちらで直した項目を残しました: ${keptN}か所（${_lst([...keptWho])}）` : 'こちらで直した項目で CSV と違うものはありませんでした') : ''; // ★ 2026-11-09 trial532
+            alert(`取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件${skipped?` / スキップ ${skipped} 件`:''}${_keptMsg ? '\n' + _keptMsg : ''}${_schedMsg ? '\n' + _schedMsg : ''}\n（空欄の項目は既存データを上書きしません／氏名が空の行・スキップ指定は取り込みません／ケアマネ事業所・担当者はマスタにも自動登録しました）`);
           } catch (e) {
             setCsvModal(prev=>({...prev, error: e.message || String(e)}));
           }
@@ -46781,7 +46856,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                             try { text = new TextDecoder('shift-jis').decode(buf); } catch {}
                           }
                           if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // BOM除去
-                          setCsvModal(prev => ({...prev, importText: text, error: ''}));
+                          setCsvModal(prev => ({...prev, importText: text, error: '', fileTime: Number(f.lastModified) || 0, fileName: f.name || ''})); // ★ 2026-11-09 trial532: ファイルの日付(「こちらで直した項目は残す」の判定に使う)
                         };
                         reader.readAsArrayBuffer(f);
                         e.target.value = '';
@@ -46810,6 +46885,18 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         <span className="text-slate-700"><b>両方残す（新規追加）</b> … 同じ氏名でも別の利用者として追加</span>
                       </label>
                       <div className="tsu-hint-row mt-1"><TsuHint>※ 氏名が重複する人がいた場合は、次の画面で<b>1人ずつ</b>「更新／新規追加／スキップ」を選べます（上はその初期値）。</TsuHint></div>
+                    </div>
+                    {/* ★ 2026-11-09 trial532(ユーザー要望「古い CSV を読み込んだとき、こちらで変えた内容が上書きされないように。全部上書きか、残すかを選べるように」) */}
+                    <div className="text-[12px] bg-slate-50 border border-slate-200 rounded-lg p-2.5" data-testid="csv-keep-block">
+                      <div className="font-bold text-slate-700 mb-1.5">すでにいる方の、こちらで直した項目の扱い</div>
+                      <label className="flex items-start gap-2 cursor-pointer mb-1">
+                        <input type="radio" name="csvKeepMode" data-testid="csv-keep-overwrite" checked={(csvModal.keepMode||'overwrite')==='overwrite'} onChange={()=>setCsvModal({...csvModal,keepMode:'overwrite'})} className="mt-0.5"/>
+                        <span className="text-slate-700"><b>CSV の内容で上書き</b> … 今まで通り（CSV の空欄は元のまま）</span>
+                      </label>
+                      <label className={`flex items-start gap-2 ${csvModal.fileTime ? 'cursor-pointer' : 'opacity-60'}`}>
+                        <input type="radio" name="csvKeepMode" data-testid="csv-keep-newer" disabled={!csvModal.fileTime} checked={csvModal.keepMode==='keepNewer'} onChange={()=>setCsvModal({...csvModal,keepMode:'keepNewer'})} className="mt-0.5"/>
+                        <span className="text-slate-700"><b>CSV より後にこちらで直した項目は残す</b> … {csvModal.fileTime ? <>ファイルの日付（{new Date(csvModal.fileTime).toLocaleString('ja-JP', { year:'numeric', month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' })}）より後に、こちらで変えた方の項目は上書きしません（空の項目には CSV の値が入ります）</> : <>ファイルを選んだときに選べます（貼り付けた文字は日付が分かりません）</>}</span>
+                      </label>
                     </div>
                     {csvModal.error && <div className="text-xs font-bold text-red-600">エラー: {csvModal.error}</div>}
                     <button data-testid="csv-import-go" disabled={!csvModal.importText.trim()} onClick={()=>doImport()} className="w-full py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40">取り込みを実行</button>
@@ -49017,7 +49104,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
       const _offTombs = _renamedOff ? _cmTombsWith(_cmTombKeyOffice(orig.name), ...cmPersons.filter(c=>c.office===orig.name).map(c=>_cmTombKeyPerson(orig.name, c.name))) : (appData.systemSettings?.cmTombstones||{});
       onSave({ ...appData, patients:newPatients, systemSettings:{ ...appData.systemSettings, cmTombstones:_offTombs, cmOffices:newOffices, careManagers:newPersons } }, { manual:true, message:'✓ ケアマネ事業所を更新しました' });
     } else {
-      const newName = (form.name||'').trim();
+      const newName = tsuNameSpace(form.name); // ★ 2026-11-09 trial532: 姓と名の間は半角1つ
       if (!form.office || !newName) { alert('事業所と担当者名を入力してください'); return; }
       const dir = formatJpPhone(form.phone);
       const offFax = cmOffices.find(o=>o.name===form.office)?.fax || orig.fax || '';
@@ -50812,11 +50899,11 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
               {/* ★ 2026-11-10 trial536: スマホの下のバー(この端末だけ) */}
               <label className="flex items-start gap-2 cursor-pointer mb-3" data-testid="tabbar-setting">
                 <input type="checkbox" data-testid="tabbar-toggle" defaultChecked={tsuTabBarOn()} onChange={e=>{ try { localStorage.setItem(TSU_TABBAR_KEY, e.target.checked ? '1' : '0'); } catch {} try { window.dispatchEvent(new Event('tsumugi-tabbar-change')); } catch {} }} className="mt-1 accent-blue-600"/>
-                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表（または日誌）・提供記録（連絡帳と一組）・自由枠・メニューを下に置きます。提供記録と連絡帳は上の見出しか横スワイプで行き来。外すと左上の3本線に戻ります。スワイプ（右端から左=メニュー・左端から右=前の画面・上端から下=今日の予定）はバーの有無にかかわらず使えます（Android のジェスチャー操作では端のスワイプは OS に取られます）。iPad・パソコンは変わりません。</TsuHint></span>
+                <span className="text-sm text-slate-700"><b>スマホは画面の下のバーで切り替える（この端末だけ）</b> <TsuHint className="ml-1">ホーム・送迎表（または日誌）・提供記録（連絡帳と一組）・利用者・自由枠を下に置きます。メニューは右上の3本線（右端からのスワイプでも）。提供記録と連絡帳は上の見出しか横スワイプで行き来。外すと左上の3本線に戻ります。スワイプ（右端から左=メニュー・左端から右=前の画面・上端から下=今日の予定）はバーの有無にかかわらず使えます（Android のジェスチャー操作では端のスワイプは OS に取られます）。iPad・パソコンは変わりません。</TsuHint></span>
               </label>
               {typeof window !== 'undefined' && window.innerWidth < 768 && tsuTabBarOn() && (
                 <div className="mb-3 pl-6 flex items-center gap-2 flex-wrap" data-testid="tabcustom-setting">{/* ★ trial548: 自由枠の入口(長押しに気づかなかった) */}
-                  <span className="text-sm text-slate-700">下のバーの4つ目に出す画面</span>
+                  <span className="text-sm text-slate-700">下のバーのいちばん右（自由枠）に出す画面</span>
                   <button type="button" data-testid="tabcustom-pick" onClick={() => { try { window.dispatchEvent(new Event('tsumugi-tabpick-open')); } catch {} }} className="px-3 py-2 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 text-sm font-bold">選ぶ</button>
                   <TsuHint>はじめは日誌（送迎表を使わない店はカレンダー）。札を長押ししても選べます。</TsuHint>
                 </div>
@@ -58413,7 +58500,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             const vals = (d.fitnessItems||[]).map(it => r.values?.[it.id] ? `${it.name}:${r.values[it.id]}${it.unit||''}${r.notes?.[it.id] ? `（${r.notes[it.id]}）` : ''}` : null).filter(Boolean).join('、');
             return `${r.date}（${vals||'データあり'}）${r.memo ? `［測定時のメモ: ${String(r.memo).slice(0, FIT_MEMO_MAX)}］` : ''}`; // ★ 2026-10-20: 項目の備考とその日のメモも参考にする
           }).join(' / ')
-        : '記録なし';
+        : ''; // ★ trial570: 無いときは体力測定の行を出さない
 
       const prompt = `以下のデイサービス利用者データをもとに、ケアマネジャー向けモニタリング報告文を2文で作成してください。
 
@@ -58423,14 +58510,14 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 脈拍平均：${d.avgPulse||'不明'}回/分　体温平均：${d.avgTemp||'不明'}℃（最高${d.maxTemp||'不明'}℃）
 体調：平均${d.avgMoodLabel||'不明'}${d.moodDistText?`（内訳${d.moodDistText}）`:''}
 体調の理由（本人の様子・日付つき）：${d.kibunDetail&&d.kibunDetail.length?d.kibunDetail.join(' / '):'記録なし'}
-体力測定（直近）：${fitnessText}
-特記事項（日付つき全件）：${d.tokkiDetail&&d.tokkiDetail.length?d.tokkiDetail.join(' / '):'特になし'}
+${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項（日付つき全件）：${d.tokkiDetail&&d.tokkiDetail.length?d.tokkiDetail.join(' / '):'特になし'}
 
 出力ルール：
 ・報告文の本文2文のみ出力。前置き・補足・文字数・説明は一切不要
 ・1文目：「今月は〜でした。」で始める（バイタル・体調・特記を中心に）
 ・2文目：「前回と比べて〜」または「引き続き〜」で変化や継続状態を記述
-・専門的かつ丁寧な文体、具体的な数値を使用`;
+・専門的かつ丁寧な文体、具体的な数値を使用
+・上に書かれているデータだけを材料にする。書かれていないもの（体力測定・計画書・目標など）には一切触れず、「〜は行っていない」「〜が未作成」などの断り書きは書かない`;
 
       const data = await tsumugiCallAi(apiKey, {
         model: 'claude-haiku-4-5-20251001',
@@ -58438,7 +58525,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
         messages: [{role:'user', content: prompt}]
       }, staffSession?.storeId);
 
-      const text = data.content?.[0]?.text?.trim() || 'エラー：テキストが取得できませんでした';
+      const _raw = data.content?.[0]?.text?.trim() || '';
+      const text = (_raw && tsuMonScrub(_raw, { hasPlan: true, hasFitness: !!fitnessText })) || (_raw ? _raw : 'エラー：テキストが取得できませんでした'); // ★ trial570: 体力測定が無いのに触れた文は落とす(全部落ちたら元のまま)
       setResults(prev => ({...prev, [patient.id]: {text, loading:false, error:null}}));
     } catch(e) {
       setResults(prev => ({...prev, [patient.id]: {text:'', loading:false, error: String(e.message||e)}}));
@@ -58889,16 +58977,19 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 正式モニタリング表（1人1枚）: 自動下書き / 保管(個人ファイル) / FAX(ケアマネ宛先自動)
   const monthLabelStr = `${tY}年${tM}月`;
   const getSheetRecord = (pid) => (appData.monitoringRecords||[]).find(r => r.patientId===pid && r.period===monthLabelStr);
+  // ★ 2026-11-12 trial570(ユーザー: 計画書を作っていない方に「計画通りに沿えなかった」と出てケアマネが焦った): つむぎに計画書(通所介護計画書／個別機能訓練計画書)が
+  //   ある利用者だけ「計画」の言葉を使う。無い方は、本当にある記録(通所・運動・バイタル)だけで書く。体力測定も記録がある方だけ触れる
+  const _monHasPlan = (pid) => (appData.tsushoKeikakuRecords||[]).some(r=>r.patientId===pid) || (appData.kinouKeikakuRecords||[]).some(r=>r.patientId===pid);
   const buildAutoStatus = (patient) => {
-    // ①サービスの実施状況: 計画通りに提供できたか + 通所実績
+    // ①サービスの実施状況: (計画書があれば)計画通りに提供できたか + 通所実績
     try {
-      const d = buildPatientData(patient);
+      const d = buildPatientData(patient); const hp = _monHasPlan(patient.id);
       if (!d.attended) {
-        return `${d.month}は通所(利用)がなかったため、通所介護計画に基づくサービスを実施できなかった。`;
+        return `${d.month}は通所(利用)がなかったため、${hp ? '通所介護計画に基づく' : ''}サービスを実施できなかった。`;
       }
-      const parts = ['通所介護計画に基づき、個別機能訓練（運動プログラム）・健康チェック（バイタル測定）・送迎を提供。'];
-      if (d.planned!=null) parts.push(`${d.month}は計画${d.planned}回中${d.attended}回参加（出席率${d.rate!=null?d.rate+'%':'—'}）。`);
-      parts.push('概ね計画どおりサービスを実施できた。');
+      const parts = [`${hp ? '通所介護計画に基づき、' : ''}個別機能訓練（運動プログラム）・健康チェック（バイタル測定）・送迎を提供。`];
+      if (d.planned!=null) parts.push(`${d.month}は予定${d.planned}回中${d.attended}回参加（出席率${d.rate!=null?d.rate+'%':'—'}）。`);
+      parts.push(hp ? '概ね計画どおりサービスを実施できた。' : '概ね予定どおりサービスを実施できた。');
       return parts.join('');
     } catch { return ''; }
   };
@@ -58937,9 +59028,10 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     //   (従来は本部キーが使える場合でもここで落ちていた)
     if (window.__tsumugiSrvAi === false) throw new Error('AIが未設定です。つむぎ管理局の「外部サービス設定」でAPIキーを登録してください。');
     const d = buildPatientData(patient);
-    const fitnessText = (d.fitnessRecs && d.fitnessRecs.length)
+    const _hasFit = !!(d.fitnessRecs && d.fitnessRecs.length);
+    const fitnessText = _hasFit
       ? d.fitnessRecs.map(r => { const vals=(d.fitnessItems||[]).map(it=> r.values?.[it.id]?`${it.name}:${r.values[it.id]}${it.unit||''}`:null).filter(Boolean).join('、'); return `${r.date}（${vals||'データあり'}）`; }).join(' / ')
-      : '記録なし（体力測定を行わない事業所もあるため、運動の記録から評価してください）';
+      : ''; // ★ trial570: 無いときは体力測定の行そのものを出さない(「行っていませんが」と書かれないように)
     // ★ 運動の記録(運動メニュー)と前月からの変化を集計 (体力測定に依存せず評価できるように)
     const _exItems = effExerciseItems(appData.systemSettings);
     const _allInd = appData.systemSettings?.individualExerciseItems || [];
@@ -58979,7 +59071,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 ・評価は【厳しすぎず、やわらかく前向き】に。できていない点を断定・否定しすぎず、良い面や意欲にも触れてください。
 ・【分量・優先順位（重要）】変化・気づき・特筆すべき点（血圧が高めの日・体調の変化・特記の出来事・運動や体力の変化 等）を優先して記載し、変化のない項目は「大きな変化なし」程度に簡潔にまとめてよい。全項目を細かく埋めようとせず、ケアマネが2分程度でサッと読める分量に。各項目のtextは原則1〜3文以内。
 ・ただし機能訓練・生活支援の【専門用語を適度に】交え、専門職らしい所見にしてください（例: 下肢筋力の維持、立位・歩行バランス、関節可動域、活動意欲、生活リハビリ、離床機会、転倒予防 等を文脈に応じて自然に）。専門用語の多用や堅すぎる表現は避け、読みやすさを保つこと。
-・体力測定の数値が無くても構いません。運動の記録・通所の様子・体調・特記から柔軟に評価してください（体力測定にこだわらない）。
+・【最重要】下に書かれているデータだけを材料にする。書かれていないもの（体力測定・計画書・目標・評価表など）には一切触れない。「〜は行っていない」「〜が未作成」「〜が確認できない」「〜がないため」といった断り書きは絶対に書かない（ケアマネが「計画ができていないのか」と誤解するため）。
 ・【運動の変化を最優先で反映】「運動メニューの変化」に時間・回数・負荷の伸び(例: バイク3分→5分)や新しい種目があれば、②や④で必ず具体的に言及する。血圧など数値の羅列に偏らず、運動・生活機能の変化を主役にする。
 ・運動メニューの変更（マシンの増減等）があれば、その点に触れてください。運動機能・筋力・体調の観点を重視してください。
 ・通所が無い/少ない場合: ①②は「記録がなく評価が難しい」旨を無理なく記載し、断定しない。④⑤は【休みの量と理由】で柔軟に判断すること。
@@ -58998,10 +59090,9 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 通所時の体調: 平均${d.avgMoodLabel||'不明'}${d.moodDistText?`（内訳: ${d.moodDistText}）`:''}
 体調の理由（本人の様子・日付つき。同日の通所時→帰宅時の変化にも注目し、③満足度・④心身の変化・⑤今後の方向性に反映すること）:
 ${d.kibunDetail && d.kibunDetail.length ? '・'+d.kibunDetail.join('\n・') : 'なし'}
-体力測定(任意・行わない事業所もあり): ${fitnessText}
-特記（当月の記録・日付つき全件。体調・出来事・ご家族/職員の気づき等。③満足度・④心身の変化・⑤今後の方向性に反映すること）:
+${_hasFit ? `体力測定: ${fitnessText}\n` : ''}特記（当月の記録・日付つき全件。体調・出来事・ご家族/職員の気づき等。③満足度・④心身の変化・⑤今後の方向性に反映すること）:
 ${d.tokkiDetail && d.tokkiDetail.length ? '・'+d.tokkiDetail.join('\n・') : 'なし'}
-${_goalText ? `計画の目標（通所介護計画・個別機能訓練計画）:\n${_goalText}\n（②目標の達成・進捗は、これらの目標に対する取り組み状況・達成度を書いてください）` : '計画の目標: 未設定（※「目標が設定されていない」「計画書が確認できない」等の断り書きは絶対に書かないこと。今ある通所実績・運動・体調・特記だけを材料に、生活機能の維持・向上の観点で自然な所見として書く）'}
+${_goalText ? `計画の目標（通所介護計画・個別機能訓練計画）:\n${_goalText}\n（②目標の達成・進捗は、これらの目標に対する取り組み状況・達成度を書いてください）` : '（②目標の達成・進捗は、通所実績・運動・体調・特記だけを材料に、生活機能の維持・向上の観点で自然な所見として書く。「計画」「目標」という言葉は使わない）'}
 
 各項目で、必ず下記の選択肢から最も適切なものを1つ"sel"に選び、"text"に2〜3文の所見を上記の文体・観点で書いてください。当月に通所が無い場合は①を必ず「実施できなかった」にしてください。
 ${optionsDesc}
@@ -59022,7 +59113,7 @@ ${optionsDesc}
     MON_ITEMS.forEach(it => {
       const v = obj[it.key] || {};
       const sel = it.options.includes(v.sel) ? v.sel : '';
-      out[it.key] = { sel, text: typeof v.text==='string' ? v.text : '' };
+      out[it.key] = { sel, text: tsuMonScrub(typeof v.text==='string' ? v.text : '', { hasPlan: !!_goalText || _monHasPlan(patient.id), hasFitness: _hasFit }) }; // ★ trial570: 無いもの(計画書・体力測定)に触れた文は落とす
     });
     return out;
   };
@@ -59126,7 +59217,7 @@ ${optionsDesc}
             style={{background:(searchQuery||monitorStatusFilter!=='all'||monitorDowFilter.length)?'#0284c7':'rgba(255,255,255,0.6)',border:'1px solid rgba(255,255,255,0.8)',color:(searchQuery||monitorStatusFilter!=='all'||monitorDowFilter.length)?'white':'#1e293b',borderRadius:10,padding:'7px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>
             絞り込み {(searchQuery||monitorStatusFilter!=='all'||monitorDowFilter.length) ? '(適用中)' : '▾'}
           </button>
-          {monFilterPop && (
+          {monFilterPop && (<TsuPhonePop onClose={()=>setMonFilterPop(false)}>
             <div style={{position:'absolute',top:'calc(100% + 6px)',left:0,zIndex:60,background:'white',border:'1px solid #bae6fd',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,0.2)',padding:12,width:300}}>
               <div style={{fontSize:10,fontWeight:'bold',color:'#64748b',marginBottom:4}}>氏名</div>
               <div style={{display:'flex',alignItems:'center',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'4px 8px',gap:5,marginBottom:8}}>
@@ -59162,7 +59253,7 @@ ${optionsDesc}
                 <button type="button" onClick={()=>setMonFilterPop(false)}
                   style={{padding:'6px 16px',borderRadius:8,fontSize:11,fontWeight:'bold',border:'none',background:'#0284c7',color:'white',cursor:'pointer'}}>閉じる</button>
               </div>
-            </div>
+            </div></TsuPhonePop>
           )}
         </div>
         {/* 並び替えポップアップ */}
@@ -59171,7 +59262,7 @@ ${optionsDesc}
             style={{background:'rgba(255,255,255,0.6)',border:'1px solid rgba(255,255,255,0.8)',color:'#1e293b',borderRadius:10,padding:'7px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>
             並び替え: {({kana:'名前',careLevel:'介護度',cmOffice:'事業所',schedule:'曜日'})[monitorSort]||'名前'}{monitorSortDir==='asc'?'▲':'▼'}
           </button>
-          {monSortPop && (
+          {monSortPop && (<TsuPhonePop onClose={()=>setMonSortPop(false)}>
             <div style={{position:'absolute',top:'calc(100% + 6px)',left:0,zIndex:60,background:'white',border:'1px solid #bae6fd',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,0.2)',padding:12,width:220}}>
               <div style={{fontSize:10,fontWeight:'bold',color:'#64748b',marginBottom:4}}>並び替えの基準</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5,marginBottom:8}}>
@@ -59189,7 +59280,7 @@ ${optionsDesc}
               <div style={{textAlign:'right',marginTop:8}}>
                 <button type="button" onClick={()=>setMonSortPop(false)} style={{whiteSpace:'nowrap',padding:'6px 16px',borderRadius:8,fontSize:11,fontWeight:'bold',border:'none',background:'#0284c7',color:'white',cursor:'pointer'}}>閉じる</button>
               </div>
-            </div>
+            </div></TsuPhonePop>
           )}
         </div>
         <span className="tsu-hide-phone" style={{fontSize:11,fontWeight:'bold',color:'#0c4a6e'}}>{attendedPats.length+absentPats.length}名表示</span>
