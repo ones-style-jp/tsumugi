@@ -1,6 +1,6 @@
 // 2026-10-18 データ保護(段階3.5): ポータルの計算部品(ブラウザ・サーバー共通)
 import { describe, it, expect } from 'vitest';
-import { portalSliceState, portalAppendDocUpdate, portalMarkDocUpdatesRead, portalMergePatientFromFamily, portalMergePatientDocsFromCM, portalMergeFaceSheetFromCM, PORTAL_SETTINGS_KEYS } from './portalLogic.js';
+import { portalSliceState, portalAppendDocUpdate, portalMarkDocUpdatesRead, portalMergePatientFromFamily, portalMergePatientDocsFromCM, portalMergeFaceSheetFromCM, PORTAL_SETTINGS_KEYS, mergeEmergencyContacts } from './portalLogic.js';
 
 const cloud = () => ({
   patients: [
@@ -72,5 +72,43 @@ describe('書き込みの計算(冪等)', () => {
     const p = n.patients[0];
     expect(p.kiou).toBe('高血圧'); expect(p.personalFile.faceSheetHistory.length).toBe(1); expect(p.docUpdates[0].id).toBe('du_2');
     expect(portalMergeFaceSheetFromCM(n, '1', { kiou: '高血圧' }, {}, '2026-10-18T00:00:00Z', 'du_2')).toBe(null);
+  });
+});
+
+// ★ 2026-11-16 1116d: ご家族の登録で入った緊急連絡先・代表家族が、取り込み前の店舗の端末の保存で消えないように
+describe('1116d 緊急連絡先の付き合わせ(mergeEmergencyContacts)と、ご家族の登録の項目時刻', () => {
+  const T0 = 1700000000000;
+  it('ご家族の登録(2人目)で増えた連絡先には _famAt が付き、_fieldTs.emergencyContacts が刻まれる。代表が空なら代表の項目にも刻む', () => {
+    const c = cloud(); c.patients[0]._savedAt = T0; c.patients[0]._fieldTs = { phone: T0 };
+    const n = portalMergePatientFromFamily(c, '1', { emergencyContacts: [{ name: '見本 一子', relation: '長女', phoneMobile: '090' }], docUpdates: [] });
+    const p = n.patients[0];
+    expect(p.emergencyContacts.map(x => x.name)).toEqual(['見本 花子', '見本 一子']);
+    expect(p.emergencyContacts[1]._famAt).toBeGreaterThan(T0);
+    expect(p._fieldTs.emergencyContacts).toBeGreaterThan(T0); expect(p._fieldTs.phone).toBe(T0); expect(p._savedAt).toBe(T0);
+    // 1人目(代表)の登録: familyName 等に時刻が付く・緊急連絡先は変わらないので刻まない
+    const n2 = portalMergePatientFromFamily(cloud(), '2', { familyName: '見本 二子', familyRelation: '長女', familyPhoneMobile: '080', docUpdates: [] });
+    const p2 = n2.patients.find(x => x.id === 2);
+    expect(p2.familyName).toBe('見本 二子'); expect(p2._fieldTs.familyName).toBeGreaterThan(0); expect(p2._fieldTs.familyRelation).toBeGreaterThan(0); expect(p2._fieldTs.emergencyContacts).toBeUndefined();
+    // 同じ内容をもう一度送っても刻まない
+    const n3 = portalMergePatientFromFamily(n, '1', { emergencyContacts: [{ name: '見本 一子', relation: '長女', phoneMobile: '090' }], docUpdates: [] });
+    expect(n3.patients[0]._fieldTs.emergencyContacts).toBe(p._fieldTs.emergencyContacts);
+  });
+  it('店舗の端末(取り込み前・時刻なし)が土台でも、クラウド側の _famAt の連絡先は残る。墓石にあれば戻さない。ケアマネ由来は足さない', () => {
+    const local = { emergencyContacts: [{ name: '見本 花子', relation: '妻' }], _savedAt: T0 + 10 };
+    const cloudP = { emergencyContacts: [{ name: '見本 花子', relation: '妻' }, { name: '見本 一子', relation: '長女', phoneMobile: '090', _famAt: T0 + 5 }, { name: '担当 甲', relation: 'ケアマネ', _famAt: T0 + 5 }], _fieldTs: { emergencyContacts: T0 + 5 } };
+    const m = mergeEmergencyContacts(local, cloudP, true);
+    expect(m.emergencyContacts.map(x => x.name)).toEqual(['見本 花子', '見本 一子']);
+    // 端末側で消してある(墓石)なら戻らない
+    const local2 = { ...local, _deletedEC: ['見本 一子|長女||090'], _fieldTs: { emergencyContacts: T0 + 20 } };
+    const m2 = mergeEmergencyContacts(local2, cloudP, true);
+    expect(m2.emergencyContacts.map(x => x.name)).toEqual(['見本 花子']); expect(m2._deletedEC).toEqual(['見本 一子|長女||090']);
+    // 端末側の方が新しい時刻で、名前の空白だけ違う同じ方が居れば二重にしない
+    const local3 = { emergencyContacts: [{ name: '見本　一子', relation: '長女' }], _fieldTs: { emergencyContacts: T0 + 20 } };
+    expect(mergeEmergencyContacts(local3, cloudP, true).emergencyContacts.length).toBe(1);
+    // 時刻がクラウドの方が新しければクラウドの一覧が土台(端末だけの手入力の連絡先は _famAt が無いので足されない=従来どおり新しい一覧が勝つ)
+    const local4 = { emergencyContacts: [{ name: '見本 三郎', relation: '次男' }], _fieldTs: { emergencyContacts: T0 + 1 } };
+    expect(mergeEmergencyContacts(local4, cloudP, true).emergencyContacts.map(x => x.name)).toEqual(['見本 花子', '見本 一子']);
+    // どちらにも一覧が無ければ undefined(触らない)
+    expect(mergeEmergencyContacts({}, {}, true).emergencyContacts).toBeUndefined();
   });
 });

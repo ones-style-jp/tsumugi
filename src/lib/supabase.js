@@ -2,7 +2,7 @@
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
 import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard, pushShrinkGuard } from './logic.js';
-import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
+import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL, mergeEmergencyContacts } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -1235,6 +1235,9 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
     const _cFts = (cpArg._fieldTs && typeof cpArg._fieldTs === 'object') ? cpArg._fieldTs : {};
     const out = { ...lp };
     out._savedAt = Math.max(_lT, _cT);
+    // ★ 2026-11-16 1116d: 緊急連絡先は「項目時刻の新しい一覧+ご家族の登録で入った分(墓石に無ければ)」(portalLogic.mergeEmergencyContacts)。
+    //   従来はオブジェクト配列=新しい方の一覧が丸ごと勝ち、取り込み前の端末の保存でご家族の登録が消えていた
+    const _ecm = mergeEmergencyContacts(lpArg, cpArg, lp === lpArg);
     // _fieldTs は両者の max を保持
     { const mf = {}; new Set([...Object.keys(_lFts), ...Object.keys(_cFts)]).forEach(k => { const t = Math.max(Number(_lFts[k]) || 0, Number(_cFts[k]) || 0); if (t) mf[k] = t; }); if (Object.keys(mf).length) out._fieldTs = mf; }
     // ★ 利用状態(status/pauseHistory)は statusUpdatedAt が新しい方を「まとめて」採用する。
@@ -1253,6 +1256,8 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
       if (k === '_savedAt' || k === '_fieldTs') return;
       // 状態は上で時刻優先で確定済みなら、下の汎用処理はスキップ
       if (_statusTimed && (k === 'status' || k === 'pauseHistory' || k === 'statusUpdatedAt')) return;
+      if (k === 'emergencyContacts') { if (_ecm.emergencyContacts !== undefined) out[k] = _ecm.emergencyContacts; return; } // ★ 2026-11-16 1116d
+      if (k === '_deletedEC') { if (_ecm._deletedEC.length) out[k] = _ecm._deletedEC; return; }
       // ★ フィールド単位保護対象 かつ どちらかに _fieldTs があれば、その項目だけ新しい方を採用(生ローカル/雲を参照)。
       //   これで「別項目を編集した古い端末」が基本利用日/送迎/緊急連絡先を巻き戻さない。 時刻が無い項目は従来処理へ。
       if (PATIENT_FIELDLEVEL.has(k)) {
