@@ -21919,6 +21919,9 @@ export default function App() {
       // ★ 2026-10-27: 通知を押して開いたとき(?tsugo=schedule)はカレンダーへ。URL の印は消す
       try { const _q = new URLSearchParams(window.location.search); const _go = _q.get('tsugo'); if (_go === 'schedule' || _go === 'dashboard') { _q.delete('tsugo'); const _u = window.location.pathname + (_q.toString() ? `?${_q}` : '') + window.location.hash; window.history.replaceState(null, '', _u); return _go; } } catch {} // ★ 2026-10-30: タスクのお知らせはホーム(dashboard)
       const _noResume = sessionStorage.getItem('tsumugiNoResume') === '1'; if (_noResume) sessionStorage.removeItem('tsumugiNoResume'); // ★ 2026-10-26: ログアウト直後はホームから
+      // ★ 2026-11-17(ユーザー報告「ログイン後に利用者マスタを開くと前に開いていた個人ファイルが開く」): 開いたままの個人ファイルの控え(keep)は
+      //   「再読み込みで同じ画面に戻す」ときだけ使う。見ていた画面に戻らない起動(ログアウト後・12時間超)では捨てる
+      const _dropPF = () => { try { const r = sessionStorage.getItem('tsumugiReopenPF'); if (r && JSON.parse(r).keep) sessionStorage.removeItem('tsumugiReopenPF'); } catch {} };
       const raw = _noResume ? null : sessionStorage.getItem('tsumugi_resume_view');
       if (raw) {
         sessionStorage.removeItem('tsumugi_resume_view');
@@ -21927,9 +21930,11 @@ export default function App() {
           if (o.pid != null) window.__tsumugiResumePid = o.pid;
           if (o.date) window.__tsumugiResumeDate = o.date;   // ★ 2026-10-17: 見ていた日付・午前/午後も戻す
           if (o.ampm) window.__tsumugiResumeAmpm = o.ampm;
+          if (o.view !== 'master') _dropPF();
           return o.view;
         }
       }
+      _dropPF();
     } catch {}
     return 'dashboard';
   });
@@ -23811,7 +23816,7 @@ export default function App() {
     sessionStorage.removeItem('tsumugiStaffSession');
     sessionStorage.removeItem('tsumugiActiveRecorder');
     // ★ 2026-10-26(ユーザー報告「ログアウトしてログインするとホームでなく事業所情報になる」): 見ていた画面の控え(今すぐ更新用)はログアウトでは使わない
-    try { sessionStorage.removeItem('tsumugi_resume_view'); sessionStorage.removeItem('tsumugiSettingsOrigin'); sessionStorage.setItem('tsumugiNoResume', '1'); } catch {}
+    try { sessionStorage.removeItem('tsumugi_resume_view'); sessionStorage.removeItem('tsumugiSettingsOrigin'); sessionStorage.removeItem('tsumugiReopenPF'); sessionStorage.removeItem('tsumugiPFOrigin'); sessionStorage.setItem('tsumugiNoResume', '1'); } catch {} // ★ 2026-11-17: 開いたままの個人ファイルの控えもログアウトでは使わない
     // ★ 2026-10-08(店舗報告: iPhoneでアプリを開いたままログアウト→ログインすると画面の上の方が白いまま。アプリを起動し直すと正常):
     //   同じ画面のままログイン画面⇔アプリを切り替えると、iPhone の描画が前の画面の区画を残す。ログアウトしたら画面を読み込み直し、
     //   起動し直したときと同じ状態でログイン画面を出す(店舗切替と同じ方式。メモリも片付く)。
@@ -43861,6 +43866,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   React.useEffect(() => { const h = (e) => { _pfTabRef.current = e.detail && e.detail.tab; try { if (personalFileModal) sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: personalFileModal.patient.id, tab: _pfTabRef.current || personalFileModal.initialTab || 'cat_1', keep: true })); } catch {} }; window.addEventListener('tsumugi-pf-tab', h); return () => window.removeEventListener('tsumugi-pf-tab', h); }, [personalFileModal]);
   React.useEffect(() => { try { if (personalFileModal) sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: personalFileModal.patient.id, tab: _pfTabRef.current || personalFileModal.initialTab || 'cat_1', keep: true })); else { const raw = sessionStorage.getItem('tsumugiReopenPF'); if (raw && JSON.parse(raw).keep) sessionStorage.removeItem('tsumugiReopenPF'); } } catch {} }, [personalFileModal]);
   React.useEffect(() => { window.addEventListener('tsumugiReopenPF', _reopenPF); return () => window.removeEventListener('tsumugiReopenPF', _reopenPF); }, [_reopenPF]);
+  // ★ 2026-11-17: 個人ファイルを開いたまま別の画面へ移ったら(この画面が片付くとき)開いたままの控え(keep)は捨てる。
+  //   再読み込み(今すぐ更新)では片付けが走らないので、戻ってきたときにだけ開き直す(10/17 の動きはそのまま)
+  React.useEffect(() => () => { try { const r = sessionStorage.getItem('tsumugiReopenPF'); if (r && JSON.parse(r).keep) sessionStorage.removeItem('tsumugiReopenPF'); } catch {} }, []);
 
   // ★ アカウント管理モーダルを開いた時 + 10秒ごと、Supabase から最新の家族招待/アカウントを取得
   //   (登録した家族の状態が「未使用」のまま固まらないように)
