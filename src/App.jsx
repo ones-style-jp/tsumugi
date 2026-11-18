@@ -42284,7 +42284,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <div className="fixed inset-0 bg-slate-900/60 flex items-start justify-center p-4 pt-24" style={{zIndex:10000}} onClick={()=>setEditP(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e=>e.stopPropagation()}>
               <div className="font-bold text-slate-800 text-lg mb-1">{pt.name} 様</div>
-              <div className="text-xs text-slate-500 mb-2">住所: {pt.address || '（未入力・利用者マスタで入力）'}</div>
+              <div className="text-xs text-slate-500 mb-1">住所: {pt.address || '（未入力・利用者マスタで入力）'}</div>
+              {/* ★ 2026-11-18 trial587(ユーザー要望「パソコン版の送迎表で名前を押した小窓に、住所のほかに電話番号も。押して電話をかけて確認したい」):
+                  送迎時の連絡先の順(tsumugiPickupCalls: かける相手→本人の携帯→固定)で番号を並べ、押すと tel: で発信(スマホ/iPad)。番号が無ければ「電話未登録」 */}
+              {(() => { const _cs = tsumugiPickupCalls(pt); return (
+                <div data-testid="tp-edit-tel" className="flex items-baseline gap-x-3 gap-y-0.5 flex-wrap text-[14px] mb-2">
+                  <span className="text-xs text-slate-500">電話:</span>
+                  {_cs.length ? _cs.map((cc, j) => <a key={cc.phone} href={`tel:${cc.phone.replace(/[^0-9+]/g, '')}`} data-testid={`tp-edit-tel-${j}`} className={`whitespace-nowrap tabular-nums font-bold underline decoration-dotted underline-offset-2 ${j === 0 ? 'text-slate-800' : 'text-slate-500'}`}>{cc.label !== '本人' || j > 0 ? `${cc.label} ` : ''}{cc.phone}</a>) : <span className="text-xs text-slate-400">電話未登録（利用者マスタで入力）</span>}
+                </div>); })()}
               {/* ★ 2026-10-02(試験版・ユーザー要望): 休み・振替・休止はここから月間スケジュールへ */}
               {navigateTo && <button type="button" data-testid="tp-edit-schedule" onClick={()=>{ setEditP(null); navigateTo('master', pt.id, 'schedule'); }} className="w-full mb-3 py-2 rounded-xl font-bold text-sm bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100">月間スケジュールへ移動（休み・振替・休止）</button>}
               <label className="block text-xs font-bold text-slate-600 mb-1">待ち合わせ場所</label>
