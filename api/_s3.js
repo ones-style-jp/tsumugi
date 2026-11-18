@@ -15,7 +15,8 @@ import { getSecret } from './_secrets.js';
 export const AWS_KEYS = {
   accessKeyId: { env: 'AWS_ACCESS_KEY_ID', dbKey: 'aws_access_key_id' },
   secretAccessKey: { env: 'AWS_SECRET_ACCESS_KEY', dbKey: 'aws_secret_access_key' },
-  region: { env: 'AWS_REGION', dbKey: 'aws_region' },
+  // ★ 2026-11-18 1118c: Vercel の実行環境が AWS_REGION(関数の動作地域)を自動で入れるため、環境変数優先の決まりで大阪にならなかった → 名前を TSUMUGI_AWS_REGION に
+  region: { env: 'TSUMUGI_AWS_REGION', dbKey: 'aws_region' },
   bucket: { env: 'AWS_BUCKET', dbKey: 'aws_bucket' },
 };
 export const DEFAULT_REGION = 'ap-northeast-3'; // 大阪
