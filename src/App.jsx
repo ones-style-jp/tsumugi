@@ -32406,7 +32406,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           const showLabel=(i)=>dailyData.length<=8||i===0||i===dailyData.length-1||i%Math.ceil(dailyData.length/7)===0;
 
           // Stats — ★ 血圧・脈は表示中フェーズに連動 (開始/終了/両方)。 temp は開始のみ。
-          const _arrOf=(sF,eF)=>{const out=[];dailyData.forEach(d=>{ if(vitalPhase!=='end' && d[sF]!=null) out.push({v:d[sF],date:d.date}); if(vitalPhase!=='start' && eF && d[eF]!=null) out.push({v:d[eF],date:d.date}); });return out;};
+          // ★ 2026-11-18 trial588(ユーザー報告「分析(個人)で脈拍の最低が 58 の日があるのに 60、最高も 62 があるのに 61 と出る」): 6か月以上(または月別)の表示では dailyData が
+          //   月平均になるため、最高・最低の箱まで「月平均の中の最高・最低」になっていた(血圧は値そのもの、体温・脈は日付が「—」)。箱は期間の切り替えに関わらず日ごとの実測(rawData)から出す。グラフの印は月平均のまま(ラベルで「月平均」と明記)
+          const _arrOf=(sF,eF)=>{const out=[];rawData.forEach(d=>{ if(vitalPhase!=='end' && d[sF]!=null) out.push({v:d[sF],date:d.date}); if(vitalPhase!=='start' && eF && d[eF]!=null) out.push({v:d[eF],date:d.date}); });return out;};
           const bpUpA=_arrOf('bpUp','bpUpEn'); const bpUpVals=bpUpA.map(x=>x.v);
           const maxBpUp=bpUpVals.length?Math.max(...bpUpVals):null;
           const minBpUp=bpUpVals.length?Math.min(...bpUpVals):null;
@@ -32418,8 +32420,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           const maxBpDnDate=maxBpDnVal!=null?bpDnA.find(x=>x.v===maxBpDnVal)?.date:'';
           const minBpDnDate=minBpDnVal!=null?bpDnA.find(x=>x.v===minBpDnVal)?.date:'';
           const tempVals=dailyData.filter(d=>d.temp).map(d=>d.temp);
-          const maxTempDate=maxTemp?dailyData.find(d=>d.temp===maxTemp)?.date:'';
-          const minTempDate=minTemp?dailyData.find(d=>d.temp===minTemp)?.date:'';
+          const maxTempDate=maxTemp?rawData.find(d=>d.temp===maxTemp)?.date:'';
+          const minTempDate=minTemp?rawData.find(d=>d.temp===minTemp)?.date:'';
           const pulseA=_arrOf('pulse','pulseEn'); const pulseVals=pulseA.map(x=>x.v);
           const maxPulseDate=maxPulse!=null?pulseA.find(x=>x.v===maxPulse)?.date:'';
           const minPulseDate=minPulse!=null?pulseA.find(x=>x.v===minPulse)?.date:'';
@@ -32442,6 +32444,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             const ptsE2 = (_phase==='both') ? ptsE2all : [];
             if(!pts1.length && !ptsE1.length) return <div style={{height:H+30,display:'flex',alignItems:'center',justifyContent:'center',color:'#e2e8f0',fontSize:13}}>データなし</div>;
             const mn=yMin, mx=yMax, rng=mx-mn;
+            const _avgLbl = dailyData !== rawData; /* ★ 2026-11-18 trial588: 月平均の表示では印のラベルに「月平均」を付ける(上の箱は日ごとの実測) */ const _lw = _avgLbl ? 58 : 40;
             // ★ Y 軸の真上に重ならないよう半ステップ右にずらして開始 (運動トレンドと統一)
             const xPV=(i)=>PAD_X + _STEP/2 + i*_STEP;
             const yP=(v)=>8+((mx-v)/rng)*(H-16);
@@ -32507,23 +32510,23 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                   {minP2&&<circle cx={xPV(minP2.i)} cy={yP(minP2.v)} r={11} fill="none" stroke="#3b82f6" strokeWidth={2.5} opacity={0.45} pointerEvents="none"/>}
                   {/* max ラベル（pts1） */}
                   {maxP1&&<g>
-                    <rect x={xPV(maxP1.i)-20} y={yP(maxP1.v)-22} width={40} height={14} rx={3} fill="#ef4444" opacity={0.85}/>
-                    <text x={xPV(maxP1.i)} y={yP(maxP1.v)-12} textAnchor="middle" fontSize={8} fill="white" fontWeight="bold">最高</text>
+                    <rect x={xPV(maxP1.i)-_lw/2} y={yP(maxP1.v)-22} width={_lw} height={14} rx={3} fill="#ef4444" opacity={0.85}/>
+                    <text x={xPV(maxP1.i)} y={yP(maxP1.v)-12} textAnchor="middle" fontSize={8} fill="white" fontWeight="bold">{_avgLbl?'月平均 最高':'最高'}</text>
                   </g>}
                   {/* min ラベル（pts1） */}
                   {minP1&&<g>
-                    <rect x={xPV(minP1.i)-20} y={yP(minP1.v)+8} width={40} height={14} rx={3} fill="#3b82f6" opacity={0.85}/>
-                    <text x={xPV(minP1.i)} y={yP(minP1.v)+18} textAnchor="middle" fontSize={8} fill="white" fontWeight="bold">最低</text>
+                    <rect x={xPV(minP1.i)-_lw/2} y={yP(minP1.v)+8} width={_lw} height={14} rx={3} fill="#3b82f6" opacity={0.85}/>
+                    <text x={xPV(minP1.i)} y={yP(minP1.v)+18} textAnchor="middle" fontSize={8} fill="white" fontWeight="bold">{_avgLbl?'月平均 最低':'最低'}</text>
                   </g>}
                   {/* max ラベル（pts2） */}
                   {maxP2&&<g>
-                    <rect x={xPV(maxP2.i)-20} y={yP(maxP2.v)-22} width={40} height={14} rx={3} fill="#ef4444" opacity={0.6}/>
-                    <text x={xPV(maxP2.i)} y={yP(maxP2.v)-12} textAnchor="middle" fontSize={8} fill="white" fontWeight="bold">最高</text>
+                    <rect x={xPV(maxP2.i)-_lw/2} y={yP(maxP2.v)-22} width={_lw} height={14} rx={3} fill="#ef4444" opacity={0.6}/>
+                    <text x={xPV(maxP2.i)} y={yP(maxP2.v)-12} textAnchor="middle" fontSize={8} fill="white" fontWeight="bold">{_avgLbl?'月平均 最高':'最高'}</text>
                   </g>}
                   {/* min ラベル（pts2） */}
                   {minP2&&<g>
-                    <rect x={xPV(minP2.i)-20} y={yP(minP2.v)+8} width={40} height={14} rx={3} fill="#3b82f6" opacity={0.6}/>
-                    <text x={xPV(minP2.i)} y={yP(minP2.v)+18} textAnchor="middle" fontSize={8} fill="white" fontWeight="bold">最低</text>
+                    <rect x={xPV(minP2.i)-_lw/2} y={yP(minP2.v)+8} width={_lw} height={14} rx={3} fill="#3b82f6" opacity={0.6}/>
+                    <text x={xPV(minP2.i)} y={yP(minP2.v)+18} textAnchor="middle" fontSize={8} fill="white" fontWeight="bold">{_avgLbl?'月平均 最低':'最低'}</text>
                   </g>}
                   {/* 通常ドット（pts1） */}
                   {pts1.map(p=>{
