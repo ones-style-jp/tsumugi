@@ -255,3 +255,13 @@ AWS の請求は毎月、1-2 で入れたメールアドレスに来ます。**5
 | 1回の上限 | 150 ファイル・45 秒(`vercel.json` の maxDuration 60)。残りは次の晩 |
 | 署名 | AWS 署名 v4 を `api/_s3.js` で自前(依存の追加なし)。Object Lock のため PutObject に Content-MD5 を付ける |
 | 消す操作 | どこにも無い(Supabase 側は読むだけ・S3 側は置くだけ) |
+
+---
+
+## 付記(2026-11-18 本部の実施記録)
+
+- 新しい AWS の画面(ビルダー ID・「プロジェクト」方式)では、プロジェクト側の口座(Hello World)は地域がシドニー限定で、大阪にバケットを作る権限もありません。**バケットと IAM は「管理アカウント(honbu-Team Management Account)」に作りました。** 設定画面 → 管理アカウント → 「組織を一元管理する」で入れます。
+- 右上に大阪が出ないときは、歯車 → 統一された設定 → ユーザー設定 → 「デフォルトのリージョン」を大阪にして「新しいデフォルトのリージョンに移動」。
+- 管理局のリージョンの欄は空欄のままで大阪になります(1118c で環境変数名を TSUMUGI_AWS_REGION に変更。Vercel が AWS_REGION を自動で入れるため)。
+- 11/18 接続テスト成功。Hello World / Identity Delegated Admin の口座は消さずに残す(閉鎖は控えが数日動いたあとに検討)。
+- 管理局の合言葉(ADMIN_API_SECRET)は Vercel で「Secret」型のため再表示できません。忘れたら Vercel → Settings → Environment Variables で新しい値を入れて保存 → Deployments → Redeploy。
