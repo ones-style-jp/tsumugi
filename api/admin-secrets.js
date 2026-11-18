@@ -31,8 +31,10 @@ async function listAll() {
     const fields = [];
     for (const f of s.fields || []) {
       const st = await getSecretStatus(f.env, f.dbKey);
+      // ★ 2026-11-18 1118d: パスワードの類(シークレットキー・合言葉・アプリパスワード)は画面に文字を一切出さない(先頭6+末尾4でも画面越しの漏れになる)。ID・バケット名などの text だけ一部を見せる
+      if (f.type === 'password' && st.masked) st.masked = '****';
       fields.push({
-        env: f.env, dbKey: f.dbKey, label: f.label, type: f.type, placeholder: f.placeholder || '', note: f.note || '',
+        env: f.env, dbKey: f.dbKey, label: f.label, type: f.type, placeholder: f.placeholder || '', note: f.note || '', optional: !!f.optional,
         ...st,
         editable: !!f.dbKey && st.source !== 'env',
       });
@@ -40,7 +42,7 @@ async function listAll() {
     out.push({
       id: s.id, name: s.name, vendor: s.vendor || '', desc: s.desc, status: s.status,
       required: !!s.required, envOnly: !!s.envOnly, test: s.test || null,
-      configured: fields.length > 0 && fields.every((f) => f.configured),
+      configured: fields.length > 0 && fields.every((f) => f.configured || f.optional), // ★ 1118d: 任意の欄(リージョン=空なら大阪)は未設定でも「設定済み」
       fields,
     });
   }
