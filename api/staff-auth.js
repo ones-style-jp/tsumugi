@@ -311,7 +311,12 @@ export default async function handler(req, res) {
       const username = String(body.username || '').trim();
       const hash = String(body.password_hash || '').trim();
       if (!username || !/^[0-9a-f]{64}$/.test(hash)) return res.status(400).json({ error: 'IDまたはパスワードが違います' });
-      const rows = await sb(`staff?select=*,stores(id,name,short_name)&username=eq.${encodeURIComponent(username)}&password_hash=eq.${encodeURIComponent(hash)}&is_active=eq.true&deleted_at=is.null&limit=1`);
+      let rows = await sb(`staff?select=*,stores(id,name,short_name)&username=eq.${encodeURIComponent(username)}&password_hash=eq.${encodeURIComponent(hash)}&is_active=eq.true&deleted_at=is.null&limit=1`);
+      // ★ 2026-11-19 trial591(ユーザー「メールアドレスがIDになる方が楽では」): ID の欄にメールアドレスを入れたら、メールでも探す(ID で見つからなかったときだけ・パスワードも一致する人)。同じメールが複数いても、パスワードまで一致する人が1人だけなら通す
+      if (!(Array.isArray(rows) && rows.length) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
+        const byMail = await sb(`staff?select=*,stores(id,name,short_name)&email=ilike.${encodeURIComponent(username.replace(/[\\%_]/g, (c) => '\\' + c))}&password_hash=eq.${encodeURIComponent(hash)}&is_active=eq.true&deleted_at=is.null&limit=2`);
+        rows = (Array.isArray(byMail) && byMail.length === 1) ? byMail : [];
+      }
       const staff = Array.isArray(rows) ? rows[0] : null;
       if (!staff) { await loginFailNote(username); await sleep(FAIL_DELAY); return res.status(401).json({ error: 'IDまたはパスワードが違います' }); }
       // ★ 2026-10-19 本部の2段階認証(super_admin): メールの確認コード

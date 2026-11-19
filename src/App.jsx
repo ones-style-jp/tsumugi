@@ -21753,7 +21753,7 @@ function StaffLoginGate({ onLogin }) {
         )}{/* ★ 2026-11-01 従業員のパスキー: 登録した端末だけ。下の ID・パスワードも今までどおり使える */}
         <form onSubmit={handleSubmit}>
           <div style={{marginBottom:14}}>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID<span style={{fontWeight:'normal',color:'#64748b',marginLeft:6}}>（登録したメールアドレスでも入れます）</span></label>{/* ★ 2026-11-19 trial591: ID の欄にメールアドレスも可(サーバーが ID で見つからなければメールで探す) */}
             <ImeSafeInput value={form.username} onChange={e=>setForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}))} autoFocus={!_ios} autoComplete="username webauthn" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
               style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>{/* ★ 2026-11-01 trial496: "webauthn" で ID 欄にパスキーの候補(指紋・顔)が出る */}
           </div>
