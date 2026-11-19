@@ -63562,6 +63562,21 @@ function TsuMeetFields({ form, onChange, patient, fs = 14, fill = false }) {
       <span style={lb}>開催理由（選んで、補足があれば入力）</span>
       <TsuMeetReasonPicker patient={patient} value={{ reasonType: form.reasonType, reasonNote: form.reasonNote, careBefore: form.careBefore, careAfter: form.careAfter }} onChange={v => onChange({ ...v })} fs={fs} />
     </div>
+    {/* ★ 2026-11-19 trial605(ユーザー「担会の記録で既往歴や留意点を入力したらフェイスシートに自動反映。既存の内容が表示された状態で編集できるように」):
+        フェイスシートの今の既往歴・留意点を出し、ここで直して保存するとフェイスシート(利用者マスタ)にも反映。変更履歴と支援経過表にも「既往歴変更」として残る */}
+    <div style={card} data-testid="meet-medical">
+      <span style={lb}>既往歴・留意点（フェイスシートと同じ内容。ここで直して保存すると、フェイスシートにも反映されます）</span>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8 }}>
+        {[['kiou', '既往歴', '例: 高血圧、〇年〇月 右大腿骨骨折（手術）'], ['ryui', '留意点（スタッフへの申し送り）', '例: 歩行時は見守り。血圧が高い日は運動を控える']].map(([k, label, ph]) => {
+          const cur = patient ? String(patient[k] || '') : ''; const v = form[k] != null ? String(form[k]) : cur; const changed = v !== cur;
+          return (
+            <div key={k}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}><span style={{ fontSize: Math.max(10, fs - 3), fontWeight: 'bold', color: '#475569' }}>{label}</span>{changed && <span data-testid={`meet-${k}-changed`} style={{ fontSize: Math.max(9, fs - 5), fontWeight: 'bold', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '1px 6px' }}>保存するとフェイスシートに反映</span>}</div>
+              <textarea data-testid={`meet-${k}`} value={v} onChange={e => onChange({ [k]: e.target.value })} rows={3} placeholder={ph} style={{ ...inp, fontWeight: 'normal', width: '100%', minHeight: fs * 5, resize: 'vertical', lineHeight: 1.5 }} />
+            </div>);
+        })}
+      </div>
+    </div>
     {/* 検討した項目: 枠は縮まない(中の欄が枠からはみ出さない)。1枚に入る量を超えたら、続きを次のページにするか聞く */}
     {pages.map((txt, i) => { const room = tsuMeetRoom(txt, i === 0); const grow = fill && i === pages.length - 1;
       return (
@@ -63663,7 +63678,15 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
     const _has = (pf.meetings||[]).some(m=>m.id===fl.meetingId);
     if (!_has && !fl.isNew && !fl.init) return;
     const list = _has ? (pf.meetings||[]).map(m => m.id===fl.meetingId ? _row(m) : m) : [...(pf.meetings||[]), _row({ id: fl.meetingId })];
-    sv({ ...ad, patients: ad.patients.map(p=>p.id===pt.id?{...pt, personalFile:{...pf, meetings:list}}:p) }, { silent: true });
+    // ★ 2026-11-19 trial605: 記録の中で既往歴・留意点を直していたら、フェイスシート(利用者マスタ)にも反映し、変更履歴(→支援経過表)に残す
+    let ptNext = { ...pt, personalFile: { ...pf, meetings: list } };
+    const _today = tsuTodayIso(); let _synced = [];
+    [['kiou', '既往歴'], ['ryui', '留意点']].forEach(([k, label]) => {
+      if (dr[k] == null) return; const nv = String(dr[k]); const ov = String(pt[k] || ''); if (nv === ov) return;
+      ptNext = { ...ptNext, [k]: nv, changeLog: [...(ptNext.changeLog || []), { date: _today, field: k, label, oldValue: ov || '未設定', newValue: nv || '（空）', note: '担当者会議の記録から' }] }; _synced.push(label);
+    });
+    sv({ ...ad, patients: ad.patients.map(p=>p.id===pt.id?ptNext:p) }, { silent: true });
+    if (_synced.length) { try { tsuPopNotice(`${_synced.join('・')}をフェイスシートにも反映しました`, 2400); } catch {} }
     setSavedAt(new Date()); tsuMeetDraftClear(fl.patientId, fl.meetingId);
   };
   // ★ 明示保存型(2026-08-28 店舗要望): 自動保存はせず、下部の「保存」で確定・「終了」で破棄。
