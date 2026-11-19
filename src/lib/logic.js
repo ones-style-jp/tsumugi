@@ -222,6 +222,36 @@ export const mergeSalesRecords = (localArr, cloudArr) => {
   });
   return [...map.values()].sort((a, b) => String(a.month).localeCompare(String(b.month)));
 };
+// ★ 2026-11-19 1119e/trial596(ユーザー「売上のように同期で消えるものが他に無いか調べて直して」): 棚卸しで見つかった「丸ごと手元優先」の3つ。
+//   storeMembers(職員名簿)= id で合成(_savedAt の新しい方・無ければ手元)。削除は墓石(deletedIds.storeMembers)で消す(他端末の追加を潰さない)
+//   familyTokkiOverrides(特記の家族 表示/非表示)= 利用者×日付(または記録ID)ごとに at の新しい方。片方にしか無い印は残す
+//   noticeReads(お知らせの既読)= 職員キーごとに和集合(最大1000)
+export const mergeStoreMembers = (localArr, cloudArr, tomb) => {
+  const l = Array.isArray(localArr) ? localArr : [], c = Array.isArray(cloudArr) ? cloudArr : []; const t = tomb || {};
+  const map = new Map(); const order = [];
+  c.forEach(m => { if (m && m.id != null) { const k = String(m.id); if (!map.has(k)) order.push(k); map.set(k, m); } });
+  l.forEach(m => { if (!m || m.id == null) return; const k = String(m.id); const ex = map.get(k); if (!ex) { order.push(k); map.set(k, m); return; }
+    const lt = Number(m._savedAt) || 0, ct = Number(ex._savedAt) || 0; if (lt >= ct) map.set(k, m); });
+  return order.filter(k => !t[k]).map(k => map.get(k));
+};
+export const mergeFamilyTokkiOverrides = (local, cloud) => {
+  const lo = (local && typeof local === 'object') ? local : {}, co = (cloud && typeof cloud === 'object') ? cloud : {};
+  const out = {};
+  new Set([...Object.keys(co), ...Object.keys(lo)]).forEach(pid => {
+    const a = (lo[pid] && typeof lo[pid] === 'object') ? lo[pid] : {}, b = (co[pid] && typeof co[pid] === 'object') ? co[pid] : {};
+    const m = {};
+    new Set([...Object.keys(b), ...Object.keys(a)]).forEach(k => { const av = a[k], bv = b[k]; if (av == null) { m[k] = bv; return; } if (bv == null) { m[k] = av; return; }
+      const at = Number(av && av.at) || 0, bt = Number(bv && bv.at) || 0; m[k] = (bt > at) ? bv : av; });
+    if (Object.keys(m).length) out[pid] = m;
+  });
+  return out;
+};
+export const mergeNoticeReads = (local, cloud) => {
+  const lo = (local && typeof local === 'object') ? local : {}, co = (cloud && typeof cloud === 'object') ? cloud : {};
+  const out = {};
+  new Set([...Object.keys(co), ...Object.keys(lo)]).forEach(k => { const u = [...new Set([...(Array.isArray(co[k]) ? co[k] : []), ...(Array.isArray(lo[k]) ? lo[k] : [])].map(String))]; out[k] = u.slice(-1000); });
+  return out;
+};
 // ★ 2026-10-30: カレンダーのタスクの済み(done[日付] = {by, at} / 戻したら {off:true, by, at})を、日付ごとに新しい方(at)でまとめる。
 //   win(全体で新しい方)を基に、lose にしかない日付・lose の方が新しい日付を足す。変わらなければ win をそのまま返す
 export const mergeTaskDone = (win, lose) => {

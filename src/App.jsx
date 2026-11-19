@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
+import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
 import { PATIENT_TEXT_FL, mergeEmergencyContacts } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL) ★ 2026-11-16 1116d: 緊急連絡先の付き合わせ
 import {
   isSupabaseEnabled,
@@ -1141,6 +1141,8 @@ const exUnitLabel = (item) => {
 // === 現在の記録者 (アクティブスタッフ) の名前を sessionStorage から取得 ===
 //    全画面共通で「今このスタッフが操作している」の情報源
 //    体力測定の記録者 / 提供記録の担当者 / 日誌の記録者 / FAX 担当者 などの初期値に
+// ★ 2026-11-19 trial596(ユーザー「本部のアカウントで入ったら、日誌の記録者などの自動チェックは何も働かないように。FC の店舗で関係ない印が付くのは困る」)
+const tsuIsHqSession = () => { try { const s = JSON.parse(sessionStorage.getItem('tsumugiStaffSession') || 'null'); return !!(s && s.role === 'super_admin'); } catch { return false; } };
 const getActiveRecorderName = () => {
   try {
     const saved = sessionStorage.getItem('tsumugiActiveRecorder');
@@ -15652,10 +15654,8 @@ function FamilyAdminView({ appData, onSave }) {
   const familyTokkiOverrides = appData.familyTokkiOverrides || {};
   const setTokkiOverride = (pid, recId, override) => {
     const current = familyTokkiOverrides[pid] || {};
-    const updated = { ...current, [recId]: override };
-    if (!override || (override.visible !== false && !override.text)) {
-      delete updated[recId];
-    }
+    // ★ 2026-11-19 1119e: 消す(表示に戻す)ときも「表示・時刻つき」で残す(同期で古い非表示が復活しないように)
+    const updated = { ...current, [recId]: (!override || (override.visible !== false && !override.text)) ? { visible: true, at: Date.now() } : { ...override, at: Date.now() } };
     onSave({ ...appData, familyTokkiOverrides: { ...familyTokkiOverrides, [pid]: updated } });
   };
   // 共通ログインURL
@@ -23024,6 +23024,12 @@ export default function App() {
               const ms = mergeSalesRecords(prev.salesRecords, merged.salesRecords);
               if (JSON.stringify(ms) !== JSON.stringify(Array.isArray(merged.salesRecords) ? merged.salesRecords : [])) { merged.salesRecords = ms; _mergedForPush = merged; syncLog('pull-preserve', { key: 'salesRecords', n: ms.length }); }
             } catch (e) { console.warn('[pull preserve] salesRecords failed', e); }
+            // ★ 2026-11-19 1119e: 職員名簿・特記の家族表示・お知らせ既読も pull で合成(規則は push と共通)
+            try {
+              const _tombSm = ((merged.deletedIds || {}).storeMembers) || {};
+              const pairs = [['storeMembers', mergeStoreMembers(prev.storeMembers, merged.storeMembers, _tombSm)], ['familyTokkiOverrides', mergeFamilyTokkiOverrides(prev.familyTokkiOverrides, merged.familyTokkiOverrides)], ['noticeReads', mergeNoticeReads(prev.noticeReads, merged.noticeReads)]];
+              pairs.forEach(([k, v]) => { if (JSON.stringify(v) !== JSON.stringify(merged[k] == null ? (Array.isArray(v) ? [] : {}) : merged[k])) { merged[k] = v; _mergedForPush = merged; syncLog('pull-preserve', { key: k }); } });
+            } catch (e) { console.warn('[pull preserve] members/tokki/notice failed', e); }
           }
           // ★ お知らせの既読(noticeReads)は pull で巻き戻さない。 pull は丸ごと置換なので、
           //   既読にした直後(push完了前)に受信すると未読へ戻ってしまう
@@ -25179,7 +25185,7 @@ export default function App() {
         }
         setAppData(prev => ({
           ...prev,
-          storeMembers: dupStoreMember ? (prev.storeMembers||[]) : [...(prev.storeMembers || []), m],
+          storeMembers: dupStoreMember ? (prev.storeMembers||[]) : [...(prev.storeMembers || []), { ...m, _savedAt: Date.now() }], // ★ 1119e
           diarySettings: dupDiaryStaff ? (prev.diarySettings || {staff:[],cars:[],scheduleAM:[],schedulePM:[]}) : {
             ...(prev.diarySettings || {staff:[],cars:[],scheduleAM:[],schedulePM:[]}),
             staff: [
@@ -25196,7 +25202,7 @@ export default function App() {
         const _tn = _tgt ? normalizeName(_tgt.name).trim() : null;
         setAppData(prev => ({
           ...prev,
-          storeMembers: (prev.storeMembers || []).filter(m => m.id !== memberId),
+          storeMembers: (prev.storeMembers || []).filter(m => m.id !== memberId), deletedIds: addTombstone(prev, 'storeMembers', memberId), // ★ 1119e: 墓石(他端末の古い名簿で復活しない)
           diarySettings: {
             ...(prev.diarySettings || {staff:[],cars:[],scheduleAM:[],schedulePM:[]}),
             // ★ 2026-11-04 trial519: 消さずに「いつまで=今日」を付ける(過去の日誌・送迎表に残す)
@@ -26511,7 +26517,7 @@ export default function App() {
                   const _pn = normalizeName(_nm).trim();
                   handleSaveToCloud({
                     ...appData,
-                    storeMembers: (appData.storeMembers||[]).filter(m => m.id !== eid),
+                    storeMembers: (appData.storeMembers||[]).filter(m => m.id !== eid), deletedIds: addTombstone(appData, 'storeMembers', eid), // ★ 1119e: 墓石
                     diarySettings: {
                       ...(appData.diarySettings || {staff:[],cars:[],scheduleAM:[],schedulePM:[]}),
                       staff: (appData.diarySettings?.staff||[]).filter(x =>
@@ -26578,7 +26584,7 @@ export default function App() {
                     ];
                 handleSaveToCloud({
                   ...appData,
-                  storeMembers: [...(appData.storeMembers || []), newMember],
+                  storeMembers: [...(appData.storeMembers || []), { ...newMember, _savedAt: Date.now() }], // ★ 1119e
                   diarySettings: {
                     ...(appData.diarySettings || {staff:[],cars:[],scheduleAM:[],schedulePM:[]}),
                     staff: newDiaryStaff,
@@ -27035,7 +27041,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const _dObj = new Date(selectedDate); const dateKey = p.date || `${_dObj.getMonth()+1}月${_dObj.getDate()}日`;
     const ftoPid = (appData.familyTokkiOverrides||{})[pid] || {}; const ov = ftoPid[dateKey] || ftoPid[recId] || {};
     const isVisible = ov.visible !== false;
-    const toggle = () => { const fto = appData.familyTokkiOverrides || {}; const cur = fto[pid] || {}; const newOv = {...ov, visible: !isVisible}; const next = {...cur, [dateKey]: newOv}; if (p.recordId) next[p.recordId] = newOv; onSave({...appData, familyTokkiOverrides: {...fto, [pid]: next}}); };
+    const toggle = () => { const fto = appData.familyTokkiOverrides || {}; const cur = fto[pid] || {}; const newOv = {...ov, visible: !isVisible, at: Date.now()}; /* ★ 1119e: 時刻 */ const next = {...cur, [dateKey]: newOv}; if (p.recordId) next[p.recordId] = newOv; onSave({...appData, familyTokkiOverrides: {...fto, [pid]: next}}); };
     // 欠席・休止の特記=休みの理由はご家族へ必ず表示(2026-08-21)なのでボタンを出さない
     const canToggle = !!isEditMode && p.status !== '欠席' && p.status !== '休止';
     return { isVisible, toggle, canToggle };
@@ -29735,7 +29741,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       const toggleVisible = () => {
                         const fto = appData.familyTokkiOverrides || {};
                         const cur = fto[pid] || {};
-                        const newOv = {...ov, visible: !isVisible};
+                        const newOv = {...ov, visible: !isVisible, at: Date.now()}; /* ★ 1119e: 時刻 */
                         const next = {...cur, [dateKey]: newOv};
                         // 保存済みレコードならrecordIdキーにも同期保存
                         if (p.recordId) next[p.recordId] = newOv;
@@ -51994,7 +52000,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     //   担当職員への自動チェックは廃止(2026-08-31 店舗要望: 送迎者/記録者の候補が担当職員チェック者に
     //   絞られるため、自動チェック1人に固定されると他の職員を選べなくなる。出勤者は手動でチェックする)
     //   休業日・定休日は勤務ではないため自動チェックしない(2026-08-28 店舗要望)
-    const activeName = _dayIsKyugyo(selectedDate, dow) ? '' : getActiveRecorderName();
+    const activeName = (_dayIsKyugyo(selectedDate, dow) || tsuIsHqSession()) ? '' : getActiveRecorderName(); // ★ trial596: 本部で入っているときは自動チェックしない
     if (activeName) {
       const matched = (appData.diarySettings?.staff || []).find(s => s.name === activeName);
       if (matched) {
@@ -52108,7 +52114,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   //   (担当職員への自動チェックは廃止・2026-08-31 店舗要望。手動チェックには触らない)
   const _activeRecForDailyLog = getActiveRecorderName();
   React.useEffect(() => {
-    if (!_activeRecForDailyLog) return;
+    if (!_activeRecForDailyLog || tsuIsHqSession()) return; // ★ trial596: 本部で入っているときは付け替えもしない
     if (_dayIsKyugyo(selectedDate, dow)) return; // ★ 休業日・定休日は自動チェックしない(2026-08-28)
     const matched = (appData.diarySettings?.staff || []).find(s => s.name === _activeRecForDailyLog);
     if (!matched) return;
@@ -52496,7 +52502,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       //   担当職員が誰もチェックされていない場合は従来どおり全員表示。単なるフィルタなので動作は重くならない。
       const _st = log.staff || {};
       const _anySt = Object.keys(_st).some(k => _st[k]);
-      const arr = _dsAsOf.filter(s=>s.name && _staffOk(s) && (!_anySt || _st[s.id] || (log.driver||{})[prefix+s.id])); // ★ trial519: 送迎者の候補もその日の名簿
+      const arr = _dsAsOf.filter(s=>s.name && (_staffOk(s) || (log.driver||{})[prefix+s.id]) && (!_anySt || _st[s.id] || (log.driver||{})[prefix+s.id])); // ★ trial519: 送迎者の候補もその日の名簿 ★ trial596: 送迎表から運転者に入った人は担当時間帯(午前/午後)の絞り込みに関係なく出す
       const seen = new Set();
       return arr.filter(s => {
         const key = normalizeName(s.name).trim();
