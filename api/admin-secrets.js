@@ -87,7 +87,9 @@ async function runTest(id) {
         await s3.putObject('health/last_test.txt', Buffer.from(`つむぎ 接続テスト ${stamp} JST\n`, 'utf8'), 'text/plain; charset=utf-8'); // 置ける(PutObject)
         const last = await s3.getJson('manifest/last_run.json', null);  // 最後の控え(あれば)
         const when = last && last.finishedAt ? new Date(new Date(last.finishedAt).getTime() + 9 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' JST' : 'まだ実行されていません';
-        return { ok: true, detail: `バケット ${s3.bucket}（${s3.region}）に書き込めました。最後の控え: ${when}` };
+        // ★ 2026-11-19 trial591(ユーザー「何件控えができたかが出ていない」): 最後の実行の件数も出す(写真: 写した/残り/控え済みの合計・店舗データ: 今回/合計・失敗)
+        const cnt = last ? `　写真 ${Number(last.copied) || 0}件を写し、残り ${Number(last.remaining) || 0}件（控え済み 合計 ${Number(last.totalFiles) || 0}件${last.byKind ? `・置いてあるファイル ${Number(last.listed) || 0}件の内訳: 写真 ${Number(last.byKind.photo) || 0}・PDF ${Number(last.byKind.pdf) || 0}・その他 ${Number(last.byKind.other) || 0}` : ''}）／店舗データ ${Number(last.appState && last.appState.copied) || 0}店（合計 ${Number(last.totalStores) || 0}店）${(Number(last.errorCount) || 0) ? `／失敗 ${Number(last.errorCount)}件` : ''}` : '';
+        return { ok: true, detail: `バケット ${s3.bucket}（${s3.region}）に書き込めました。最後の控え: ${when}${cnt}` };
       } catch (e) {
         const m = maskAws(String((e && e.message) || e));
         if (/InvalidAccessKeyId|SignatureDoesNotMatch/.test(m)) return { error: 'アクセスキーIDまたはシークレットアクセスキーが違います' };

@@ -26,8 +26,8 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BUCKET = 'personal-files';                 // api/files.js と同じ
 const MANIFEST_KEY = 'manifest/latest.json';
 const LAST_RUN_KEY = 'manifest/last_run.json';
-const DEFAULT_MAX_FILES = 150;
-const DEFAULT_BUDGET_MS = 45 * 1000;             // vercel.json の maxDuration 60 秒より手前で止める
+const DEFAULT_MAX_FILES = 600;                   // ★ 2026-11-19 trial592: 初回(488件)が何晩もかからないように 150→600
+const DEFAULT_BUDGET_MS = 270 * 1000;            // vercel.json の maxDuration 300 秒より手前で止める(★ trial592: 45秒→270秒。初回は一覧だけで時間を使い切っていた)
 const MAX_FILE_BYTES = 50 * 1024 * 1024;         // これより大きいものは今回は写さず errors に残す(Vercel のメモリ対策)
 const JST_OFF = 9 * 60 * 60 * 1000;
 const enc = encodeURIComponent;
@@ -95,42 +95,8 @@ export async function runBackup({ dryRun = false, maxFiles = DEFAULT_MAX_FILES, 
   const manifest = await s3.getJson(MANIFEST_KEY, null) || { version: 1, files: {}, appState: {}, failed: {}, updatedAt: null };
   manifest.files = manifest.files || {}; manifest.appState = manifest.appState || {}; manifest.failed = manifest.failed || {};
 
-  // 1) 写真(Storage)
-  let files, listPartial = false;
-  try { ({ files } = await listStorageAll(deadline)); }
-  catch (e) { if (e.partial) { files = e.files; listPartial = true; out.errors.push({ path: '(一覧)', error: '一覧の途中で時間切れ。次回に続きます' }); } else throw e; }
-  out.listed = files.length;
-  // 前に失敗したもの(元が 404 など)は後ろへ回す(毎晩同じものが先頭で枠を使い切らないように)
-  const failCount = (p) => (manifest.failed[p] && Number(manifest.failed[p].count)) || 0;
-  const todo = files.filter((f) => changed(manifest.files[f.path], f)).sort((a, b) => failCount(a.path) - failCount(b.path));
-  out.skipped = files.length - todo.length;
-  const limit = Math.max(1, Math.min(Number(maxFiles) || DEFAULT_MAX_FILES, 2000));
-  let i = 0; let dirty = false;
-  const copyOne = async (f) => {
-    if (f.size > MAX_FILE_BYTES) { out.errors.push({ path: f.path, error: `大きすぎるため今回は写していません(${Math.round(f.size / 1048576)}MB)` }); return; }
-    try {
-      const { body, contentType } = await downloadStorage(f.path);
-      const put = await s3.putObject(`storage/${f.path}`, body, f.contentType || contentType, { 'x-amz-meta-src-updated-at': f.updatedAt || '' });
-      manifest.files[f.path] = { size: f.size, updatedAt: f.updatedAt, etag: f.etag, copiedAt: new Date().toISOString(), s3Etag: put.etag };
-      delete manifest.failed[f.path];
-      out.copied++; dirty = true;
-    } catch (e) {
-      const msg = maskAws(String((e && e.message) || e)).slice(0, 200);
-      const prev = manifest.failed[f.path] || { count: 0 };
-      manifest.failed[f.path] = { count: prev.count + 1, error: msg, at: new Date().toISOString(), firstAt: prev.firstAt || new Date().toISOString() };
-      out.errors.push({ path: f.path, error: msg, repeat: prev.count > 0 || undefined }); // repeat = 前の晩も失敗(元が無い等)。ok の判定からは外す
-      dirty = true;
-    }
-  };
-  while (i < todo.length && i < limit && Date.now() < deadline) {
-    const batch = todo.slice(i, Math.min(i + 4, limit)); i += batch.length;    // 4件ずつ並行
-    if (dryRun) { out.copied += batch.length; continue; }
-    await Promise.all(batch.map(copyOne));
-  }
-  out.remaining = Math.max(0, todo.length - i) + (listPartial ? 1 : 0);
-
-  // 2) 店舗データ本体(1日1回・店舗ごと)
-  const today = jstDate(started);
+  // 1) 店舗データ本体(1日1回・店舗ごと) ★ 2026-11-19 trial592: 写真より先に(初回は写真の一覧と転送で時間を使い切り、店舗データが0店になった)
+  const today = jstDate(started); let dirty = false;
   try {
     const rows = await sbJson(`${SUPA_URL}/rest/v1/app_state?select=key,version&key=like.store_*&order=key.asc`);
     for (const r of Array.isArray(rows) ? rows : []) {
@@ -152,6 +118,42 @@ export async function runBackup({ dryRun = false, maxFiles = DEFAULT_MAX_FILES, 
   } catch (e) {
     out.errors.push({ path: 'app_state', error: maskAws(String((e && e.message) || e)).slice(0, 200) });
   }
+
+  // 2) 写真(Storage)
+  let files, listPartial = false;
+  try { ({ files } = await listStorageAll(deadline)); }
+  catch (e) { if (e.partial) { files = e.files; listPartial = true; out.errors.push({ path: '(一覧)', error: '一覧の途中で時間切れ。次回に続きます' }); } else throw e; }
+  out.listed = files.length;
+  // ★ 2026-11-19 trial592(ユーザー「484件も写真があるのか」): 種類別の件数(写真/PDF/その他)を要約に
+  out.byKind = files.reduce((m, f) => { const ext = String(f.path).toLowerCase().match(/\.([a-z0-9]+)$/); const e = ext ? ext[1] : ''; const k = /^(jpe?g|png|heic|heif|webp|gif)$/.test(e) ? 'photo' : (e === 'pdf' ? 'pdf' : 'other'); m[k] = (m[k] || 0) + 1; return m; }, { photo: 0, pdf: 0, other: 0 });
+  // 前に失敗したもの(元が 404 など)は後ろへ回す(毎晩同じものが先頭で枠を使い切らないように)
+  const failCount = (p) => (manifest.failed[p] && Number(manifest.failed[p].count)) || 0;
+  const todo = files.filter((f) => changed(manifest.files[f.path], f)).sort((a, b) => failCount(a.path) - failCount(b.path));
+  out.skipped = files.length - todo.length;
+  const limit = Math.max(1, Math.min(Number(maxFiles) || DEFAULT_MAX_FILES, 2000));
+  let i = 0;
+  const copyOne = async (f) => {
+    if (f.size > MAX_FILE_BYTES) { out.errors.push({ path: f.path, error: `大きすぎるため今回は写していません(${Math.round(f.size / 1048576)}MB)` }); return; }
+    try {
+      const { body, contentType } = await downloadStorage(f.path);
+      const put = await s3.putObject(`storage/${f.path}`, body, f.contentType || contentType, { 'x-amz-meta-src-updated-at': f.updatedAt || '' });
+      manifest.files[f.path] = { size: f.size, updatedAt: f.updatedAt, etag: f.etag, copiedAt: new Date().toISOString(), s3Etag: put.etag };
+      delete manifest.failed[f.path];
+      out.copied++; dirty = true;
+    } catch (e) {
+      const msg = maskAws(String((e && e.message) || e)).slice(0, 200);
+      const prev = manifest.failed[f.path] || { count: 0 };
+      manifest.failed[f.path] = { count: prev.count + 1, error: msg, at: new Date().toISOString(), firstAt: prev.firstAt || new Date().toISOString() };
+      out.errors.push({ path: f.path, error: msg, repeat: prev.count > 0 || undefined }); // repeat = 前の晩も失敗(元が無い等)。ok の判定からは外す
+      dirty = true;
+    }
+  };
+  while (i < todo.length && i < limit && Date.now() < deadline) {
+    const batch = todo.slice(i, Math.min(i + 8, limit)); i += batch.length;    // 8件ずつ並行(★ trial592: 4→8)
+    if (dryRun) { out.copied += batch.length; continue; }
+    await Promise.all(batch.map(copyOne));
+  }
+  out.remaining = Math.max(0, todo.length - i) + (listPartial ? 1 : 0);
 
   // 3) 台帳と「最後の実行」を書く(dryRun では書かない)
   out.finishedAt = new Date().toISOString(); out.elapsedMs = Date.now() - started;
