@@ -769,3 +769,18 @@ html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: n
 .tsu-fold-panel { margin-top: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
 .tsu-fold-panel > * { box-shadow: none !important; }
 .tsu-fold-panel-host:empty { display: none; }
+
+/* ★ 2026-11-19 trial602: 日付のカレンダー(日誌の details)の幕。開いている間だけ画面全体を覆い、押すと閉じる・後ろのスクロールや操作を止める(touch-action) */
+details > .tsu-cal-backdrop { display: none; }
+details[open] > .tsu-cal-backdrop { display: block; position: fixed; inset: 0; z-index: 999; background: rgba(15,23,42,0.10); touch-action: none; }
+/* ★ 2026-11-19 trial602(ユーザー「スマホを横にすると上の帯が画面の大半。データを主に見られるように」): スマホの横向き(指で操作・高さ520px以下)は
+   見出しを低く(36px)し、画面の上に貼り付く帯(sticky)を流れるようにして、データに画面を使う。縦向き・iPad・PC は従来どおり */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
+  #appMainArea > header.tsu-app-header { height: 36px !important; min-height: 36px !important; }
+  #appMainArea > header.tsu-app-header .text-xl, #appMainArea > header.tsu-app-header .text-lg { font-size: 15px !important; }
+  #appMainArea { padding-top: 0 !important; }
+  #tsuContentScroller .sticky[data-tsu-doc]:not(th):not(thead):not(tr) { position: static !important; }
+  #tsuContentScroller [style*="position: sticky"][data-tsu-doc]:not(th):not(thead):not(tr) { position: static !important; }
+  .tsu-pin { position: static !important; }
+  [data-pin-spacer] { display: none !important; }
+}

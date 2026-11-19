@@ -30973,7 +30973,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               <BarChart3 size={20}/>
             </div>
             <div className="tsu-dash-name">
-              <div className="tsu-dash-sub" style={{fontSize:11,opacity:0.7,fontWeight:'bold'}}>分析・個人</div>
+              {/* ★ trial602: 「分析・個人」の小さな題名は上の見出し(分析（個人）)と重複するので出さない */}
               <div style={{fontSize:18,fontWeight:'bold'}}>{selectedPatient.name} 様</div>
             </div>
             {/* ★ 表示内容ポップアップ(2026-08-28 店舗要望): 本人/家族/ケアマネ・他関係者に何が見えるか。事業所のみ表示 */}
@@ -35223,7 +35223,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         {/* ★ 分析稼働ヘッダ: 淡いオレンジグラデーション、 文字は黒で読みやすく */}
         <div className="tsu-dash-hdr" style={{background:'linear-gradient(135deg,#fed7aa,#fdba74)',color:'#1e293b',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',rowGap:8,columnGap:8}}>
         {/* ★ 2026-10-08: スマホは見出し(画面の題名と重複)を省き、部品の高さをそろえる(CSS tsu-dash-hdr) */}
-        <div className="tsu-dash-sub" style={{display:'flex',alignItems:'center',gap:10,flexShrink:0,whiteSpace:'nowrap'}}><TrendingUp size={20}/><span style={{fontSize:17,fontWeight:'bold'}}>分析（稼働）</span></div>
+        <div className="tsu-dash-sub" style={{display:'flex',alignItems:'center',gap:10,flexShrink:0,whiteSpace:'nowrap'}} title="分析（稼働）"><TrendingUp size={20}/></div>{/* ★ 2026-11-19 trial602(ユーザー「上の見出しと帯に同じ『分析（稼働）』が2回」): 帯は印だけ */}
         <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:(typeof window!=='undefined'&&tsuViewW()<768)?'flex-start':'flex-end',order:(typeof window!=='undefined'&&tsuViewW()<768)?3:0,flexBasis:(typeof window!=='undefined'&&tsuViewW()<768)?'100%':'auto',flexGrow:1}}>
           {/* ★ 2026-10-08(ユーザー要望: スマホで3段→少なく): スマホは期間を選択欄に、同じ月の表示(1ヶ月のとき)は出さない */}
           <select className="tsu-period-sel" value={period} onChange={e=>{setPeriod(e.target.value);setOpenDow(null);}} aria-label="期間">
@@ -53368,8 +53368,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                   </span>}
                   {compact && <span style={{fontSize:10,color:'#64748b'}}>▼</span>}
                 </summary>
+                {/* ★ 2026-11-19 trial602(ユーザー「日付のカレンダーは外を押したら閉じるように。開いている間は後ろを触れないように」): 開いている間だけ画面全体の薄い幕(CSS .tsu-cal-backdrop)。押すと閉じる・後ろのスクロールや押し間違いを防ぐ */}
+                <div className="tsu-cal-backdrop" aria-hidden="true" data-testid="diary-cal-backdrop" onClick={(ev) => { try { const d = ev.currentTarget.closest('details'); if (d) d.removeAttribute('open'); } catch {} }} />
                 {/* 浮上カレンダー (スマホの1行目からは画面に固定して出す=1行目の枠で切れないように) */}
-                <div style={compact ? {position:'fixed',top:104,left:8,right:8,zIndex:1000,background:'white',border:'1px solid #e2e8f0',borderRadius:16,padding:'10px 12px',boxShadow:'0 8px 24px rgba(0,0,0,0.2)'} : {position:'absolute',top:'100%',left:0,zIndex:100,background:'white',border:'1px solid #e2e8f0',borderRadius:16,padding:'8px 10px',boxShadow:'0 8px 24px rgba(0,0,0,0.15)',minWidth:214,marginTop:4}}>
+                <div style={compact ? {position:'fixed',top:104,left:8,right:8,zIndex:1000,background:'white',border:'1px solid #e2e8f0',borderRadius:16,padding:'10px 12px',boxShadow:'0 8px 24px rgba(0,0,0,0.2)'} : {position:'absolute',top:'100%',left:0,zIndex:1000,background:'white',border:'1px solid #e2e8f0',borderRadius:16,padding:'8px 10px',boxShadow:'0 8px 24px rgba(0,0,0,0.15)',minWidth:214,marginTop:4}}>{/* ★ trial602: 幕(999)より上 */}
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
                     <button type="button" onClick={prevMonth} style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',borderRadius:6,color:'#475569',fontSize:16,fontWeight:'bold'}}>‹</button>
                     <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b'}}>{y}年{m+1}月</span>
