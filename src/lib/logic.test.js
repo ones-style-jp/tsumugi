@@ -9,6 +9,7 @@ import {
   mergeTpTelDone,
   mergeTaskDone,
   pickHolidays,
+  mergeSalesRecords,
   holidayAmpmOn,
   fullHolidaySet,
   holidayClosesSlots,
@@ -480,5 +481,23 @@ describe('tsuMonScrub(モニタリングの文から、無いものに触れた�
   });
   it('改行で区切った文も同じに扱う', () => {
     expect(tsuMonScrub('体力測定は未実施\n運動は継続中', { hasFitness: false, hasPlan: true })).toBe('運動は継続中');
+  });
+});
+
+describe('売上(salesRecords)の同期(mergeSalesRecords・2026-11-19)', () => {
+  it('古い中身の端末が送っても、クラウドにある新しい売上を消さない(月ごとに新しい方)', () => {
+    const cloud = [{ month: '2026-10', sales: 2000000, _savedAt: 200 }, { month: '2026-11', sales: 1500000, _savedAt: 300 }];
+    const local = [{ month: '2026-10', sales: 1800000, _savedAt: 100 }];
+    const r = mergeSalesRecords(local, cloud);
+    expect(r).toEqual([{ month: '2026-10', sales: 2000000, _savedAt: 200 }, { month: '2026-11', sales: 1500000, _savedAt: 300 }]);
+  });
+  it('手元で後から入れた月は手元を採り、クラウドにしか無い月も残す', () => {
+    const r = mergeSalesRecords([{ month: '2026-11', sales: 1600000, _savedAt: 400 }], [{ month: '2026-09', sales: 1000000 }, { month: '2026-11', sales: 1500000, _savedAt: 300 }]);
+    expect(r.map(x => `${x.month}:${x.sales}`)).toEqual(['2026-09:1000000', '2026-11:1600000']);
+  });
+  it('時刻が無い(前の版)同士は手元。片方が無ければ空配列扱い', () => {
+    expect(mergeSalesRecords([{ month: '2026-01', sales: 5 }], [{ month: '2026-01', sales: 7 }])[0].sales).toBe(5);
+    expect(mergeSalesRecords(undefined, [{ month: '2026-01', sales: 7 }])).toEqual([{ month: '2026-01', sales: 7 }]);
+    expect(mergeSalesRecords([{ month: '2026-01', sales: 7 }], null)).toEqual([{ month: '2026-01', sales: 7 }]);
   });
 });

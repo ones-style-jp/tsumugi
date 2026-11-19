@@ -208,6 +208,20 @@ export const holidayClosesSlots = (ap, comingAM, comingPM) => {
   return (!comingAM || ap === 'AM') && (!comingPM || ap === 'PM');
 };
 export const holidayAmpmLabel = (ap) => ap === 'AM' ? '午前のみ' : ap === 'PM' ? '午後のみ' : '';
+// ★ 2026-11-19 1119d/trial595(ユーザー「分析(稼働)の売上を入力して保存しても毎回消える」): 売上(salesRecords=[{month:'2026-04', sales, prevSales, _savedAt}])は
+//   同期の合成の対象外(丸ごと手元優先)だったため、古い中身の端末(店舗の iPad 等)が別の画面で保存すると、本部が入れた売上がその端末の古い売上で上書きされていた。
+//   → 月ごとに合成する。同じ月は保存時刻(_savedAt)の新しい方。時刻が無い(前の版)同士は手元。どちらかにしか無い月は残す(消さない)。
+export const mergeSalesRecords = (localArr, cloudArr) => {
+  const l = Array.isArray(localArr) ? localArr : [], c = Array.isArray(cloudArr) ? cloudArr : [];
+  const map = new Map();
+  c.forEach(r => { if (r && r.month) map.set(String(r.month), r); });
+  l.forEach(r => { if (!r || !r.month) return; const k = String(r.month); const ex = map.get(k);
+    if (!ex) { map.set(k, r); return; }
+    const lt = Number(r._savedAt) || 0, ct = Number(ex._savedAt) || 0;
+    if (lt > ct) map.set(k, r); else if (ct > lt) { /* クラウドが新しい */ } else map.set(k, r); // 同点・両方なし=手元
+  });
+  return [...map.values()].sort((a, b) => String(a.month).localeCompare(String(b.month)));
+};
 // ★ 2026-10-30: カレンダーのタスクの済み(done[日付] = {by, at} / 戻したら {off:true, by, at})を、日付ごとに新しい方(at)でまとめる。
 //   win(全体で新しい方)を基に、lose にしかない日付・lose の方が新しい日付を足す。変わらなければ win をそのまま返す
 export const mergeTaskDone = (win, lose) => {
