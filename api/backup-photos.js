@@ -151,6 +151,62 @@ export async function runBackup({ dryRun = false, maxFiles = DEFAULT_MAX_FILES, 
     out.errors.push({ path: 'ticket_records', error: maskAws(String((e && e.message) || e)).slice(0, 200) });
   }
 
+  // 1c) そのほかの表(店舗・職員・招待・ご家族/ケアマネのアカウント・お知らせ・元に戻す控え・同期の履歴・app_state の店舗以外の行) ★ 2026-11-19 trial594/1119c
+  //   ユーザー「控えを取るなら、提供記録が漏れていたようなことが無いよう必ず全部の記録を」→ 使っている表を全部、毎晩 1回ずつ全行 gzip で写す(表が無ければ飛ばす・時間切れは次の晩)。
+  //   app_secrets(外部サービスの鍵)だけは写さない(鍵の控えを控え先に置かない。復旧時は管理局で入れ直す)。
+  //   新しい表を足したときはここにも足す(scripts/run_tests.py の T-BK-01 が、API が触る表とこの一覧を突き合わせる)。
+  const TABLES = [
+    { name: 'stores', order: ['id'] },
+    { name: 'staff', order: ['id'] },
+    { name: 'staff_invites', order: ['id'] },
+    { name: 'staff_logins', order: ['id', 'created_at'] },
+    { name: 'family_accounts', order: ['id'] },
+    { name: 'family_invites', order: ['id'] },
+    { name: 'system_notices', order: ['id'] },
+    { name: 'undo_snapshots', order: ['id', 't'] },
+    { name: 'sync_ops', order: ['id', 'seq', 'created_at', 'at'], sinceDays: 35, sinceCols: ['created_at', 'at', 'ts'] },
+    { name: 'app_state', order: ['key'], filter: 'key=not.like.store_*' },
+  ];
+  out.tables = { copied: 0, skipped: 0, rows: 0, names: [] };
+  for (const tb of TABLES) {
+    const prev = manifest.tables && manifest.tables[tb.name];
+    if (prev && prev.date === today) { out.tables.skipped++; continue; }
+    if (Date.now() > deadline) { out.remaining++; continue; }
+    if (dryRun) { out.tables.copied++; out.tables.names.push(tb.name); continue; }
+    try {
+      let rows = null, usedOrder = '', missing = false;
+      for (const oc of tb.order) { // 並び替えの列は表ごとに違うので、使えるものを順に試す
+        try {
+          const all = []; let offset = 0;
+          while (true) {
+            let q = `${SUPA_URL}/rest/v1/${tb.name}?select=*&order=${enc(oc)}.asc&limit=1000&offset=${offset}`;
+            if (tb.filter) q += `&${tb.filter}`;
+            if (tb.sinceDays && tb.sinceCols && tb.sinceCols.length) q += `&${enc(tb.sinceCols[0])}=gte.${enc(new Date(Date.now() - tb.sinceDays * 86400000).toISOString())}`;
+            const page = await sbJson(q);
+            if (!Array.isArray(page)) throw new Error('rows not array');
+            all.push(...page); offset += page.length; if (page.length < 1000) break;
+            if (Date.now() > deadline) throw Object.assign(new Error('時間切れ(次の晩に続きから)'), { fatal: true });
+          }
+          rows = all; usedOrder = oc; break;
+        } catch (e) {
+          const m = String((e && e.message) || e);
+          if (e && e.fatal) throw e;
+          if (/404|relation .* does not exist|Could not find the table/.test(m)) { missing = true; break; } // 表が無い
+          // 列が無い(400)など → 次の並び替え列で試す。since の列が違うときも次へ(since 列は order 列と同じ順で試す)
+          if (tb.sinceCols && tb.sinceCols.length > 1 && /column .* does not exist|42703|400/.test(m)) tb.sinceCols = tb.sinceCols.slice(1);
+        }
+      }
+      if (missing) { out.tables.skipped++; continue; }
+      if (!rows) throw new Error('読めませんでした(並び替えの列が合いません)');
+      const gz = zlib.gzipSync(Buffer.from(JSON.stringify({ table: tb.name, order: usedOrder, savedAt: new Date().toISOString(), count: rows.length, rows }), 'utf8'), { level: 6 });
+      await s3.putObject(`tables/${tb.name}/${today}.json.gz`, gz, 'application/gzip', { 'x-amz-meta-count': String(rows.length) });
+      manifest.tables = manifest.tables || {}; manifest.tables[tb.name] = { date: today, count: rows.length, bytes: gz.length, copiedAt: new Date().toISOString() };
+      out.tables.copied++; out.tables.rows += rows.length; out.tables.names.push(tb.name); dirty = true;
+    } catch (e) {
+      out.errors.push({ path: `tables/${tb.name}`, error: maskAws(String((e && e.message) || e)).slice(0, 200) });
+    }
+  }
+
   // 2) 写真(Storage)
   let files, listPartial = false;
   try { ({ files } = await listStorageAll(deadline)); }
@@ -196,7 +252,7 @@ export async function runBackup({ dryRun = false, maxFiles = DEFAULT_MAX_FILES, 
     manifest.updatedAt = out.finishedAt; manifest.fileCount = Object.keys(manifest.files).length;
     try { if (dirty || !manifest.createdAt) { manifest.createdAt = manifest.createdAt || out.finishedAt; await s3.putJson(MANIFEST_KEY, manifest); } }
     catch (e) { out.errors.push({ path: MANIFEST_KEY, error: maskAws(String((e && e.message) || e)).slice(0, 200) }); out.ok = false; }
-    const summary = { ...out, errors: out.errors.slice(0, 50), errorCount: out.errors.length, totalFiles: Object.keys(manifest.files).length, totalStores: Object.keys(manifest.appState).length, totalRecordStores: Object.keys(manifest.records || {}).length, totalFailed: Object.keys(manifest.failed).length };
+    const summary = { ...out, errors: out.errors.slice(0, 50), errorCount: out.errors.length, totalFiles: Object.keys(manifest.files).length, totalStores: Object.keys(manifest.appState).length, totalRecordStores: Object.keys(manifest.records || {}).length, totalTables: Object.keys(manifest.tables || {}).length, totalFailed: Object.keys(manifest.failed).length };
     try { await s3.putJson(LAST_RUN_KEY, summary); } catch { /* 要約が書けなくても控え自体はできている */ }
   }
   out.totalFiles = Object.keys(manifest.files).length;

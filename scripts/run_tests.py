@@ -164,6 +164,26 @@ except Exception as e:
     check('T-SYNC-08', 'fetchTicketRecordsSince が1000行ずつ最後まで取得する(ページ送りあり)', False, str(e))
 
 # ---- T-OPS-04 本番生存確認 ----
+# ---- T-BK-01 AWS の控えに漏れが無い(2026-11-19 ユーザー「提供記録が漏れていたようなことが無いよう必ず全部の記録を」) ----
+# API と同期の仕組みが触る表は、すべて api/backup-photos.js の控えの対象(TABLES / ticket_records / app_state)に入っていること。app_secrets だけは意図して除外
+try:
+    import glob as _glob
+    used = set()
+    for f in _glob.glob(os.path.join(ROOT, 'api', '*.js')):
+        if f.endswith('changelog.js') or f.endswith('backup-photos.js'): continue
+        src = open(f, encoding='utf-8').read()
+        used |= set(re.findall(r"sb\(`([a-z_]+)\?", src)) | set(re.findall(r"sb\('([a-z_]+)\?", src)) | set(re.findall(r"rest/v1/([a-z_]+)", src))
+    lib = open(os.path.join(ROOT, 'src/lib/supabase.js'), encoding='utf-8').read()
+    used |= set(re.findall(r"from\('([a-z_]+)'\)", lib))
+    used |= {'sync_ops', 'undo_snapshots'}  # RPC 経由で書く表
+    used.discard('app_secrets'); used.discard('')
+    bk = open(os.path.join(ROOT, 'api/backup-photos.js'), encoding='utf-8').read()
+    covered = set(re.findall(r"\{ name: '([a-z_]+)'", bk)) | {'ticket_records', 'app_state'}
+    missing = sorted(used - covered)
+    check('T-BK-01', 'AWS の控えが API の触る表をすべて含む(app_secrets を除く)', not missing, ('漏れ: ' + ', '.join(missing)) if missing else f'対象 {len(used)} 表')
+except Exception as e:
+    check('T-BK-01', 'AWS の控えが API の触る表をすべて含む', False, str(e))
+
 def fetch(url, timeout=15):
     req = urllib.request.Request(url, headers={'User-Agent': 'tsumugi-test'})
     with urllib.request.urlopen(req, timeout=timeout) as r:
