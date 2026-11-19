@@ -1,7 +1,7 @@
 // Supabase クライアント (Phase 1: 家族認証のみ)
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
-import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard, pushShrinkGuard } from './logic.js';
+import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard, pushShrinkGuard, mergeSalesRecords } from './logic.js';
 import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL, mergeEmergencyContacts } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
@@ -1516,6 +1516,8 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
       if (ph.from === 'cloud') { merged.holidays = ph.holidays; try { syncLog('push-keep-cloud', { key: 'holidays', n: ph.holidays.length }); } catch {} }
       if (ph.ts) merged._holTs = ph.ts;
     }
+    // ★ 2026-11-19 1119d: 売上(salesRecords)も月ごとに合成(古い端末の保存で本部の入力が消えないように。規則は logic.js の mergeSalesRecords・pull と共通)
+    if (Array.isArray(localData.salesRecords) || Array.isArray(cloud.salesRecords)) merged.salesRecords = mergeSalesRecords(localData.salesRecords, cloud.salesRecords);
     // ★ 休み連絡(faxDataStore=日付×利用者の連絡状態)は「日付|利用者」キー単位でマージし、同キーは新しい方(_updatedAt)。
     //   端末間で別々の人を編集しても消えないように。
     {

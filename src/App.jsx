@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
+import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
 import { PATIENT_TEXT_FL, mergeEmergencyContacts } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL) ★ 2026-11-16 1116d: 緊急連絡先の付き合わせ
 import {
   isSupabaseEnabled,
@@ -23000,6 +23000,11 @@ export default function App() {
               const ph = pickHolidays(prev, merged);
               if (ph.from === 'local' && ph.ts && ph.ts > (Number(merged._holTs) || 0)) { merged.holidays = ph.holidays; merged._holTs = ph.ts; _mergedForPush = merged; syncLog('pull-preserve', { key: 'holidays', n: ph.holidays.length }); }
             } catch (e) { console.warn('[pull preserve] holidays failed', e); }
+            // ★ 2026-11-19 1119d: 売上(salesRecords)も pull で月ごとに合成(入れた直後に古いクラウドを受け取って消えないように。規則は mergeSalesRecords・push と共通)
+            try {
+              const ms = mergeSalesRecords(prev.salesRecords, merged.salesRecords);
+              if (JSON.stringify(ms) !== JSON.stringify(Array.isArray(merged.salesRecords) ? merged.salesRecords : [])) { merged.salesRecords = ms; _mergedForPush = merged; syncLog('pull-preserve', { key: 'salesRecords', n: ms.length }); }
+            } catch (e) { console.warn('[pull preserve] salesRecords failed', e); }
           }
           // ★ お知らせの既読(noticeReads)は pull で巻き戻さない。 pull は丸ごと置換なので、
           //   既読にした直後(push完了前)に受信すると未読へ戻ってしまう
@@ -33608,7 +33613,7 @@ function SalesCalendarModal({ initialMonth, appData, setAppData, onClose }) {
     const prevYearKey = `${parseInt(y)-1}-${m}`;
     const prevYearRec = salesRecs.find(s=>s.month===prevYearKey);
     const prevSalesVal = prevYearRec?.sales || existing.prevSales || 0;
-    const newRec = { ...existing, sales: parseInt(inputValue)||0, prevSales: prevSalesVal };
+    const newRec = { ...existing, sales: parseInt(inputValue)||0, prevSales: prevSalesVal, _savedAt: Date.now() }; // ★ 2026-11-19 1119d: 保存時刻(同期は月ごとに新しい方を採る・mergeSalesRecords)
     if (idx >= 0) newRecs[idx] = newRec; else newRecs.push(newRec);
     setAppData(prev=>({...prev, salesRecords:newRecs}));
     setSelectedMonth(null);
