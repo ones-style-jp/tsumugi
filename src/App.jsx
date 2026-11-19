@@ -170,6 +170,23 @@ const downloadPdf = async (element, filename) => {
 };
 
 // === 1行に収まるよう自動縮小するテキスト（折り返さず scale で fit させる） ===
+// ★ 2026-11-19 trial599(ユーザー「送付状の担当の名前と職種が長いと、プルダウンでもダウンロードでも見切れる。送付先の事業所・担当者や他の送付状も同じなら全部縮小して」):
+//   入力欄(select/input)は AutoFitLine(transform)で縮められないので、欄の幅と文字の幅(canvas で計測)から文字の大きさそのものを下げる。幅を測れない(非表示)ときは文字数で縮める
+const _tsuMeasureCtx = (() => { let c = null; return () => { if (!c) { try { c = document.createElement('canvas').getContext('2d'); } catch { c = null; } } return c; }; })();
+const tsuTextWidthPx = (text, font) => { const c = _tsuMeasureCtx(); if (!c) return String(text || '').length * 16; try { c.font = font; return c.measureText(String(text || '')).width; } catch { return String(text || '').length * 16; } };
+function useTsuFitFont(ref, text, basePx, minPx = 8, reservePx = 0) {
+  const [fs, setFs] = React.useState(basePx);
+  React.useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const avail = (el.clientWidth || 0) - reservePx; let next = basePx;
+    if (avail > 0) { let font = `${basePx}px sans-serif`; try { const cs = getComputedStyle(el); font = `${cs.fontStyle} ${cs.fontWeight} ${basePx}px ${cs.fontFamily}`; } catch {} const w = tsuTextWidthPx(text, font); if (w > avail) next = Math.max(minPx, Math.floor(basePx * avail / w * 10) / 10); }
+    else { const len = String(text || '').length; if (len > 12) next = Math.max(minPx, Math.round(basePx * 12 / len * 10) / 10); }
+    setFs(prev => (Math.abs(prev - next) < 0.05 ? prev : next));
+  }, [text, basePx, minPx, reservePx]);
+  return fs;
+}
+function TsuFitSelect({ label, basePx = 16, minPx = 10, style, children, ...rest }) { const ref = React.useRef(null); const fs = useTsuFitFont(ref, label, basePx, minPx, 6); return <select ref={ref} {...rest} style={{ ...(style || {}), fontSize: fs }}>{children}</select>; }
+function TsuFitInput({ basePx = 17, minPx = 9, style, ...rest }) { const ref = React.useRef(null); const fs = useTsuFitFont(ref, rest.value, basePx, minPx, 10); return <input ref={ref} {...rest} style={{ ...(style || {}), fontSize: fs }} />; }
 const AutoFitLine = ({ children, style }) => {
   const containerRef = React.useRef(null);
   const textRef = React.useRef(null);
@@ -43134,10 +43151,10 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                   <div key={item.id} data-testid={`fit-row-${item.id}`} className={`grid items-center hover:bg-slate-50 ${item.pairGroup ? (item.side === 'L' ? 'border-b border-slate-100 bg-sky-50/40' : 'bg-sky-50/40') : 'border-b border-slate-100'}`} style={{gridTemplateColumns:'minmax(0,1.35fr) minmax(0,1.1fr) minmax(0,1fr) minmax(0,0.9fr) minmax(0,1fr) minmax(0,1fr)'}}>
                     {/* ★ 2026-10-08: 左右の組は「握力 右」「左」と続けて表示(1つの項目として右・左を入力) */}
                     {item.pairGroup ? (
-                      <div className="px-1.5 sm:px-4 py-2 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight flex items-center gap-1.5">
+                      <div className="px-1.5 sm:px-4 py-2 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight flex flex-wrap items-center gap-1.5 min-w-0">{/* ★ 2026-11-19 1119g(ユーザー「スマホの体力測定で備考が入力欄と被る」): 折り返し可にし、＋備考はスマホでは次の行へ */}
                         {item.side !== 'L' ? <span>{item.pairName || fitPairBaseName(item.name)}<span className="text-xs text-slate-400 ml-0.5">（{item.unit}）</span></span> : <span className="invisible">{item.pairName || fitPairBaseName(item.name)}</span>}
                         <span className={`shrink-0 text-[11px] font-bold rounded px-1.5 py-0.5 ${item.side === 'L' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{item.side === 'L' ? '左' : '右'}</span>
-                        {!(fitNoteOpen[item.id] || (fitNotes[item.id] ?? '') !== '') && <button type="button" data-testid={`fit-note-btn-${item.id}`} onClick={() => setFitNoteOpen(o => ({ ...o, [item.id]: true }))} className="text-[11px] font-bold text-indigo-600 hover:underline whitespace-nowrap">＋備考</button>}
+                        {!(fitNoteOpen[item.id] || (fitNotes[item.id] ?? '') !== '') && <button type="button" data-testid={`fit-note-btn-${item.id}`} onClick={() => setFitNoteOpen(o => ({ ...o, [item.id]: true }))} className="basis-full sm:basis-auto text-left text-[11px] font-bold text-indigo-600 hover:underline whitespace-nowrap">＋備考</button>}
                       </div>
                     ) : (
                     <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">{item.name}<span className="block sm:inline text-xs text-slate-400 sm:ml-0.5 whitespace-nowrap">（{item.unit}）</span>
@@ -60542,13 +60559,13 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 {/* ★ 担当: 他の TEL/FAX 行と同じ display:block + textAlign:'left' で左詰め統一 */}
                 <div style={{display:'block',width:'100%',textAlign:'left',whiteSpace:'nowrap'}}>
                   <span>担当：</span>
-                  <select value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
-                    style={{fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:0,margin:0,cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'left',textAlignLast:'left'}}>
+                  <TsuFitSelect label={(() => { const _s = staffList.find(x => _mgrKey(x) === selectedManager); return _s ? `${_s.name}${_s.role ? `（${_s.role}）` : ''}` : ''; })()} basePx={16} value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
+                    style={{width:'calc(100% - 3.4em)',maxWidth:'calc(100% - 3.4em)',verticalAlign:'baseline',lineHeight:1.2,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:0,margin:0,cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'left',textAlignLast:'left'}}>
                     {staffList.length === 0 && <option value="">（従業員未登録）</option>}
                     {staffList.map((s, i) => (
                       <option key={s.id || i} value={_mgrKey(s)}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
                     ))}
-                  </select>
+                  </TsuFitSelect>
                 </div>
               </div>
             </div>
@@ -61176,15 +61193,15 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
               </div>
               <div style={{fontSize:16,marginBottom:6,fontWeight:'bold'}}>送付先：</div>
               <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',alignItems:'flex-end',gap:8}}>
-                <input type="text" value={recipientOffice} onChange={e=>setRecipientOffice(e.target.value)}
+                <TsuFitInput type="text" basePx={17} value={recipientOffice} onChange={e=>setRecipientOffice(e.target.value)}
                        placeholder="(送付先名)" className="fax-inline-input"
-                       style={{flex:1,minWidth:0,fontSize:(recipientOffice||'').length>22?12:(recipientOffice||'').length>16?14:17,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
+                       style={{flex:1,minWidth:0,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
                 <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap',display:'inline-block',width:'2.5em',textAlign:'left'}}>御中</span>
               </div>
               <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',alignItems:'flex-end',gap:8}}>
-                <input type="text" value={recipientName} onChange={e=>setRecipientName(e.target.value)}
+                <TsuFitInput type="text" basePx={17} value={recipientName} onChange={e=>setRecipientName(e.target.value)}
                        placeholder="(担当者名)" className="fax-inline-input"
-                       style={{flex:1,minWidth:0,fontSize:(recipientName||'').length>22?12:(recipientName||'').length>16?14:17,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
+                       style={{flex:1,minWidth:0,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
                 <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap',display:'inline-block',width:'2.5em',textAlign:'left'}}>様</span>
               </div>
               {(() => {
@@ -61207,14 +61224,14 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
               {/* ★ 担当: 他の TEL/FAX 行と同じ display:block + textAlign:'left' で左詰め統一 */}
               <div style={{display:'block',width:'100%',textAlign:'left',whiteSpace:'nowrap'}}>
                 <span>担当：</span>
-                <select value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
+                <TsuFitSelect label={(() => { const _s = staffList.find(x => _mgrKey(x) === selectedManager); return _s ? `${_s.name}${_s.role ? `（${_s.role}）` : ''}` : ''; })()} basePx={16} value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
                   className="fax-inline-input"
-                  style={{fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:0,margin:0,cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'left',textAlignLast:'left'}}>
+                  style={{width:'calc(100% - 3.4em)',maxWidth:'calc(100% - 3.4em)',verticalAlign:'baseline',lineHeight:1.2,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:0,margin:0,cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'left',textAlignLast:'left'}}>
                   {staffList.length === 0 && <option value="">（従業員未登録）</option>}
                   {staffList.map((s, i) => (
                     <option key={s.id || i} value={_mgrKey(s)}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
                   ))}
-                </select>
+                </TsuFitSelect>
               </div>
             </div>
           </div>
