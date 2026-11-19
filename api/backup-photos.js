@@ -119,6 +119,38 @@ export async function runBackup({ dryRun = false, maxFiles = DEFAULT_MAX_FILES, 
     out.errors.push({ path: 'app_state', error: maskAws(String((e && e.message) || e)).slice(0, 200) });
   }
 
+  // 1b) 提供記録(ticket_records の表・店舗ごと・1日1回) ★ 2026-11-19 trial593/1119b(ユーザー「控えは写真だけ?」): 店舗データ本体(app_state)には提供記録が入っていない(別の表)ので、ここで店舗ごとに全行を写す
+  out.records = { copied: 0, skipped: 0, rows: 0, stores: [] };
+  try {
+    const keys = await sbJson(`${SUPA_URL}/rest/v1/app_state?select=key&key=like.store_*&order=key.asc`);
+    for (const r of Array.isArray(keys) ? keys : []) {
+      const skey = String(r.key); const prev = manifest.records && manifest.records[skey];
+      if (prev && prev.date === today) { out.records.skipped++; continue; }
+      if (Date.now() > deadline) { out.remaining++; continue; }
+      if (dryRun) { out.records.copied++; out.records.stores.push(skey); continue; }
+      try {
+        // ticket_records.store_id は app_state の鍵(store_xxx)と同じか、store_ を除いたものか、両方を試す(行があった方)
+        const cands = [skey, skey.replace(/^store_/, '')].filter((v, i, a) => v && a.indexOf(v) === i);
+        let sid = null; for (const c of cands) { const probe = await sbJson(`${SUPA_URL}/rest/v1/ticket_records?select=id&store_id=eq.${enc(c)}&limit=1`); if (Array.isArray(probe) && probe.length) { sid = c; break; } }
+        if (!sid) { out.records.skipped++; continue; } // 提供記録がまだ無い店舗
+        const all = []; let offset = 0;
+        while (true) { // 1回1000行で切れる(Supabase の既定)ので最後までページ送り
+          const page = await sbJson(`${SUPA_URL}/rest/v1/ticket_records?select=id,patient_id,rec_date,data,updated_at,deleted_at&store_id=eq.${enc(sid)}&order=id.asc&limit=1000&offset=${offset}`);
+          if (!Array.isArray(page) || !page.length) break; all.push(...page); offset += page.length; if (page.length < 1000) break;
+          if (Date.now() > deadline) throw new Error('時間切れ(次の晩に続きから)');
+        }
+        const gz = zlib.gzipSync(Buffer.from(JSON.stringify({ store: skey, storeId: sid, savedAt: new Date().toISOString(), count: all.length, rows: all }), 'utf8'), { level: 6 });
+        await s3.putObject(`ticket_records/${skey}/${today}.json.gz`, gz, 'application/gzip', { 'x-amz-meta-count': String(all.length) });
+        manifest.records = manifest.records || {}; manifest.records[skey] = { date: today, count: all.length, bytes: gz.length, copiedAt: new Date().toISOString() };
+        out.records.copied++; out.records.rows += all.length; out.records.stores.push(skey); dirty = true;
+      } catch (e) {
+        out.errors.push({ path: `ticket_records/${skey}`, error: maskAws(String((e && e.message) || e)).slice(0, 200) });
+      }
+    }
+  } catch (e) {
+    out.errors.push({ path: 'ticket_records', error: maskAws(String((e && e.message) || e)).slice(0, 200) });
+  }
+
   // 2) 写真(Storage)
   let files, listPartial = false;
   try { ({ files } = await listStorageAll(deadline)); }
@@ -164,7 +196,7 @@ export async function runBackup({ dryRun = false, maxFiles = DEFAULT_MAX_FILES, 
     manifest.updatedAt = out.finishedAt; manifest.fileCount = Object.keys(manifest.files).length;
     try { if (dirty || !manifest.createdAt) { manifest.createdAt = manifest.createdAt || out.finishedAt; await s3.putJson(MANIFEST_KEY, manifest); } }
     catch (e) { out.errors.push({ path: MANIFEST_KEY, error: maskAws(String((e && e.message) || e)).slice(0, 200) }); out.ok = false; }
-    const summary = { ...out, errors: out.errors.slice(0, 50), errorCount: out.errors.length, totalFiles: Object.keys(manifest.files).length, totalStores: Object.keys(manifest.appState).length, totalFailed: Object.keys(manifest.failed).length };
+    const summary = { ...out, errors: out.errors.slice(0, 50), errorCount: out.errors.length, totalFiles: Object.keys(manifest.files).length, totalStores: Object.keys(manifest.appState).length, totalRecordStores: Object.keys(manifest.records || {}).length, totalFailed: Object.keys(manifest.failed).length };
     try { await s3.putJson(LAST_RUN_KEY, summary); } catch { /* 要約が書けなくても控え自体はできている */ }
   }
   out.totalFiles = Object.keys(manifest.files).length;
