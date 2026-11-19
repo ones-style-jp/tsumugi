@@ -187,6 +187,13 @@ function useTsuFitFont(ref, text, basePx, minPx = 8, reservePx = 0) {
 }
 function TsuFitSelect({ label, basePx = 16, minPx = 10, style, children, ...rest }) { const ref = React.useRef(null); const fs = useTsuFitFont(ref, label, basePx, minPx, 6); return <select ref={ref} {...rest} style={{ ...(style || {}), fontSize: fs }}>{children}</select>; }
 function TsuFitInput({ basePx = 17, minPx = 9, style, ...rest }) { const ref = React.useRef(null); const fs = useTsuFitFont(ref, rest.value, basePx, minPx, 10); return <input ref={ref} {...rest} style={{ ...(style || {}), fontSize: fs }} />; }
+// ★ 2026-11-19 trial601(ユーザー「スマホの日誌などのカレンダーも左右スワイプで月が変わるように。カレンダーのような所には同じく付けて」):
+//   横スワイプ(60px 以上・縦の2倍以上・0.9秒以内)で onDir(+1=次／-1=前)。開始位置は要素の dataset に控える(描き直しをまたいでも消えない)。
+//   画面の切り替え(左端=戻る 等)には渡さない(_tsuConsumed)。使い方: <div {...tsuHSwipeHandlers(d => d > 0 ? next() : prev())}>
+const tsuHSwipeHandlers = (onDir) => ({
+  onTouchStart: (e) => { try { const el = e.currentTarget; const t = e.touches && e.touches[0]; if (!el) return; if (t && e.touches.length === 1) el.dataset.tsuSw = `${t.clientX},${t.clientY},${Date.now()}`; else delete el.dataset.tsuSw; } catch {} },
+  onTouchEnd: (e) => { try { const el = e.currentTarget; const s = el && el.dataset.tsuSw; if (el) delete el.dataset.tsuSw; const t = e.changedTouches && e.changedTouches[0]; if (!s || !t) return; const [x, y, t0] = s.split(',').map(Number); if (Date.now() - t0 > 900) return; const dx = t.clientX - x, dy = t.clientY - y; if (Math.abs(dx) >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} onDir(dx < 0 ? 1 : -1); } } catch {} },
+});
 const AutoFitLine = ({ children, style }) => {
   const containerRef = React.useRef(null);
   const textRef = React.useRef(null);
@@ -13064,7 +13071,7 @@ function RosterView({ appData, onSave }) {
   };
   const th = { position:'sticky', top:0, zIndex:2, background:'#f8fafc', borderBottom:'2px solid #cbd5e1', fontSize:11, fontWeight:'bold', color:'#475569', padding:'6px 4px', textAlign:'center', whiteSpace:'nowrap' };
   return (
-    <div style={{height:'100%',overflow:'auto',background:'#f0f4f9'}}>
+    <div style={{height:'100%',overflow:'auto',background:'#f0f4f9'}} data-testid="roster-root" {...tsuHSwipeHandlers(d => shiftMonth(d))}>{/* ★ trial601: 左右スワイプで前月／翌月 */}
       <div className="tsu-ph-cards tsu-wide-t" style={{maxWidth:1400,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:12}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -46425,7 +46432,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 const cells = []; for (let i=0;i<startDow;i++) cells.push(null); for (let d=1;d<=daysIn;d++) cells.push(d);
                 const sel = schedModal.applyFrom;
                 return (
-                  <div className="border border-slate-200 rounded-xl p-2.5 bg-white">
+                  <div className="border border-slate-200 rounded-xl p-2.5 bg-white" data-testid="sched-modal-cal" {...tsuHSwipeHandlers(d => setSchedModal(m => { const nm = (m.vM ?? new Date().getMonth()) + d; return nm < 0 ? { ...m, vY: (m.vY ?? new Date().getFullYear()) - 1, vM: 11 } : nm > 11 ? { ...m, vY: (m.vY ?? new Date().getFullYear()) + 1, vM: 0 } : { ...m, vM: nm }; }))}>{/* ★ trial601: 左右スワイプで月送り */}
                     <div className="flex items-center justify-between mb-2">
                       <button onClick={()=>setSchedModal(m=>{const nm=(m.vM??new Date().getMonth())-1; return nm<0?{...m,vY:(m.vY??new Date().getFullYear())-1,vM:11}:{...m,vM:nm};})} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold flex items-center justify-center active:scale-95">‹</button>
                       <span className="font-bold text-slate-800 text-sm">{vY}年 {vM+1}月</span>
@@ -53345,7 +53352,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           const nextMonth = () => { const d2=new Date(y,m+1,1); setSelectedDate(`${d2.getFullYear()}-${pad(d2.getMonth()+1)}-01`); };
           const selDow = ['日','月','火','水','木','金','土'][base.getDay()];
           return (
-            <div style={{position:'relative'}}>
+            <div style={{position:'relative'}} data-testid="diary-cal-root" {...tsuHSwipeHandlers(d => d > 0 ? nextMonth() : prevMonth())}>{/* ★ trial601: 左右スワイプで月送り */}
               {/* トリガーボタン */}
               <details style={{position:'static'}} data-testid={compact ? 'diary-fold-date' : undefined}>
                 <summary style={compact
