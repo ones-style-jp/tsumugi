@@ -13774,12 +13774,19 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const fromHq = (notices||[]).filter(n=>!(n.ends_at && new Date(n.ends_at).getTime()<nowT)).map(n=>({ id:n.id, date:(n.created_at?String(n.created_at).slice(0,10):''), m: sevMeta[n.severity]||sevMeta.info, title:n.title, body:n.body }));
           const builtin = DEV_ANNOUNCEMENTS.map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body }; });
           // ★ update-notes.json からライブ取得した更新内容(再読み込みなしで反映)
-          const live = (devNotes||[]).map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body, items:a.items }; }); // ★ 2026-10-26: items=構造化した変更点
+          // ★ 2026-11-19 trial600(ユーザー「更新内容は項目ごとでなく、更新した日ごとに1つにまとめて。何月何日で探せればよい」): update-notes.json は日付ごとに1件にまとめる(中の項目は詳細で一覧)
+          const _byDay = {}; (devNotes||[]).forEach(n => { const k = String(n.date || ''); (_byDay[k] = _byDay[k] || []).push(n); });
+          const live = Object.keys(_byDay).map(k => { const arr = _byDay[k]; const mm = DEV_ANN_META.update; const d0 = k ? new Date(k + 'T00:00:00') : null; const lbl = (d0 && !isNaN(d0.getTime())) ? `${d0.getMonth()+1}月${d0.getDate()}日の更新` : '更新';
+            const nFix = arr.filter(x => x.type === 'fix').length, nFeat = arr.filter(x => x.type === 'feature').length, nUpd = arr.length - nFix - nFeat;
+            const body = [nFix ? `不具合の修正 ${nFix}件` : '', nFeat ? `新しい機能 ${nFeat}件` : '', nUpd ? `変更 ${nUpd}件` : ''].filter(Boolean).join('・');
+            const items = arr.flatMap(x => (Array.isArray(x.items) && x.items.length ? x.items : [{ kind: x.type, where: x.body || '', change: x.title }]).map(it => ({ ...it, where: it.where || x.body || '', change: it.change || x.title })));
+            return { id: `upd-day-${k}`, date: k, m: { label: mm.label, emoji: mm.emoji, color: mm.color, bg: mm.bg }, title: `${lbl}（${arr.length}件）`, body, items, _ids: arr.map(x => x.id) }; });
           const _seen=new Set();
           const all = [...fromHq, ...live, ...builtin].filter(x=>{ if(!x.id||_seen.has(x.id)) return false; _seen.add(x.id); return true; }).sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,50);
           if (!all.length) return null;
           if (_hcfg.devNotes?.on === false) return null; // ★ trial517: 表示設定
-          const _unreadL = all.filter(x => !isRead(x.id)), _readL = all.filter(x => isRead(x.id)); // ★ trial517: 未読だけ出し、既読は「過去のお知らせ」に畳む
+          const _isR = (x) => isRead(x.id) || (Array.isArray(x._ids) && x._ids.length > 0 && x._ids.every(id => isRead(id))); // ★ trial600: 日ごとのまとめは、まとめ自体か中の全部が既読なら既読
+          const _unreadL = all.filter(x => !_isR(x)), _readL = all.filter(x => _isR(x)); // ★ trial517: 未読だけ出し、既読は「過去のお知らせ」に畳む
           const _devShown = [..._unreadL.slice(0, 10), ...(devOld ? _pageSlice(_readL, devPage, (tsuViewW() < 768 ? 5 : 10)) : [])];
           const _unread = _unreadL.length;
           return (
@@ -13796,8 +13803,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               <div style={{display:'flex',alignItems:'center',gap:6,margin:'10px 0 8px'}}>
                 <span style={{fontSize:10,color:'#64748b'}}>アップデート・メンテナンス情報</span>
                 {/* ★ まとめて既読にする(未読が残っているときだけ表示) */}
-                {all.some(x => !isRead(x.id)) && (
-                  <button onClick={()=>{ all.forEach(x => { if (!isRead(x.id)) markRead(x.id); }); }}
+                {all.some(x => !_isR(x)) && (
+                  <button onClick={()=>{ all.forEach(x => { if (!_isR(x)) markRead(x.id); }); }}
                     style={{marginLeft:'auto',fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'4px 10px',cursor:'pointer',whiteSpace:'nowrap'}}>
                     全て既読
                   </button>
@@ -13806,12 +13813,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               {/* ★ コンパクト化(2026-08-18): 本文プレビューをやめ1行(バッジ+日付+タイトル)に。
                   クリックで従来どおり全文モーダル。 画面の半分以上を占領していたのを1/4程度へ。 */}
               <div style={{display:'flex',flexDirection:'column',gap:5}}>
-                {_devShown.map(a=>{ const _r=isRead(a.id); return (
+                {_devShown.map(a=>{ const _r=_isR(a); return (
                   <button key={a.id} data-testid={`home-dev-row-${a.id}`} onClick={()=>{ const _d = (x) => ({id:x.id,badge:`${x.m.emoji?x.m.emoji+' ':''}${x.m.label}`,badgeColor:x.m.color,date:x.date,title:x.title,body:x.body,items:x.items}); openDetail(_d(a), all.map(_d)); }}
                     title={a.title}
                     style={{textAlign:'left',cursor:'pointer',width:'100%',border:`1px solid ${_r?'#e2e8f0':a.m.color+'66'}`,background:_r?'white':a.m.bg,borderRadius:8,padding:'5px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}}>
                     <span style={{fontSize:10,fontWeight:'bold',color:'white',background:_r?'#94a3b8':a.m.color,borderRadius:5,padding:'2px 7px',whiteSpace:'nowrap',flexShrink:0}}>{a.m.emoji} {a.m.label}</span>
-                    {a.date && <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap',flexShrink:0}}>{a.date}</span>}
+                    {a.date && !String(a.id).startsWith('upd-day-') && <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap',flexShrink:0}}>{a.date}</span>}{/* ★ trial600: 日ごとのまとめは題名に日付があるので省く */}
                     <span style={{fontSize:12.5,fontWeight:'bold',color:_r?'#334155':a.m.color,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',flex:1,minWidth:0}}>{a.title}</span>
                     <span style={{fontSize:9,color:'#64748b',flexShrink:0}}>{_r?'既読':'詳細 ›'}</span>
                   </button>
@@ -25876,14 +25883,18 @@ export default function App() {
                 // ★ 起動後に増えた分(=今回の再読み込みで更新される分)だけ表示。 無ければ最新1件でフォールバック。
                 const _newNotes = devUpdateNotes.filter(n => !(_initialNoteIdsRef.current && _initialNoteIdsRef.current.has(n.id)));
                 const _shown = _newNotes.length ? _newNotes : devUpdateNotes.slice(0,1);
-                return _shown.length ? _shown.map(n=>{ const mm=DEV_ANN_META[n.type]||DEV_ANN_META.info; return (
-                <div key={n.id} style={{border:`1px solid ${mm.color}44`,background:mm.bg,borderRadius:12,padding:'12px 14px'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
-                    <span style={{fontSize:11,fontWeight:'bold',color:'white',background:mm.color,borderRadius:6,padding:'2px 8px'}}>{mm.emoji?mm.emoji+' ':''}{mm.label}</span>
-                    {n.date && <span style={{fontSize:11,color:'#64748b'}}>{n.date}</span>}
+                // ★ 2026-11-19 trial600: 日付ごとに1枚にまとめ、中は見出しの一覧(項目ごとの札を並べない)
+                const _grp = {}; _shown.forEach(n => { const k = String(n.date || ''); (_grp[k] = _grp[k] || []).push(n); });
+                const _days = Object.keys(_grp).sort((x, y) => y.localeCompare(x));
+                return _days.length ? _days.map(k => { const arr = _grp[k]; const d0 = k ? new Date(k + 'T00:00:00') : null; const lbl = (d0 && !isNaN(d0.getTime())) ? `${d0.getMonth()+1}月${d0.getDate()}日の更新` : '今回の更新'; const mm = DEV_ANN_META.update; return (
+                <div key={k || 'x'} data-testid="upd-day-card" style={{border:`1px solid ${mm.color}44`,background:mm.bg,borderRadius:12,padding:'12px 14px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,flexWrap:'wrap'}}>
+                    <span style={{fontSize:11,fontWeight:'bold',color:'white',background:mm.color,borderRadius:6,padding:'2px 8px'}}>{mm.label}</span>
+                    <span style={{fontSize:14,fontWeight:'bold',color:mm.color}}>{lbl}</span><span style={{fontSize:11,color:'#64748b'}}>（{arr.length}件）</span>
                   </div>
-                  <div style={{fontSize:14,fontWeight:'bold',color:mm.color,marginBottom:4}}>{n.title}</div>
-                  {n.body && <div style={{fontSize:13,color:'#475569',whiteSpace:'pre-wrap',lineHeight:1.7}}>{n.body}</div>}
+                  <ul style={{margin:0,paddingLeft:18,display:'flex',flexDirection:'column',gap:4}}>
+                    {arr.map(n => { const m2 = DEV_ANN_META[n.type]||DEV_ANN_META.info; return <li key={n.id} style={{fontSize:13,color:'#334155',lineHeight:1.5}}><span style={{fontSize:10,fontWeight:'bold',color:n.type==='fix'?'#b45309':m2.color,marginRight:6}}>{n.type==='fix'?'修正':n.type==='feature'?'追加':'変更'}</span>{n.title}</li>; })}
+                  </ul>
                 </div>
               ); }) : (
                 <div style={{fontSize:13,color:'#64748b',lineHeight:1.7,textAlign:'center',padding:'12px 0'}}>更新内容の詳細は準備中です。<br/>「今すぐ更新」で最新版に更新してください。</div>
