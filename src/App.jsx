@@ -53900,6 +53900,10 @@ const KK_PRESET_LABELS = [['ryui','【3-3】機能訓練実施上の留意事項
 // ★ 2026-10-26: 優先順 = ①全店共通(管理局が保存・_globalPolicyCache.kkPresets) → ②店舗に残っている旧設定(systemSettings.kkPresets) → ③既定
 const kkPresetsOf = (ss) => { const o = (ss && ss.kkPresets && typeof ss.kkPresets === 'object') ? ss.kkPresets : {}; const g = (_globalPolicyCache && _globalPolicyCache.kkPresets && typeof _globalPolicyCache.kkPresets === 'object') ? _globalPolicyCache.kkPresets : {}; const out = {}; Object.keys(KK_PRESETS_DEFAULT).forEach(k => { const gv = Array.isArray(g[k]) ? g[k].filter(x => String(x||'').trim()) : []; out[k] = gv.length ? gv : (Array.isArray(o[k]) ? o[k].filter(x => String(x||'').trim()) : KK_PRESETS_DEFAULT[k]); }); return out; };
 // 職員の一覧(storeMembers + 日誌の職員)を 役職つきで重複なしに
+// ★ 2026-11-19 trial604(ユーザー「送付状などの担当者名は各種設定の日誌の従業員のみ。重複している。いちばん下に名前と職種を自由に入力できるように」):
+//   各種設定→日誌の職員のうち今日在籍している人(tsuStaffAsOf)・「この日だけ(ヘルプ)」は除く・同じ名前+役職は1つ(storeMembers から写した ds_sync_ と手で足した行が重なるため)
+const tsuCoverStaffList = (appData) => { const seen = new Set(); return tsuStaffAsOf((appData && appData.diarySettings && appData.diarySettings.staff) || [], tsuTodayIso()).filter(s => s && s.name && String(s.name).trim() && !s._tempHelp).filter(s => { const k = `${normalizeName(s.name).trim()}::${s.role || ''}`; if (seen.has(k)) return false; seen.add(k); return true; }); };
+const TSU_MGR_OTHER = '__other'; // 送付状の担当「その他(名前と職種を入力)」
 const tsuStaffList = (appData) => { const out = []; const seen = new Set(); const add = (name, role, id) => { const nm = String(name||'').trim(); if (!nm || nm === '管理局' || id === 'hq_viewer') return; const k = `${nm}|${role||''}`; if (seen.has(k)) return; seen.add(k); out.push({ name: nm, role: role || '' }); };
   (appData?.storeMembers||[]).forEach(m => { if (m && !m._preview) { add(m.name, m.roleLabel, m.id); if (m.role2) add(m.name, m.role2, m.id); } });
   (appData?.diarySettings?.staff||[]).forEach(st => { if (st && !st._tempHelp) { add(st.name, st.role, st.id); if (st.role2) add(st.name, st.role2, st.id); } });
@@ -60225,7 +60229,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const deleteAbsHist = (id) => onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id), deletedIds: addTombstone(appData,'faxHistory',id)});
   // 担当者プルダウン: 各種設定の従業員から選択。
   // ★ デフォルト優先順位: 1) 現在のアクティブ記録者 → 2) 管理者 → 3) リスト先頭
-  const staffList = (appData.diarySettings?.staff || []).filter(s => s.name && s.name.trim());
+  const staffList = tsuCoverStaffList(appData); // ★ trial604: 日誌の職員・今日在籍・重複なし
+  const [mgrOther, setMgrOther] = React.useState({ name: '', role: '' }); // ★ trial604: 「その他」の名前と職種
   const activeRecName = getActiveRecorderName();
   const activeInList = activeRecName && staffList.find(s => s.name === activeRecName);
   // ★ 同名で役職違いの担当者を区別できるよう、選択値は「名前::役職」の複合キーにする
@@ -60576,13 +60581,22 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 {/* ★ 担当: 他の TEL/FAX 行と同じ display:block + textAlign:'left' で左詰め統一 */}
                 <div style={{display:'block',width:'100%',textAlign:'left',whiteSpace:'nowrap'}}>
                   <span>担当：</span>
-                  <TsuFitSelect label={(() => { const _s = staffList.find(x => _mgrKey(x) === selectedManager); return _s ? `${_s.name}${_s.role ? `（${_s.role}）` : ''}` : ''; })()} basePx={16} value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
+                  {selectedManager === TSU_MGR_OTHER ? (
+                  <span data-testid="fax-mgr-other" style={{display:'inline-flex',alignItems:'baseline',gap:2,width:'calc(100% - 3.4em)',verticalAlign:'baseline'}}>{/* ★ trial604: その他=名前と職種を自由に入力 */}
+                    <TsuFitInput type="text" basePx={16} value={mgrOther.name} onChange={e=>setMgrOther(o=>({...o, name:e.target.value}))} placeholder="氏名" className="fax-inline-input" style={{width:'52%',minWidth:0,border:'none',outline:'none',background:'transparent',padding:0,fontFamily:'inherit',color:'inherit'}}/>
+                    <span>（</span><TsuFitInput type="text" basePx={16} value={mgrOther.role} onChange={e=>setMgrOther(o=>({...o, role:e.target.value}))} placeholder="職種" className="fax-inline-input" style={{width:'36%',minWidth:0,border:'none',outline:'none',background:'transparent',padding:0,fontFamily:'inherit',color:'inherit'}}/><span>）</span>
+                    <button type="button" className="no-print" onClick={()=>setSelectedManager(defaultManagerKey)} title="一覧から選び直す" style={{marginLeft:4,fontSize:10,padding:'1px 6px',border:'1px solid #cbd5e1',borderRadius:6,background:'#f8fafc',color:'#475569',cursor:'pointer',whiteSpace:'nowrap'}}>一覧</button>
+                  </span>
+                ) : (
+<TsuFitSelect label={(() => { const _s = staffList.find(x => _mgrKey(x) === selectedManager); return _s ? `${_s.name}${_s.role ? `（${_s.role}）` : ''}` : ''; })()} basePx={16} value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
                     style={{width:'calc(100% - 3.4em)',maxWidth:'calc(100% - 3.4em)',verticalAlign:'baseline',lineHeight:1.2,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:0,margin:0,cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'left',textAlignLast:'left'}}>
                     {staffList.length === 0 && <option value="">（従業員未登録）</option>}
                     {staffList.map((s, i) => (
                       <option key={s.id || i} value={_mgrKey(s)}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
                     ))}
+                    <option value={TSU_MGR_OTHER}>その他（名前と職種を入力）</option>
                   </TsuFitSelect>
+                )}
                 </div>
               </div>
             </div>
@@ -60893,7 +60907,8 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     markDirty && markDirty();
     setShowTemplates(false);
   };
-  const staffList = (appData.diarySettings?.staff || []).filter(s => s.name && s.name.trim());
+  const staffList = tsuCoverStaffList(appData); // ★ trial604: 日誌の職員・今日在籍・重複なし
+  const [mgrOther, setMgrOther] = React.useState(() => (draft.mgrOther && typeof draft.mgrOther === 'object') ? { name: String(draft.mgrOther.name || ''), role: String(draft.mgrOther.role || '') } : { name: '', role: '' }); // ★ trial604
   // ★ デフォルト優先順位: 1) draft 保存値 → 2) 現在のアクティブ記録者 → 3) 管理者 → 4) リスト先頭
   const _activeRec = getActiveRecorderName();
   const _activeInList = _activeRec && staffList.find(s => s.name === _activeRec);
@@ -60932,9 +60947,9 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const _firstRef = React.useRef(true);
   const _gfBaseRef = React.useRef(undefined);
   const _gfSig = React.useMemo(() => {
-    try { return JSON.stringify({ selectedPatientId, subject, memo, pageCount, checks, recipientOffice, recipientName, customPatientName, selectedManager }); }
+    try { return JSON.stringify({ selectedPatientId, subject, memo, pageCount, checks, recipientOffice, recipientName, customPatientName, selectedManager, mgrOther }); }
     catch { return null; }
-  }, [selectedPatientId, subject, memo, pageCount, checks, recipientOffice, recipientName, customPatientName, selectedManager]);
+  }, [selectedPatientId, subject, memo, pageCount, checks, recipientOffice, recipientName, customPatientName, selectedManager, mgrOther]);
   React.useEffect(() => {
     if (_firstRef.current) { _firstRef.current = false; if (_gfBaseRef.current === undefined) _gfBaseRef.current = _gfSig; return; }
     if (_gfBaseRef.current === undefined || _gfBaseRef.current === null) { _gfBaseRef.current = _gfSig; return; } // 復元/保存後の再基準化
@@ -60946,7 +60961,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const flushSave = () => {
     onSave && onSave({ ...appData, generalFaxDraft: {
       selectedPatientId, subject, memo, memoStyle, pageCount, checks,
-      recipientOffice, recipientName, customPatientName, selectedManager,
+      recipientOffice, recipientName, customPatientName, selectedManager, mgrOther,
     }});
     markClean();
   };
@@ -61241,14 +61256,23 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
               {/* ★ 担当: 他の TEL/FAX 行と同じ display:block + textAlign:'left' で左詰め統一 */}
               <div style={{display:'block',width:'100%',textAlign:'left',whiteSpace:'nowrap'}}>
                 <span>担当：</span>
-                <TsuFitSelect label={(() => { const _s = staffList.find(x => _mgrKey(x) === selectedManager); return _s ? `${_s.name}${_s.role ? `（${_s.role}）` : ''}` : ''; })()} basePx={16} value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
+                {selectedManager === TSU_MGR_OTHER ? (
+                  <span data-testid="fax-mgr-other" style={{display:'inline-flex',alignItems:'baseline',gap:2,width:'calc(100% - 3.4em)',verticalAlign:'baseline'}}>{/* ★ trial604: その他=名前と職種を自由に入力 */}
+                    <TsuFitInput type="text" basePx={16} value={mgrOther.name} onChange={e=>setMgrOther(o=>({...o, name:e.target.value}))} placeholder="氏名" className="fax-inline-input" style={{width:'52%',minWidth:0,border:'none',outline:'none',background:'transparent',padding:0,fontFamily:'inherit',color:'inherit'}}/>
+                    <span>（</span><TsuFitInput type="text" basePx={16} value={mgrOther.role} onChange={e=>setMgrOther(o=>({...o, role:e.target.value}))} placeholder="職種" className="fax-inline-input" style={{width:'36%',minWidth:0,border:'none',outline:'none',background:'transparent',padding:0,fontFamily:'inherit',color:'inherit'}}/><span>）</span>
+                    <button type="button" className="no-print" onClick={()=>setSelectedManager(defaultManagerKey)} title="一覧から選び直す" style={{marginLeft:4,fontSize:10,padding:'1px 6px',border:'1px solid #cbd5e1',borderRadius:6,background:'#f8fafc',color:'#475569',cursor:'pointer',whiteSpace:'nowrap'}}>一覧</button>
+                  </span>
+                ) : (
+<TsuFitSelect label={(() => { const _s = staffList.find(x => _mgrKey(x) === selectedManager); return _s ? `${_s.name}${_s.role ? `（${_s.role}）` : ''}` : ''; })()} basePx={16} value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
                   className="fax-inline-input"
                   style={{width:'calc(100% - 3.4em)',maxWidth:'calc(100% - 3.4em)',verticalAlign:'baseline',lineHeight:1.2,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:0,margin:0,cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'left',textAlignLast:'left'}}>
                   {staffList.length === 0 && <option value="">（従業員未登録）</option>}
                   {staffList.map((s, i) => (
                     <option key={s.id || i} value={_mgrKey(s)}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
                   ))}
-                </TsuFitSelect>
+                  <option value={TSU_MGR_OTHER}>その他（名前と職種を入力）</option>
+                  </TsuFitSelect>
+                )}
               </div>
             </div>
           </div>
@@ -63989,7 +64013,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
   React.useEffect(() => { if (attachFocus) { const t = setTimeout(()=>{ try { attachRef.current?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch {} }, 250); return ()=>clearTimeout(t); } }, [attachFocus]);
   // ★ 開いている間はクラウドポーリングを止める(再描画で入力欄のフォーカスが外れる/添付が中断するのを防ぐ)
   React.useEffect(() => { officeEditingActive.current = true; return () => { officeEditingActive.current = false; }; }, []);
-  const staffList = (appData?.diarySettings?.staff || []).filter(s => s.name && s.name.trim());
+  const staffList = tsuCoverStaffList(appData); // ★ trial604
   const [fs, setFs] = useState({
     // ① 受付・作成情報
     receptionDate: initial?.receptionDate || today,
