@@ -19890,7 +19890,8 @@ function StaffInviteAcceptView({ code, onLogin }) {
   const registerPasskey = async () => { if (!done || pk.busy) return; setPk({ busy: true, done: false, msg: '' });
     try { await supabaseHqPasskeyRegister(done.session.token); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} setPk({ busy: false, done: true, msg: 'この端末に登録しました。次からはログイン画面の「パスキーで入る」で、ID・パスワードなしで入れます。' }); }
     catch (e) { setPk({ busy: false, done: false, msg: e && e.name === 'NotAllowedError' ? '登録を取り消しました（あとから各種設定→ログイン情報でも登録できます）' : ((e && e.message) || '登録できませんでした（あとから各種設定→ログイン情報でも登録できます）') }); } };
-  React.useEffect(() => { let on = true; (async () => { try { const i = await supabaseStaffInviteLookup(code); if (on) setInv(i); } catch (e) { if (on) setErr(e?.message || '招待コードを確認できませんでした'); } })(); return () => { on = false; }; }, [code]);
+  // ★ 2026-11-19 trial592(ユーザー「基本はメールアドレスが ID。自分で決めたい人だけ別の ID に」): 招待にメールがあれば、ログインIDの初期値をそのメールにする(書き換えれば別の ID にできる)
+  React.useEffect(() => { let on = true; (async () => { try { const i = await supabaseStaffInviteLookup(code); if (on) { setInv(i); const em = String(i?.email || '').trim(); if (em && /^[A-Za-z0-9_.@\-]{4,64}$/.test(em)) setF(x => (x.username ? x : { ...x, username: em })); } } catch (e) { if (on) setErr(e?.message || '招待コードを確認できませんでした'); } })(); return () => { on = false; }; }, [code]);
   const submit = async (e) => { e.preventDefault(); setErr('');
     if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(f.username)) return setErr('ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください');
     if (f.password.length < 8 || !/[A-Za-z]/.test(f.password) || !/[0-9]/.test(f.password)) return setErr('パスワードは8文字以上で英字と数字を含めてください');
@@ -19934,7 +19935,7 @@ function StaffInviteAcceptView({ code, onLogin }) {
             <div>お名前: <b>{inv.name}</b>（{inv.role === 'manager' ? '管理者' : '職員'}）</div>
           </div>
           <div style={{display:'grid',gap:10}}>
-            <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>ログインID <span style={{color:'#dc2626'}}>*</span></div>{inp('username','text','例: hanako_m（4文字以上の半角英数字）',{autoCapitalize:'none',autoCorrect:'off'})}</div>
+            <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>ログインID <span style={{color:'#dc2626'}}>*</span>{inv && inv.email ? <span style={{fontWeight:'normal',color:'#64748b',marginLeft:6}}>（メールアドレスがそのままログインIDになります。別のIDにしたいときは書き換えてください）</span> : null}</div>{inp('username','text','例: hanako_m（4文字以上の半角英数字）',{autoCapitalize:'none',autoCorrect:'off'})}</div>
             <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>パスワード <span style={{color:'#dc2626'}}>*</span>（8文字以上・英字と数字）</div>{inp('password','password','パスワード')}</div>
             <div>{inp('password2','password','パスワード（確認）')}</div>
             <div style={{fontSize:12,color:'#64748b',lineHeight:1.6,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,padding:'8px 10px'}}>登録が終わると、みんなで使う iPad で「自分に切り替える」ための <b>4桁の PIN</b> が一度だけ表示されます（つむぎが自動で決めます）。</div>

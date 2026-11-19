@@ -61,7 +61,7 @@
       "memory": 512
     },
     "api/backup-photos.js": {
-      "maxDuration": 60,
+      "maxDuration": 300,
       "memory": 1024
     }
   }

@@ -413,7 +413,7 @@ export default async function handler(req, res) {
       if (inv.used_by) return res.status(409).json({ error: 'この招待コードは使用済みです' });
       if (inv.expires_at && new Date(inv.expires_at) < new Date()) return res.status(410).json({ error: '招待コードの有効期限が切れています(店舗の管理者に発行し直してもらってください)' });
       let storeName = ''; try { const st = await sb(`stores?select=name,short_name&id=eq.${encodeURIComponent(inv.store_id)}&limit=1`); storeName = (st && st[0] && (st[0].name || st[0].short_name)) || ''; } catch {}
-      if (action === 'invite_lookup') return res.status(200).json({ invite: { store_id: inv.store_id, store_name: storeName, name: inv.name || '', role: inv.role || 'member', member_id: inv.member_id || null } });
+      if (action === 'invite_lookup') return res.status(200).json({ invite: { store_id: inv.store_id, store_name: storeName, name: inv.name || '', role: inv.role || 'member', member_id: inv.member_id || null, email: inv.email || '' } }); // ★ 2026-11-19 trial592: 招待のメールを返す(本人登録で ID の初期値に)
       const username = String(body.username || '').trim(); const hash = String(body.password_hash || '').trim();
       if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(username)) return res.status(400).json({ error: 'ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください' });
       if (!/^[0-9a-f]{64}$/.test(hash)) return res.status(400).json({ error: 'パスワードが不正です' });
