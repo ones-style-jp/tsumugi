@@ -52457,7 +52457,12 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       //   担当職員が誰もチェックされていない場合は従来どおり全員表示。単なるフィルタなので動作は重くならない。
       const _st = log.staff || {};
       const _anySt = Object.keys(_st).some(k => _st[k]);
-      const arr = _dsAsOf.filter(s=>s.name && (_staffOk(s) || (log.driver||{})[prefix+s.id]) && (!_anySt || _st[s.id] || (log.driver||{})[prefix+s.id])); // ★ trial519: 送迎者の候補もその日の名簿 ★ trial596: 送迎表から運転者に入った人は担当時間帯(午前/午後)の絞り込みに関係なく出す
+      // ★ 2026-11-19 trial598(ユーザー「各種設定の日誌の職員に登録して送迎表の運転者に選んだのに、日誌ではその人の所だけチェックが空欄」):
+      //   運転者に入っている人は、その日の名簿(在籍期間 _from/_to)・担当時間帯・「この日だけ(ヘルプ)」の絞り込みに関係なく必ず出す(送迎表は基本の送迎表(2099年)の名簿で選べるため、在籍開始日より前の日にも運転者が入りうる)
+      const _drvOn = (s) => !!(log.driver||{})[prefix+s.id];
+      const _base = _dsAsOf.filter(s=>s.name && (_staffOk(s) || _drvOn(s)) && (!_anySt || _st[s.id] || _drvOn(s))); // ★ trial519: 送迎者の候補もその日の名簿 ★ trial596: 時間帯の絞り込みより運転者を優先
+      const _extra = (ds.staff||[]).filter(s => s && s.name && _drvOn(s) && !_base.some(x => x.id === s.id));
+      const arr = [..._base, ..._extra];
       const seen = new Set();
       return arr.filter(s => {
         const key = normalizeName(s.name).trim();
