@@ -35455,6 +35455,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               };
             });
             
+            const _AXL = 88, _AXR = 56; // ★ trial596: 左右の軸の幅(=表の両端の列の幅)
             return (
               <div data-print-id="rate-chart-section" style={{marginTop:14,borderTop:'1px solid #94a3b8',paddingTop:12}}>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
@@ -35465,16 +35466,19 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                     売上入力
                   </button>
                 </div>
+                {/* ★ 2026-11-19 trial596(ユーザー「グラフの月の位置と下の表の月の列をそろえて。少し小さく。項目も要るものだけに」):
+                    グラフと表を同じ横枠(minWidth 760)に入れ、左の軸(_AXL)・右の軸(_AXR)の幅を表の両端の列と同じにして、12か月の列幅をそろえる(表は tableLayout:fixed)。
+                    表は10行→8行: 売上の「前年比(¥差)」「前月差(¥)」は %だけに、「稼働率前年比」は前年度稼働率の行で足りるので外した。売上は「224.4万」の表記で列を細く */}
                 <div data-print-id="rate-chart-graph" style={{overflowX:'auto'}}>
-                  <div style={{minWidth:700,height:340}}>
+                  <div style={{minWidth:760}}>
+                  <div style={{height:300}}>
                     <ResponsiveContainer width="100%" height="100%">
-                      {/* barCategoryGap で月間スペースを広げる。barSize は細めにして月ごとの空間を確保 */}
-                      <ComposedChart data={chartDataWithDiff} margin={{top:20,right:60,left:20,bottom:5}} barCategoryGap="28%" barGap={3}>
+                      <ComposedChart data={chartDataWithDiff} margin={{top:20,right:0,left:0,bottom:5}} barCategoryGap="28%" barGap={3}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0"/>
                         <XAxis dataKey="label" tick={{fontSize:13,fill:'#64748b'}} axisLine={{stroke:'#cbd5e1'}} interval={0}/>
                         <YAxis
                           yAxisId="sales"
-                          orientation="left"
+                          orientation="left" width={_AXL}
                           domain={[0, 3000000]}
                           ticks={[0, 500000, 1000000, 1500000, 2000000, 2500000, 3000000]}
                           tick={{fontSize:11,fill:'#64748b'}}
@@ -35483,7 +35487,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                         />
                         <YAxis
                           yAxisId="rate"
-                          orientation="right"
+                          orientation="right" width={_AXR}
                           domain={[0, 100]}
                           ticks={[0, 20, 40, 60, 80, 100]}
                           tick={{fontSize:11,fill:'#64748b'}}
@@ -35510,99 +35514,47 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
-                </div>
-                {/* 売上一覧テーブル: グラフと近接表示 */}
-                <div data-print-id="rate-detail-table" style={{marginTop:4,overflowX:'auto'}}>
-                  <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:4}}>■ 数値詳細</div>
-                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-                    <thead>
-                      <tr style={{background:'#f8fafc'}}>
-                        <th style={{padding:'4px 8px',borderBottom:'1px solid #94a3b8',textAlign:'left',color:'#64748b',minWidth:90}}>項目</th>
-                        {chartDataWithDiff.map(d=>(
-                          <th key={d.month} style={{padding:'4px 6px',borderBottom:'1px solid #94a3b8',textAlign:'center',color:'#64748b',minWidth:70}}>{d.label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#3b82f6'}}>今年度売上</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:'#1e293b',cursor:'pointer'}} 
-                              onClick={()=>setSalesEditModal({month:d.month})}>
-                            {d.sales ? `¥${d.sales.toLocaleString()}` : '-'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr style={{background:'#fafafa'}}>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#64748b'}}>前年度売上</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',color:'#64748b'}}>
-                            {d.prevSales ? `¥${d.prevSales.toLocaleString()}` : '-'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#3b82f6'}}>売上前年比</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.diffPrevYear>=0?'#3b82f6':'#dc2626'}}>
-                            {d.sales || d.prevSales ? (d.diffPrevYear>=0?'+':'')+`¥${d.diffPrevYear.toLocaleString()}` : '-'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr style={{background:'#fafafa'}}>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#06b6d4'}}>前月売上差</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.diffPrevMonth>=0?'#3b82f6':'#dc2626'}}>
-                            {d.sales || d.prevMonthSales ? (d.diffPrevMonth>=0?'+':'')+`¥${d.diffPrevMonth.toLocaleString()}` : '-'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#06b6d4'}}>前月売上比</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.ratioPrevMonth!==null?(d.ratioPrevMonth>=100?'#3b82f6':'#dc2626'):'#94a3b8'}}>
-                            {d.ratioPrevMonth !== null ? `${d.ratioPrevMonth}%` : '—'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr style={{background:'#fafafa'}}>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#0891b2'}}>稼働日数</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:'#0891b2'}}>
-                            {d.workDays}日
-                          </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#eab308'}}>今年度稼働率</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.rate!=null?RC(d.rate):'#cbd5e1'}}>{d.rate!=null?`${d.rate}%`:'—'}</td>
-                        ))}
-                      </tr>
-                      <tr style={{background:'#fafafa'}}>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#64748b'}}>前年度稼働率</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',color:'#64748b'}}>{d.prevRate !== null ? `${d.prevRate}%` : '—'}</td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#7c3aed'}}>稼働率前年比</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.diffRatePrevYear!==null?(d.diffRatePrevYear>=0?'#3b82f6':'#dc2626'):'#94a3b8'}}>
-                            {d.diffRatePrevYear !== null ? (d.diffRatePrevYear>=0?'+':'')+d.diffRatePrevYear+'%' : '—'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr style={{background:'#fafafa'}}>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#06b6d4'}}>前月稼働率比</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.diffRatePrevMonth!==null?(d.diffRatePrevMonth>=0?'#3b82f6':'#dc2626'):'#94a3b8'}}>
-                            {d.diffRatePrevMonth !== null ? (d.diffRatePrevMonth>=0?'+':'')+d.diffRatePrevMonth+'%' : '—'}
-                          </td>
-                        ))}
-                      </tr>
-                    </tbody>
-                  </table>
+                  {/* 数値詳細: グラフと同じ列幅 */}
+                  <div data-print-id="rate-detail-table" style={{marginTop:2}}>
+                    <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:2}}>■ 数値詳細</div>
+                    {(() => {
+                      const _man = (v) => (v || v === 0) ? `${(Number(v) / 10000).toFixed(1)}万` : '-';
+                      const _pct = (a2, b2) => (a2 && b2) ? Math.round(a2 / b2 * 1000) / 10 : null;
+                      const _cell = (txt, color, extra) => <span style={{color: color || '#1e293b', ...(extra || {})}}>{txt}</span>;
+                      const rows = [
+                        { label: '今年度売上', lc: '#3b82f6', bg: '', v: d => _cell(d.sales ? _man(d.sales) : '-', '#1e293b', { fontWeight: 'bold', cursor: 'pointer' }), click: d => setSalesEditModal({ month: d.month }), title: d => d.sales ? `¥${d.sales.toLocaleString()}（押すと入力）` : '押すと入力' },
+                        { label: '前年度売上', lc: '#64748b', bg: '#fafafa', v: d => _cell(d.prevSales ? _man(d.prevSales) : '-', '#64748b'), title: d => d.prevSales ? `¥${d.prevSales.toLocaleString()}` : '' },
+                        { label: '売上 前年比', lc: '#3b82f6', bg: '', v: d => { const r = _pct(d.sales, d.prevSales); return _cell(r !== null ? `${r}%` : '—', r !== null ? (r >= 100 ? '#3b82f6' : '#dc2626') : '#94a3b8', { fontWeight: 'bold' }); } },
+                        { label: '売上 前月比', lc: '#06b6d4', bg: '#fafafa', v: d => _cell(d.ratioPrevMonth !== null ? `${d.ratioPrevMonth}%` : '—', d.ratioPrevMonth !== null ? (d.ratioPrevMonth >= 100 ? '#3b82f6' : '#dc2626') : '#94a3b8', { fontWeight: 'bold' }) },
+                        { label: '稼働日数', lc: '#0891b2', bg: '', v: d => _cell(`${d.workDays}日`, '#0891b2', { fontWeight: 'bold' }) },
+                        { label: '今年度稼働率', lc: '#eab308', bg: '#fafafa', v: d => _cell(d.rate != null ? `${d.rate}%` : '—', d.rate != null ? RC(d.rate) : '#cbd5e1', { fontWeight: 'bold' }) },
+                        { label: '前年度稼働率', lc: '#64748b', bg: '', v: d => _cell(d.prevRate !== null ? `${d.prevRate}%` : '—', '#64748b') },
+                        { label: '稼働率 前月比', lc: '#06b6d4', bg: '#fafafa', v: d => _cell(d.diffRatePrevMonth !== null ? (d.diffRatePrevMonth >= 0 ? '+' : '') + d.diffRatePrevMonth + 'pt' : '—', d.diffRatePrevMonth !== null ? (d.diffRatePrevMonth >= 0 ? '#3b82f6' : '#dc2626') : '#94a3b8', { fontWeight: 'bold' }) },
+                      ];
+                      return (
+                        <table data-testid="ops-detail-table" style={{width:'100%',tableLayout:'fixed',borderCollapse:'collapse',fontSize:11,lineHeight:1.25}}>
+                          <colgroup><col style={{width:_AXL}}/>{chartDataWithDiff.map(d => <col key={d.month}/>)}<col style={{width:_AXR}}/></colgroup>
+                          <thead>
+                            <tr style={{background:'#f8fafc'}}>
+                              <th style={{padding:'3px 4px',borderBottom:'1px solid #94a3b8',textAlign:'left',color:'#64748b'}}>項目</th>
+                              {chartDataWithDiff.map(d => <th key={d.month} style={{padding:'3px 2px',borderBottom:'1px solid #94a3b8',textAlign:'center',color:'#64748b'}}>{d.label}</th>)}
+                              <th style={{borderBottom:'1px solid #94a3b8'}}/>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map(r => (
+                              <tr key={r.label} style={{background: r.bg || 'transparent'}}>
+                                <td style={{padding:'3px 4px',fontWeight:'bold',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',color:r.lc}}>{r.label}</td>
+                                {chartDataWithDiff.map(d => <td key={d.month} title={r.title ? r.title(d) : undefined} onClick={r.click ? () => r.click(d) : undefined} style={{padding:'3px 2px',textAlign:'center',whiteSpace:'nowrap',overflow:'hidden'}}>{r.v(d)}</td>)}
+                                <td/>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      );
+                    })()}
+                  </div>
+                  </div>
                 </div>
               </div>
             );
