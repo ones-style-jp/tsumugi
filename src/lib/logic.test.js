@@ -10,6 +10,9 @@ import {
   mergeTaskDone,
   pickHolidays,
   mergeSalesRecords,
+  mergeStoreMembers,
+  mergeFamilyTokkiOverrides,
+  mergeNoticeReads,
   holidayAmpmOn,
   fullHolidaySet,
   holidayClosesSlots,
@@ -499,5 +502,19 @@ describe('売上(salesRecords)の同期(mergeSalesRecords・2026-11-19)', () => 
     expect(mergeSalesRecords([{ month: '2026-01', sales: 5 }], [{ month: '2026-01', sales: 7 }])[0].sales).toBe(5);
     expect(mergeSalesRecords(undefined, [{ month: '2026-01', sales: 7 }])).toEqual([{ month: '2026-01', sales: 7 }]);
     expect(mergeSalesRecords([{ month: '2026-01', sales: 7 }], null)).toEqual([{ month: '2026-01', sales: 7 }]);
+  });
+});
+
+describe('職員名簿・特記の家族表示・お知らせ既読の同期(2026-11-19)', () => {
+  it('職員名簿: 他端末で足した人を残し、同じ人は _savedAt の新しい方、墓石の人は消す', () => {
+    const r = mergeStoreMembers([{ id: 'a', name: 'A', _savedAt: 1 }, { id: 'c', name: 'C' }], [{ id: 'a', name: 'A2', _savedAt: 5 }, { id: 'b', name: 'B' }], { c: 123 });
+    expect(r.map(m => `${m.id}:${m.name}`)).toEqual(['a:A2', 'b:B']);
+  });
+  it('特記の家族表示: 利用者×日付ごとに at の新しい方、片方にしか無い印は残す', () => {
+    const r = mergeFamilyTokkiOverrides({ p1: { '11月1日': { visible: false, at: 10 } } }, { p1: { '11月1日': { visible: true, at: 20 }, '11月2日': { visible: false, at: 5 } }, p2: { x: { visible: false } } });
+    expect(r.p1['11月1日'].visible).toBe(true); expect(r.p1['11月2日'].visible).toBe(false); expect(r.p2.x.visible).toBe(false);
+  });
+  it('お知らせの既読: 職員ごとに和集合', () => {
+    expect(mergeNoticeReads({ s1: ['1', '2'] }, { s1: ['2', '3'], s2: ['9'] })).toEqual({ s1: ['2', '3', '1'], s2: ['9'] });
   });
 });

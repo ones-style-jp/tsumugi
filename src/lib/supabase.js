@@ -1,7 +1,7 @@
 // Supabase クライアント (Phase 1: 家族認証のみ)
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
-import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard, pushShrinkGuard, mergeSalesRecords } from './logic.js';
+import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard, pushShrinkGuard, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads } from './logic.js';
 import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL, mergeEmergencyContacts } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
@@ -1518,6 +1518,10 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
     }
     // ★ 2026-11-19 1119d: 売上(salesRecords)も月ごとに合成(古い端末の保存で本部の入力が消えないように。規則は logic.js の mergeSalesRecords・pull と共通)
     if (Array.isArray(localData.salesRecords) || Array.isArray(cloud.salesRecords)) merged.salesRecords = mergeSalesRecords(localData.salesRecords, cloud.salesRecords);
+    // ★ 2026-11-19 1119e: 職員名簿・特記の家族表示・お知らせ既読も合成(丸ごと手元優先だと古い端末の保存で他端末の分が消える)
+    if (Array.isArray(localData.storeMembers) || Array.isArray(cloud.storeMembers)) merged.storeMembers = mergeStoreMembers(localData.storeMembers, cloud.storeMembers, mergedTomb.storeMembers || {});
+    if (localData.familyTokkiOverrides || cloud.familyTokkiOverrides) merged.familyTokkiOverrides = mergeFamilyTokkiOverrides(localData.familyTokkiOverrides, cloud.familyTokkiOverrides);
+    if (localData.noticeReads || cloud.noticeReads) merged.noticeReads = mergeNoticeReads(localData.noticeReads, cloud.noticeReads);
     // ★ 休み連絡(faxDataStore=日付×利用者の連絡状態)は「日付|利用者」キー単位でマージし、同キーは新しい方(_updatedAt)。
     //   端末間で別々の人を編集しても消えないように。
     {
