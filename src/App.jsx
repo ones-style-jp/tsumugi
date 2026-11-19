@@ -61845,8 +61845,9 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     }
     // ★ 介護保険証(要介護度/認定期間)・負担割合証の内容が変わったらケアマネにのみ新着通知(readCm:false)
     const _cmItems = [];
-    if (np.careLevelHistory) _cmItems.push(`介護保険証を更新（要介護度: ${patient.careLevel||'－'} → ${np.careLevel ?? patient.careLevel ?? '－'}）`);
-    if (np.costBurdenHistory) _cmItems.push(`負担割合証を更新（${patient.costBurden||'－'} → ${np.costBurden ?? patient.costBurden ?? '－'}）`);
+    // ★ 2026-11-19 1119h(ユーザー「『－ → 90%』のハイフンは分かりづらい」): 前の値が無ければ矢印も出さず新しい値だけ
+    { const _ol = String(patient.careLevel||'').trim(), _nl = String(np.careLevel ?? patient.careLevel ?? '').trim(); if (np.careLevelHistory) _cmItems.push(`介護保険証を更新（要介護度: ${_ol && _ol !== _nl ? `${_ol} → ` : ''}${_nl}）`);
+      const _ob = String(patient.costBurden||'').trim(), _nb = String(np.costBurden ?? patient.costBurden ?? '').trim(); if (np.costBurdenHistory) _cmItems.push(`負担割合証を更新（${_ob && _ob !== _nb ? `${_ob} → ` : ''}${_nb}）`); }
     if (_cmItems.length) np.docUpdates = withOfficeDocUpdate(_cmItems);
     // ★ 認定/適用期間の開始日が未来なら「予約」扱い(2026-08-26 店舗要望): 現在の介護度/負担割合は
     //   開始日まで変えない(名簿・帳票・加算計算に未来の介護度が先に出ないように)。 履歴には未来日の
@@ -61905,7 +61906,11 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     (patient.costBurdenHistory||[]).forEach((h,i)=>push(`cb_${h.from||i}`, h.from, 'ケアマネ', `負担割合変更：${h.value||''}`));
     (patient.serviceChanges||[]).forEach(c=>push(`sc_${c.id||c.date}`, c.date, '当事業所', `サービス内容変更：${c.text||''}`));
     (patient.changeLog||[]).forEach((c,i)=>push(`chg_${c.date}_${i}`, c.date, '当事業所', `${c.label||''}変更：${c.oldValue||''}→${c.newValue||''}`));
-    (patient.pauseHistory||[]).forEach((p,i)=>push(`pause_${p.fromDate||i}`, p.fromDate, 'ご家族/ケアマネ', `利用休止：${p.reason||''}`));
+    // ★ 2026-11-19 1119h(ユーザー「同じ日に『利用休止：理由』と『利用休止』が2行。再開も書いてほしい」): 休止の履歴があればそれを正とし、提供記録の『休止』から作る行はその期間は出さない。終了日がある休止は翌日に「利用再開」の行
+    const _pauseRanges = (patient.pauseHistory||[]).map(p => ({ from: String(p.fromDate||'').slice(0,10), to: p.toDate ? String(p.toDate).slice(0,10) : '' })).filter(x => x.from);
+    const _inPause = (iso) => _pauseRanges.some(x => iso >= x.from && (!x.to || iso <= x.to));
+    const _isoAdd1 = (iso) => { try { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; } catch { return iso; } };
+    (patient.pauseHistory||[]).forEach((p,i)=>{ push(`pause_${p.fromDate||i}`, p.fromDate, 'ご家族/ケアマネ', `利用休止${p.reason?`：${p.reason}`:''}`); if (p.fromDate && p.toDate) push(`pause_end_${String(p.toDate).slice(0,10)}`, _isoAdd1(String(p.toDate).slice(0,10)), 'ご家族/ケアマネ', `利用再開（休止 ${String(p.fromDate).slice(5,10).replace('-','/')}〜${String(p.toDate).slice(5,10).replace('-','/')}）`); });
     (appData.initialReports||[]).filter(r=>r.patientId===patient.id).forEach(r=>push(`ir_${r.firstDate||r.id}`, (r.firstDate||r.sentAt), '当事業所', '初回ご利用報告'));
     // ★ フェイスシート・利用者情報・保険証写真・アセスメント等の更新通知(docUpdates)も経過に記録。
     (patient.docUpdates||[]).forEach(u=>{ if(!u||!u.id) return; const _from = u.by==='caremanager'?'ケアマネ':(u.by==='family'?'ご家族':'当事業所'); const _c = Array.isArray(u.items)?u.items.join('・'):(u.items||'更新'); push(`du_${u.id}`, (u.at||'').slice(0,10), _from, _c); });
@@ -61926,6 +61931,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           if (_faxAbsDates.has(iso)) return; // 休み連絡の行があるので重複させない
           push(`st_${r.id}`, iso, 'ご家族/ご本人', `欠席${_tk?`　理由: ${_tk}`:''}`, r.recorder);
         } else if (r.status==='休止' || r.status==='休業') {
+          if (r.status==='休止' && _inPause(iso)) return; // ★ 1119h: 休止の履歴にある期間は履歴の行だけ(重複させない)
           const prev = _prevByStatus[r.status]; _prevByStatus[r.status] = iso;
           // 8日以内に同じ状態が続く場合は同じ期間とみなし開始日のみ記載(週1利用でも繋がるように)
           if (prev && (new Date(iso) - new Date(prev)) / 86400000 <= 8) return;
