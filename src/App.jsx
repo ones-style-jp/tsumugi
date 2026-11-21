@@ -27366,7 +27366,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
          } else {
              // ★ 休止期間外なのに記録に「休止」が残っている(休止中に自動保存された残骸) → 出席に戻す(2026-08-11)。
              //   これが無いと、休止の終了日を過ぎても提供記録入力が休止のままになる。
-             if (pData.status === '休止') { obsMarkRecEdit(p.id, selectedDate, 'status'); pData.status = '出席'; }
+             // ★ 2026-11-21 1121a(ユーザー報告「欠席にしたのに出席に戻る」): 戻すのは今日以降の日だけ。過ぎた日の「休止」は事実(来ていない)なので勝手に出席にしない。
+             //   また、この自動の戻しには「編集した印」を付けない(付けると他の端末が付けた欠席より新しい時刻になり、この端末の保存で上書きしてしまう)
+             if (pData.status === '休止' && String(selectedDate).slice(0, 10) >= tsuTodayIso()) { pData.status = '出席'; }
              if (pData.tokki && /（\d{4}\/\d{1,2}\/\d{1,2}〜）\s*$/.test(pData.tokki)) {
                  // ★ 休止期間が終わった(出席等に戻った)のに、過去に焼き付いた休止ラベルが残っている → 消す。
                  obsMarkRecEdit(p.id, selectedDate, 'tokki');
@@ -61932,7 +61934,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     (patient.changeLog||[]).forEach((c,i)=>push(`chg_${c.date}_${i}`, c.date, '当事業所', `${c.label||''}変更：${c.oldValue||''}→${c.newValue||''}`));
     // ★ 2026-11-19 1119h(ユーザー「同じ日に『利用休止：理由』と『利用休止』が2行。再開も書いてほしい」): 休止の履歴があればそれを正とし、提供記録の『休止』から作る行はその期間は出さない。終了日がある休止は翌日に「利用再開」の行
     const _pauseRanges = (patient.pauseHistory||[]).map(p => ({ from: String(p.fromDate||'').slice(0,10), to: p.toDate ? String(p.toDate).slice(0,10) : '' })).filter(x => x.from);
-    const _inPause = (iso) => _pauseRanges.some(x => iso >= x.from && (!x.to || iso <= x.to));
+    const _inPause = (iso) => _pauseRanges.some(x => iso >= x.from && (x.to ? iso <= x.to : patient.status === '休止')); // ★ 2026-11-21 1121a: 終了日のない休止は、今も休止中(状態が休止)のときだけ(提供記録 getPauseReasonOnDate と同じ決まり)
     const _isoAdd1 = (iso) => { try { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; } catch { return iso; } };
     (patient.pauseHistory||[]).forEach((p,i)=>{ push(`pause_${p.fromDate||i}`, p.fromDate, 'ご家族/ケアマネ', `利用休止${p.reason?`：${p.reason}`:''}`); if (p.fromDate && p.toDate) push(`pause_end_${String(p.toDate).slice(0,10)}`, _isoAdd1(String(p.toDate).slice(0,10)), 'ご家族/ケアマネ', `利用再開（休止 ${String(p.fromDate).slice(5,10).replace('-','/')}〜${String(p.toDate).slice(5,10).replace('-','/')}）`); });
     (appData.initialReports||[]).filter(r=>r.patientId===patient.id).forEach(r=>push(`ir_${r.firstDate||r.id}`, (r.firstDate||r.sentAt), '当事業所', '初回ご利用報告'));
