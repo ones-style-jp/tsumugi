@@ -187,6 +187,13 @@ function useTsuFitFont(ref, text, basePx, minPx = 8, reservePx = 0) {
 }
 function TsuFitSelect({ label, basePx = 16, minPx = 10, style, children, ...rest }) { const ref = React.useRef(null); const fs = useTsuFitFont(ref, label, basePx, minPx, 6); return <select ref={ref} {...rest} style={{ ...(style || {}), fontSize: fs }}>{children}</select>; }
 function TsuFitInput({ basePx = 17, minPx = 9, style, ...rest }) { const ref = React.useRef(null); const fs = useTsuFitFont(ref, rest.value, basePx, minPx, 10); return <input ref={ref} {...rest} style={{ ...(style || {}), fontSize: fs }} />; }
+// ★ 2026-11-19 trial601(ユーザー「スマホの日誌などのカレンダーも左右スワイプで月が変わるように。カレンダーのような所には同じく付けて」):
+//   横スワイプ(60px 以上・縦の2倍以上・0.9秒以内)で onDir(+1=次／-1=前)。開始位置は要素の dataset に控える(描き直しをまたいでも消えない)。
+//   画面の切り替え(左端=戻る 等)には渡さない(_tsuConsumed)。使い方: <div {...tsuHSwipeHandlers(d => d > 0 ? next() : prev())}>
+const tsuHSwipeHandlers = (onDir) => ({
+  onTouchStart: (e) => { try { const el = e.currentTarget; const t = e.touches && e.touches[0]; if (!el) return; if (t && e.touches.length === 1) el.dataset.tsuSw = `${t.clientX},${t.clientY},${Date.now()}`; else delete el.dataset.tsuSw; } catch {} },
+  onTouchEnd: (e) => { try { const el = e.currentTarget; const s = el && el.dataset.tsuSw; if (el) delete el.dataset.tsuSw; const t = e.changedTouches && e.changedTouches[0]; if (!s || !t) return; const [x, y, t0] = s.split(',').map(Number); if (Date.now() - t0 > 900) return; const dx = t.clientX - x, dy = t.clientY - y; if (Math.abs(dx) >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) { try { e.nativeEvent._tsuConsumed = true; } catch {} onDir(dx < 0 ? 1 : -1); } } catch {} },
+});
 const AutoFitLine = ({ children, style }) => {
   const containerRef = React.useRef(null);
   const textRef = React.useRef(null);
@@ -13064,7 +13071,7 @@ function RosterView({ appData, onSave }) {
   };
   const th = { position:'sticky', top:0, zIndex:2, background:'#f8fafc', borderBottom:'2px solid #cbd5e1', fontSize:11, fontWeight:'bold', color:'#475569', padding:'6px 4px', textAlign:'center', whiteSpace:'nowrap' };
   return (
-    <div style={{height:'100%',overflow:'auto',background:'#f0f4f9'}}>
+    <div style={{height:'100%',overflow:'auto',background:'#f0f4f9'}} data-testid="roster-root" {...tsuHSwipeHandlers(d => shiftMonth(d))}>{/* ★ trial601: 左右スワイプで前月／翌月 */}
       <div className="tsu-ph-cards tsu-wide-t" style={{maxWidth:1400,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:12}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -13402,27 +13409,32 @@ function TsuHomeAbsence({ appData, navigateTo }) {
   const togFold = () => setFold(v => { const nv = !v; try { localStorage.setItem('tsuFold_homeAbs', nv ? '1' : '0'); } catch {} return nv; });
   const cfg = ((appData.systemSettings || {}).homeTasks || {}).absence || {};
   if (cfg.on === false) return null;
-  let rows = [];
+  // ★ 2026-11-16 trial583(ユーザー「休み未連絡も本日分か全体かで切り替えられるように」): 範囲 range = today(本日だけ・これまでどおり)/all(今日から先の分も。月間表の欠席・提供記録の欠席で休み連絡がまだの方。31日先まで・日ごとに見出し)
+  const range = cfg.range === 'all' ? 'all' : 'today';
+  let groups = [];
   try {
-    const now = new Date(); const iso = tsuTodayIso(); const dow = now.getDay(); const dayNum = now.getDate(); const mk = iso.slice(0, 7); const todayJ = `${now.getMonth() + 1}月${now.getDate()}日`;
-    const recs = (appData.ticketRecords || []).filter(r => r && recMatchesDateYear(r, todayJ, now.getFullYear()));
-    const fs = appData.faxDataStore || {};
-    (appData.patients || []).forEach(p => {
-      if (!p || !isPatientListable(p) || !isPatientActiveOnDate(p, iso)) return;
-      const rec = recs.find(r => r.patientId === p.id);
-      let abs = false;
-      if (rec) { abs = rec.status === '欠席'; }
-      else { const base = (getScheduleOnDate(p, iso) || {})[dow] || ''; if (!base) return; const sls = base === '1日' ? ['AM', 'PM'] : [base]; const sh = ((appData.monthlyShifts || {})[mk] || {})[p.id] || {}; abs = sls.some(sl => String(sh[`${dayNum}_${sl}`] ?? '') === '欠席'); }
-      if (!abs) return;
-      const st = String((fs[`${iso}_${p.id}`] || {}).status || 'none');
-      const done = st === 'printed' || st === 'both' || st === 'faxed'; if (done) return; // ★ trial567(ユーザー「連絡済だったら表示から外していい」): 未連絡・作成中だけ
-      rows.push({ pid: p.id, name: p.name, st, done: false, edited: st === 'edited' || st === 'pdf', cm: !!(p.cmName || p.cmOffice) });
-    });
-  } catch { rows = []; }
+    const todayIso = tsuTodayIso(); const fs = appData.faxDataStore || {}; const nDays = range === 'all' ? 31 : 1;
+    for (let k = 0; k < nDays; k++) { const iso = tsuIsoAdd(todayIso, k); const d = new Date(iso + 'T00:00:00'); const dow = d.getDay(); const dayNum = d.getDate(); const mk = iso.slice(0, 7); const dayJ = `${d.getMonth() + 1}月${dayNum}日`;
+      const hol = (appData.holidays || []).find(h => (h && (h.date || h)) === iso); if (hol && (!hol.ampm || hol.ampm === '1日')) continue;
+      const recs = (appData.ticketRecords || []).filter(r => r && recMatchesDateYear(r, dayJ, d.getFullYear())); const rows = [];
+      (appData.patients || []).forEach(p => {
+        if (!p || !isPatientListable(p) || !isPatientActiveOnDate(p, iso)) return;
+        const rec = recs.find(r => r.patientId === p.id);
+        let abs = false;
+        if (rec) { abs = rec.status === '欠席'; }
+        else { const base = (getScheduleOnDate(p, iso) || {})[dow] || ''; if (!base) return; const sls = base === '1日' ? ['AM', 'PM'] : [base]; const sh = ((appData.monthlyShifts || {})[mk] || {})[p.id] || {}; abs = sls.some(sl => String(sh[`${dayNum}_${sl}`] ?? '') === '欠席'); }
+        if (!abs) return;
+        const st = String((fs[`${iso}_${p.id}`] || {}).status || 'none');
+        const done = st === 'printed' || st === 'both' || st === 'faxed'; if (done) return; // ★ trial567(ユーザー「連絡済だったら表示から外していい」): 未連絡・作成中だけ
+        rows.push({ pid: p.id, iso, k, name: p.name, st, done: false, edited: st === 'edited' || st === 'pdf', cm: !!(p.cmName || p.cmOffice) });
+      });
+      if (rows.length) groups.push({ iso, d, k, rows }); }
+  } catch { groups = []; }
+  const rows = groups.flatMap(g => g.rows);
   if (!rows.length) return null;
-  const iso = tsuTodayIso();
+  const DOWJ = ['日', '月', '火', '水', '木', '金', '土'];
   const pending = rows.filter(r => !r.done).length;
-  const open = (r) => { try { sessionStorage.setItem('tsumugiOpenFax', JSON.stringify({ type: 'absence', patientId: r.pid, date: iso })); } catch {} navigateTo && navigateTo('absence_fax'); };
+  const open = (r) => { try { sessionStorage.setItem('tsumugiOpenFax', JSON.stringify({ type: 'absence', patientId: r.pid, date: r.iso })); } catch {} navigateTo && navigateTo('absence_fax'); };
   const pill = (r) => r.done ? { t: '連絡済', c: '#047857', bg: '#ecfdf5', bd: '#a7f3d0' } : r.edited ? { t: '作成中', c: '#9a3412', bg: '#fff7ed', bd: '#fdba74' } : { t: '未連絡', c: '#fff', bg: '#ea580c', bd: '#ea580c' };
   return (
     <div data-testid="home-absence" data-pending={pending} data-collapsed={fold ? '1' : '0'} style={{ width: '100%', background: pending ? '#fff7ed' : '#f8fafc', border: `1px solid ${pending ? '#fdba74' : '#e2e8f0'}`, borderRadius: 12, padding: fold ? '4px 10px' : '6px 10px 8px' }}>{/* ★ trial568(ユーザー「余白が多い」): 1行目に題名・件数・ⓘ、すぐ下に名前 */}
@@ -13432,16 +13444,20 @@ function TsuHomeAbsence({ appData, navigateTo }) {
           <span style={{ fontSize: 15, fontWeight: 'bold', color: '#9a3412' }}>休み未連絡</span>{/* ★ trial582(ユーザー): 「休み連絡がまだの方」→「休み未連絡」 */}
           <span data-testid="home-absence-pending" style={{ fontSize: 12, fontWeight: 'bold', color: '#fff', background: '#ea580c', borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pending}名</span>
         </button>
-        <TsuHint>今日お休みの方（提供記録の欠席・月間表の欠席）のうち、ケアマネへの休み連絡がまだの方です。名前を押すとその方の休み連絡（送付状）を開きます。「作成中」は送付状を書いたが印刷・連絡済にしていない状態です。連絡済になるとここから消えます。</TsuHint>
+        <TsuHint>今日お休みの方（提供記録の欠席・月間表の欠席）のうち、ケアマネへの休み連絡がまだの方です。ホームの表示設定で「すべて」にすると、今日から先（31日先まで）の分も日ごとに出ます。名前を押すとその方の休み連絡（送付状）を開きます。「作成中」は送付状を書いたが印刷・連絡済にしていない状態です。連絡済になるとここから消えます。</TsuHint>
         {tsuViewW() >= 640 && <button type="button" data-testid="home-absence-open" onClick={() => navigateTo && navigateTo('absence_fax')} style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 'bold', color: '#475569', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: '3px 10px' }}>休み連絡を開く</button>}{/* スマホは名前を押せば開くので出さない */}
       </div>
-      {!fold && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {rows.map(r => { const pl = pill(r); return (
-          <button key={r.pid} type="button" data-testid={`home-absence-row-${r.pid}`} data-st={r.st} onClick={() => open(r)} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 40, padding: '4px 10px', background: '#fff', border: '1px solid #fed7aa', borderRadius: 10, cursor: 'pointer' }}>
-            <span style={{ fontSize: 14, fontWeight: 'bold', color: '#1e293b' }}>{r.name} 様</span>
-            <span style={{ fontSize: 11, fontWeight: 'bold', color: pl.c, background: pl.bg, border: `1px solid ${pl.bd}`, borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pl.t}</span>
-          </button>); })}
-      </div>}
+      {!fold && groups.map(g => (
+        <div key={g.iso} data-testid={`home-absence-day-${g.iso}`} style={{ marginTop: g.k === 0 && groups.length === 1 ? 0 : 4 }}>
+          {(range === 'all') && <div style={{ fontSize: 12, fontWeight: 'bold', color: '#7c2d12', marginBottom: 4 }}>{g.k === 0 ? '今日 ' : g.k === 1 ? '明日 ' : ''}{g.d.getMonth() + 1}/{g.d.getDate()}（{DOWJ[g.d.getDay()]}）</div>}{/* ★ trial583: すべて のときは日ごとの見出し */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {g.rows.map(r => { const pl = pill(r); return (
+              <button key={r.pid} type="button" data-testid={r.k === 0 ? `home-absence-row-${r.pid}` : `home-absence-row-${r.iso}-${r.pid}`} data-st={r.st} onClick={() => open(r)} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 40, padding: '4px 10px', background: '#fff', border: '1px solid #fed7aa', borderRadius: 10, cursor: 'pointer' }}>
+                <span style={{ fontSize: 14, fontWeight: 'bold', color: '#1e293b' }}>{r.name} 様</span>
+                <span style={{ fontSize: 11, fontWeight: 'bold', color: pl.c, background: pl.bg, border: `1px solid ${pl.bd}`, borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>{pl.t}</span>
+              </button>); })}
+          </div>
+        </div>))}
     </div>);
 }
 function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
@@ -13452,7 +13468,10 @@ function TsuHomeTpNotice({ appData, onSave, navigateTo }) {
   const cfg = ((appData.systemSettings || {}).homeTasks || {}).tpNotice || {};
   if (cfg.on === false) return null;
   if (!tpStoreUsesTransport(appData)) return null;
-  const days = (cfg.todayOnly ? [0] : [0, 1]).map(k => { const d = new Date(); d.setDate(d.getDate() + k); return { iso: tpIsoOf(d), label: k === 0 ? '今日' : '明日', d }; });
+  // ★ 2026-11-16 trial583(ユーザー「今日と明日とか今週の分が出てくる。表示設定で当日だけにするか全てにするかを選べるように」): 範囲 range = today(本日だけ)/two(本日と明日・これまでどおり)/all(配布の控えがある日をすべて・今日から31日先まで)
+  const range = cfg.range || (cfg.todayOnly ? 'today' : 'two'); const todayIso = tpIsoOf(new Date());
+  const isos = range === 'all' ? (() => { const s = new Set([todayIso]); Object.keys(appData.transportPlans || {}).forEach(k => { const m = k.match(/^(\d{4}-\d{2}-\d{2})_(AM|PM)$/); if (!m || m[1] < todayIso) return; const pl = appData.transportPlans[k]; if (pl && typeof pl === 'object' && pl._base) s.add(m[1]); }); return [...s].sort().slice(0, 31); })() : range === 'today' ? [todayIso] : [todayIso, tsuIsoAdd(todayIso, 1)];
+  const days = isos.map(iso => { const d = new Date(iso + 'T00:00:00'); const k = Math.round((d - new Date(todayIso + 'T00:00:00')) / 86400000); return { iso, label: k === 0 ? '今日' : k === 1 ? '明日' : '', d }; });
   const lists = days.map(x => ({ ...x, rows: tpNoticeListOn(appData, x.iso) })).filter(x => x.rows.length);
   if (!lists.length) return null;
   const DOWJ = ['日', '月', '火', '水', '木', '金', '土']; const narrow = tsuViewW() < 640;
@@ -13711,10 +13730,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           );
           const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
-                      {[['tpNotice','送迎時間の変更 ※「本日だけ」=明日の分は出さない'],['absence','本日のお休みと休み連絡の状態（未連絡・作成中・連絡済）'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                      {[['tpNotice','送迎時間の変更'],['absence','休み未連絡（連絡がまだ・作成中の方）'],['memos','今日の申し送り'],['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['tasks','カレンダーのタスク（済むまで残る）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング'],['devNotes','つむぎ運営からのお知らせ'],['family','家族・ケアマネからの更新'],['news','お知らせ（店舗の投稿）'],['shortcuts','近道（記録・入力・計画書・管理）をホームの下に出す（左のメニュー／スマホのメニューと同じ項目）']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
                           <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={k === 'shortcuts' ? !!c.on : c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
-                          {['tpNotice','tasks','fitness','keikaku','monitoring'].includes(k) && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
+                          {['tasks','fitness','keikaku','monitoring'].includes(k) && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
+                          {k === 'tpNotice' && <select data-testid="home-tasks-cfg-tpNotice-range" value={c.range || (c.todayOnly ? 'today' : 'two')} disabled={c.on === false} onChange={e => set({ range: e.target.value, todayOnly: e.target.value === 'today' })} style={{fontSize:12,padding:'2px 4px',border:'1px solid #cbd5e1',borderRadius:6,background:'#fff',color:'#334155'}}><option value="today">本日だけ</option><option value="two">本日と明日</option><option value="all">すべて（控えのある日）</option></select>}{/* ★ trial583(ユーザー): 当日だけ／すべて を選べる */}
+                          {k === 'absence' && <select data-testid="home-tasks-cfg-absence-range" value={c.range === 'all' ? 'all' : 'today'} disabled={c.on === false} onChange={e => set({ range: e.target.value })} style={{fontSize:12,padding:'2px 4px',border:'1px solid #cbd5e1',borderRadius:6,background:'#fff',color:'#334155'}}><option value="today">本日だけ</option><option value="all">すべて（今日から先）</option></select>}
                         </div>); })}
                       <div style={{textAlign:'right',marginTop:6}}><button type="button" onClick={() => setHtCfgOpen(false)} style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'none',borderRadius:8,padding:'4px 12px',cursor:'pointer'}}>閉じる</button></div>
                     </>);
@@ -13760,12 +13781,19 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const fromHq = (notices||[]).filter(n=>!(n.ends_at && new Date(n.ends_at).getTime()<nowT)).map(n=>({ id:n.id, date:(n.created_at?String(n.created_at).slice(0,10):''), m: sevMeta[n.severity]||sevMeta.info, title:n.title, body:n.body }));
           const builtin = DEV_ANNOUNCEMENTS.map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body }; });
           // ★ update-notes.json からライブ取得した更新内容(再読み込みなしで反映)
-          const live = (devNotes||[]).map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body, items:a.items }; }); // ★ 2026-10-26: items=構造化した変更点
+          // ★ 2026-11-19 trial600(ユーザー「更新内容は項目ごとでなく、更新した日ごとに1つにまとめて。何月何日で探せればよい」): update-notes.json は日付ごとに1件にまとめる(中の項目は詳細で一覧)
+          const _byDay = {}; (devNotes||[]).forEach(n => { const k = String(n.date || ''); (_byDay[k] = _byDay[k] || []).push(n); });
+          const live = Object.keys(_byDay).map(k => { const arr = _byDay[k]; const mm = DEV_ANN_META.update; const d0 = k ? new Date(k + 'T00:00:00') : null; const lbl = (d0 && !isNaN(d0.getTime())) ? `${d0.getMonth()+1}月${d0.getDate()}日の更新` : '更新';
+            const nFix = arr.filter(x => x.type === 'fix').length, nFeat = arr.filter(x => x.type === 'feature').length, nUpd = arr.length - nFix - nFeat;
+            const body = [nFix ? `不具合の修正 ${nFix}件` : '', nFeat ? `新しい機能 ${nFeat}件` : '', nUpd ? `変更 ${nUpd}件` : ''].filter(Boolean).join('・');
+            const items = arr.flatMap(x => (Array.isArray(x.items) && x.items.length ? x.items : [{ kind: x.type, where: x.body || '', change: x.title }]).map(it => ({ ...it, where: it.where || x.body || '', change: it.change || x.title })));
+            return { id: `upd-day-${k}`, date: k, m: { label: mm.label, emoji: mm.emoji, color: mm.color, bg: mm.bg }, title: `${lbl}（${arr.length}件）`, body, items, _ids: arr.map(x => x.id) }; });
           const _seen=new Set();
           const all = [...fromHq, ...live, ...builtin].filter(x=>{ if(!x.id||_seen.has(x.id)) return false; _seen.add(x.id); return true; }).sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,50);
           if (!all.length) return null;
           if (_hcfg.devNotes?.on === false) return null; // ★ trial517: 表示設定
-          const _unreadL = all.filter(x => !isRead(x.id)), _readL = all.filter(x => isRead(x.id)); // ★ trial517: 未読だけ出し、既読は「過去のお知らせ」に畳む
+          const _isR = (x) => isRead(x.id) || (Array.isArray(x._ids) && x._ids.length > 0 && x._ids.every(id => isRead(id))); // ★ trial600: 日ごとのまとめは、まとめ自体か中の全部が既読なら既読
+          const _unreadL = all.filter(x => !_isR(x)), _readL = all.filter(x => _isR(x)); // ★ trial517: 未読だけ出し、既読は「過去のお知らせ」に畳む
           const _devShown = [..._unreadL.slice(0, 10), ...(devOld ? _pageSlice(_readL, devPage, (tsuViewW() < 768 ? 5 : 10)) : [])];
           const _unread = _unreadL.length;
           return (
@@ -13782,8 +13810,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               <div style={{display:'flex',alignItems:'center',gap:6,margin:'10px 0 8px'}}>
                 <span style={{fontSize:10,color:'#64748b'}}>アップデート・メンテナンス情報</span>
                 {/* ★ まとめて既読にする(未読が残っているときだけ表示) */}
-                {all.some(x => !isRead(x.id)) && (
-                  <button onClick={()=>{ all.forEach(x => { if (!isRead(x.id)) markRead(x.id); }); }}
+                {all.some(x => !_isR(x)) && (
+                  <button onClick={()=>{ all.forEach(x => { if (!_isR(x)) markRead(x.id); }); }}
                     style={{marginLeft:'auto',fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'4px 10px',cursor:'pointer',whiteSpace:'nowrap'}}>
                     全て既読
                   </button>
@@ -13792,12 +13820,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               {/* ★ コンパクト化(2026-08-18): 本文プレビューをやめ1行(バッジ+日付+タイトル)に。
                   クリックで従来どおり全文モーダル。 画面の半分以上を占領していたのを1/4程度へ。 */}
               <div style={{display:'flex',flexDirection:'column',gap:5}}>
-                {_devShown.map(a=>{ const _r=isRead(a.id); return (
+                {_devShown.map(a=>{ const _r=_isR(a); return (
                   <button key={a.id} data-testid={`home-dev-row-${a.id}`} onClick={()=>{ const _d = (x) => ({id:x.id,badge:`${x.m.emoji?x.m.emoji+' ':''}${x.m.label}`,badgeColor:x.m.color,date:x.date,title:x.title,body:x.body,items:x.items}); openDetail(_d(a), all.map(_d)); }}
                     title={a.title}
                     style={{textAlign:'left',cursor:'pointer',width:'100%',border:`1px solid ${_r?'#e2e8f0':a.m.color+'66'}`,background:_r?'white':a.m.bg,borderRadius:8,padding:'5px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}}>
                     <span style={{fontSize:10,fontWeight:'bold',color:'white',background:_r?'#94a3b8':a.m.color,borderRadius:5,padding:'2px 7px',whiteSpace:'nowrap',flexShrink:0}}>{a.m.emoji} {a.m.label}</span>
-                    {a.date && <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap',flexShrink:0}}>{a.date}</span>}
+                    {a.date && !String(a.id).startsWith('upd-day-') && <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap',flexShrink:0}}>{a.date}</span>}{/* ★ trial600: 日ごとのまとめは題名に日付があるので省く */}
                     <span style={{fontSize:12.5,fontWeight:'bold',color:_r?'#334155':a.m.color,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',flex:1,minWidth:0}}>{a.title}</span>
                     <span style={{fontSize:9,color:'#64748b',flexShrink:0}}>{_r?'既読':'詳細 ›'}</span>
                   </button>
@@ -19893,7 +19921,8 @@ function StaffInviteAcceptView({ code, onLogin }) {
   const registerPasskey = async () => { if (!done || pk.busy) return; setPk({ busy: true, done: false, msg: '' });
     try { await supabaseHqPasskeyRegister(done.session.token); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} setPk({ busy: false, done: true, msg: 'この端末に登録しました。次からはログイン画面の「パスキーで入る」で、ID・パスワードなしで入れます。' }); }
     catch (e) { setPk({ busy: false, done: false, msg: e && e.name === 'NotAllowedError' ? '登録を取り消しました（あとから各種設定→ログイン情報でも登録できます）' : ((e && e.message) || '登録できませんでした（あとから各種設定→ログイン情報でも登録できます）') }); } };
-  React.useEffect(() => { let on = true; (async () => { try { const i = await supabaseStaffInviteLookup(code); if (on) setInv(i); } catch (e) { if (on) setErr(e?.message || '招待コードを確認できませんでした'); } })(); return () => { on = false; }; }, [code]);
+  // ★ 2026-11-19 trial592(ユーザー「基本はメールアドレスが ID。自分で決めたい人だけ別の ID に」): 招待にメールがあれば、ログインIDの初期値をそのメールにする(書き換えれば別の ID にできる)
+  React.useEffect(() => { let on = true; (async () => { try { const i = await supabaseStaffInviteLookup(code); if (on) { setInv(i); const em = String(i?.email || '').trim(); if (em && /^[A-Za-z0-9_.@\-]{4,64}$/.test(em)) setF(x => (x.username ? x : { ...x, username: em })); } } catch (e) { if (on) setErr(e?.message || '招待コードを確認できませんでした'); } })(); return () => { on = false; }; }, [code]);
   const submit = async (e) => { e.preventDefault(); setErr('');
     if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(f.username)) return setErr('ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください');
     if (f.password.length < 8 || !/[A-Za-z]/.test(f.password) || !/[0-9]/.test(f.password)) return setErr('パスワードは8文字以上で英字と数字を含めてください');
@@ -19937,7 +19966,7 @@ function StaffInviteAcceptView({ code, onLogin }) {
             <div>お名前: <b>{inv.name}</b>（{inv.role === 'manager' ? '管理者' : '職員'}）</div>
           </div>
           <div style={{display:'grid',gap:10}}>
-            <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>ログインID <span style={{color:'#dc2626'}}>*</span></div>{inp('username','text','例: hanako_m（4文字以上の半角英数字）',{autoCapitalize:'none',autoCorrect:'off'})}</div>
+            <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>ログインID <span style={{color:'#dc2626'}}>*</span>{inv && inv.email ? <span style={{fontWeight:'normal',color:'#64748b',marginLeft:6}}>（メールアドレスがそのままログインIDになります。別のIDにしたいときは書き換えてください）</span> : null}</div>{inp('username','text','例: hanako_m（4文字以上の半角英数字）',{autoCapitalize:'none',autoCorrect:'off'})}</div>
             <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>パスワード <span style={{color:'#dc2626'}}>*</span>（8文字以上・英字と数字）</div>{inp('password','password','パスワード')}</div>
             <div>{inp('password2','password','パスワード（確認）')}</div>
             <div style={{fontSize:12,color:'#64748b',lineHeight:1.6,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,padding:'8px 10px'}}>登録が終わると、みんなで使う iPad で「自分に切り替える」ための <b>4桁の PIN</b> が一度だけ表示されます（つむぎが自動で決めます）。</div>
@@ -21632,7 +21661,7 @@ function StaffLoginGate({ onLogin }) {
       if (staff && staff._needCode) { // ★ 本部: 確認コードの入力へ
         if (_tryPk && staff._passkeyFirst) {
           _condStop();
-          try { const st2 = await supabaseHqPasskeyLogin({ onAuth: _pkAuthed }); await finishLogin(st2); return; }
+          try { const st2 = await supabaseHqPasskeyLogin({ onAuth: _pkAuthed, allow: staff._pkAllow, expectSid: staff._pkSid }); await finishLogin(st2); return; } // ★ trial580: この人の登録済みパスキーだけを端末に出す(古い残りを選ばせない)
           catch (e2) { // パスキーを取り消した・使えない → メールを送ってコード入力へ
             _condStart(); setForm(f=>({...f, pkBusy:''}));
             const _cancel = !!(e2 && e2.name === 'NotAllowedError');
@@ -21652,11 +21681,13 @@ function StaffLoginGate({ onLogin }) {
       setForm(f=>({...f, loading:false, pkBusy:'', error: msg + debug}));
     }
   };
+  // ★ 2026-11-16 trial580: ボタンのパスキー。サーバーが「古いパスキー」と返したら、その人の登録済みパスキーだけを出して1回やり直す(登録済みが無ければそのまま案内)
+  const _pkLoginWithRetry = async () => { try { return await supabaseHqPasskeyLogin({ onAuth: _pkAuthed }); } catch (e) { if (e && e.pkStale && Array.isArray(e.pkAllow) && e.pkAllow.length) return supabaseHqPasskeyLogin({ onAuth: _pkAuthed, allow: e.pkAllow, expectSid: e.pkSid }); if (e && e.pkStale) { const e2 = new Error('この端末のパスキーは古いものです。ID とパスワードで入り、各種設定の「パスキー」で登録し直してください'); throw e2; } throw e; } };
   // ★ 2026-10-23 本部のパスキー(Touch ID・Face ID): ID・パスワード・確認コードなしで入る(登録は管理局の「パスキー」から)
   const passkeyLogin = async () => {
     if (!isSupabaseEnabled) { setForm(f=>({...f, error:'Supabase が未接続です'})); return; }
     setForm(f=>({...f, loading:true, error:''})); _condStop();
-    try { const staff = await supabaseHqPasskeyLogin({ onAuth: _pkAuthed }); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} await finishLogin(staff); } // ★ 2026-10-26: パスキーで入れた端末に印(次からは自動)
+    try { const staff = await _pkLoginWithRetry(); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} await finishLogin(staff); } // ★ 2026-10-26: パスキーで入れた端末に印(次からは自動) ★ trial580: 古いパスキーなら登録済みだけでやり直す
     catch (err) { _condStart(); setForm(f=>({...f, loading:false, pkBusy:'', error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした')})); }
   };
   // ★ 2026-11-01 従業員のパスキー: この端末で職員が登録した(または入れたことがある)ときだけ、ID・パスワードなしの「パスキーで入る」を出す(印 tsumugiStaffPasskeyDev)
@@ -21664,7 +21695,7 @@ function StaffLoginGate({ onLogin }) {
   const passkeyLoginStaff = async () => {
     if (!isSupabaseEnabled && String(import.meta.env.VITE_E2E_DEMO || '') !== '1') { setForm(f=>({...f, error:'Supabase が未接続です'})); return; } // (自動テストの見本ビルドでは API を模擬)
     setForm(f=>({...f, loading:true, error:''})); _condStop();
-    try { const staff = await supabaseHqPasskeyLogin({ onAuth: _pkAuthed }); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} await finishLogin(staff); }
+    try { const staff = await _pkLoginWithRetry(); try { localStorage.setItem('tsumugiStaffPasskeyDev', '1'); } catch {} await finishLogin(staff); }
     catch (err) { _condStart(); setForm(f=>({...f, loading:false, pkBusy:'', error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした。ID とパスワードで入ってください')})); }
   };
   // ★ 2026-11-01 trial496(ユーザー「他のサイトは ID を自動入力する時点で顔認証が出る。つむぎは ID・パスワードを打ってログインしてから認証で手間が多い」):
@@ -21697,10 +21728,12 @@ function StaffLoginGate({ onLogin }) {
       // ★ 2026-11-13 1113c(ユーザー「パスキーで入れませんでした（このパスキーは登録されていません）と出るが、もう一度やると同じIDのパスキーで入れる」):
       //   端末に同じ名前のパスキーが複数残っていると、自動入力が古い方(サーバーから消した・登録し直す前のもの)を選ぶことがある。
       //   「登録されていません」のときは、その場でパスキーを選ぶ画面を出して1回やり直す(ここで別のパスキーを選べる)。それでも駄目なら案内を出す
-      if (/登録されていません/.test(String((err && err.message) || '')) && !c.retried) {
+      // ★ 2026-11-16 trial580: サーバーが「古いパスキー」と返したら、その人の登録済みパスキーだけを出してやり直す(端末には古い方を「もう無い」と知らせ済み)。登録済みが無ければやり直さず案内
+      if (err && err.pkStale && !c.retried) {
         c.retried = true;
-        try { setForm(f=>({...f, loading:true, error:''})); const staff2 = await supabaseHqPasskeyLogin({ onAuth: () => { if (gen === c.gen) _pkAuthed(); } }); if (gen !== c.gen) return; _condStop(); try { localStorage.setItem(staff2 && staff2.role === 'super_admin' ? 'tsumugiHqPasskeyDev' : 'tsumugiStaffPasskeyDev', '1'); } catch {} _pkAuthed(); await finishLogin(staff2); return; }
-        catch (e2) { if (gen !== c.gen) return; setForm(f=>({...f, loading:false, pkBusy:'', error: (e2 && e2.name === 'NotAllowedError') ? 'パスキーでのログインを取り消しました。ID とパスワードで入ってください' : `パスキーで入れませんでした（${(e2 && e2.message) || ''}）。この端末に古いパスキーが残っているときは、端末のパスワード設定で「つむぎ」の古いパスキーを消すか、管理局の「パスキー」で登録し直してください`})); c.timer = setTimeout(() => { if (gen === c.gen) _condStart(); }, 1500 * Math.pow(2, c.fails - 1)); return; }
+        if (!(Array.isArray(err.pkAllow) && err.pkAllow.length)) { setForm(f=>({...f, loading:false, pkBusy:'', error: 'この端末のパスキーは古いものです。ID とパスワードで入り、各種設定の「パスキー」で登録し直してください'})); return; }
+        try { setForm(f=>({...f, loading:true, error:''})); const staff2 = await supabaseHqPasskeyLogin({ onAuth: () => { if (gen === c.gen) _pkAuthed(); }, allow: err.pkAllow, expectSid: err.pkSid }); if (gen !== c.gen) return; _condStop(); try { localStorage.setItem(staff2 && staff2.role === 'super_admin' ? 'tsumugiHqPasskeyDev' : 'tsumugiStaffPasskeyDev', '1'); } catch {} _pkAuthed(); await finishLogin(staff2); return; }
+        catch (e2) { if (gen !== c.gen) return; setForm(f=>({...f, loading:false, pkBusy:'', error: (e2 && e2.name === 'NotAllowedError') ? 'この端末に登録済みのパスキーが見つかりませんでした。ID とパスワードで入り、各種設定の「パスキー」で登録し直してください' : `パスキーで入れませんでした（${(e2 && e2.message) || ''}）。ID とパスワードで入ってください`})); c.timer = setTimeout(() => { if (gen === c.gen) _condStart(); }, 1500 * Math.pow(2, c.fails - 1)); return; }
       }
       if (!(err && err.name === 'NotAllowedError')) setForm(f=>({...f, loading:false, error: `パスキーで入れませんでした（${(err && err.message) || ''}）。ID とパスワードで入ってください`}));
       c.timer = setTimeout(() => { if (gen === c.gen) _condStart(); }, 1500 * Math.pow(2, c.fails - 1));
@@ -21752,7 +21785,7 @@ function StaffLoginGate({ onLogin }) {
         )}{/* ★ 2026-11-01 従業員のパスキー: 登録した端末だけ。下の ID・パスワードも今までどおり使える */}
         <form onSubmit={handleSubmit}>
           <div style={{marginBottom:14}}>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID<span style={{fontWeight:'normal',color:'#64748b',marginLeft:6}}>（登録したメールアドレスでも入れます）</span></label>{/* ★ 2026-11-19 trial591: ID の欄にメールアドレスも可(サーバーが ID で見つからなければメールで探す) */}
             <ImeSafeInput value={form.username} onChange={e=>setForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}))} autoFocus={!_ios} autoComplete="username webauthn" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
               style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>{/* ★ 2026-11-01 trial496: "webauthn" で ID 欄にパスキーの候補(指紋・顔)が出る */}
           </div>
@@ -25857,14 +25890,18 @@ export default function App() {
                 // ★ 起動後に増えた分(=今回の再読み込みで更新される分)だけ表示。 無ければ最新1件でフォールバック。
                 const _newNotes = devUpdateNotes.filter(n => !(_initialNoteIdsRef.current && _initialNoteIdsRef.current.has(n.id)));
                 const _shown = _newNotes.length ? _newNotes : devUpdateNotes.slice(0,1);
-                return _shown.length ? _shown.map(n=>{ const mm=DEV_ANN_META[n.type]||DEV_ANN_META.info; return (
-                <div key={n.id} style={{border:`1px solid ${mm.color}44`,background:mm.bg,borderRadius:12,padding:'12px 14px'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
-                    <span style={{fontSize:11,fontWeight:'bold',color:'white',background:mm.color,borderRadius:6,padding:'2px 8px'}}>{mm.emoji?mm.emoji+' ':''}{mm.label}</span>
-                    {n.date && <span style={{fontSize:11,color:'#64748b'}}>{n.date}</span>}
+                // ★ 2026-11-19 trial600: 日付ごとに1枚にまとめ、中は見出しの一覧(項目ごとの札を並べない)
+                const _grp = {}; _shown.forEach(n => { const k = String(n.date || ''); (_grp[k] = _grp[k] || []).push(n); });
+                const _days = Object.keys(_grp).sort((x, y) => y.localeCompare(x));
+                return _days.length ? _days.map(k => { const arr = _grp[k]; const d0 = k ? new Date(k + 'T00:00:00') : null; const lbl = (d0 && !isNaN(d0.getTime())) ? `${d0.getMonth()+1}月${d0.getDate()}日の更新` : '今回の更新'; const mm = DEV_ANN_META.update; return (
+                <div key={k || 'x'} data-testid="upd-day-card" style={{border:`1px solid ${mm.color}44`,background:mm.bg,borderRadius:12,padding:'12px 14px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,flexWrap:'wrap'}}>
+                    <span style={{fontSize:11,fontWeight:'bold',color:'white',background:mm.color,borderRadius:6,padding:'2px 8px'}}>{mm.label}</span>
+                    <span style={{fontSize:14,fontWeight:'bold',color:mm.color}}>{lbl}</span><span style={{fontSize:11,color:'#64748b'}}>（{arr.length}件）</span>
                   </div>
-                  <div style={{fontSize:14,fontWeight:'bold',color:mm.color,marginBottom:4}}>{n.title}</div>
-                  {n.body && <div style={{fontSize:13,color:'#475569',whiteSpace:'pre-wrap',lineHeight:1.7}}>{n.body}</div>}
+                  <ul style={{margin:0,paddingLeft:18,display:'flex',flexDirection:'column',gap:4}}>
+                    {arr.map(n => { const m2 = DEV_ANN_META[n.type]||DEV_ANN_META.info; return <li key={n.id} style={{fontSize:13,color:'#334155',lineHeight:1.5}}><span style={{fontSize:10,fontWeight:'bold',color:n.type==='fix'?'#b45309':m2.color,marginRight:6}}>{n.type==='fix'?'修正':n.type==='feature'?'追加':'変更'}</span>{n.title}</li>; })}
+                  </ul>
                 </div>
               ); }) : (
                 <div style={{fontSize:13,color:'#64748b',lineHeight:1.7,textAlign:'center',padding:'12px 0'}}>更新内容の詳細は準備中です。<br/>「今すぐ更新」で最新版に更新してください。</div>
@@ -27329,7 +27366,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
          } else {
              // ★ 休止期間外なのに記録に「休止」が残っている(休止中に自動保存された残骸) → 出席に戻す(2026-08-11)。
              //   これが無いと、休止の終了日を過ぎても提供記録入力が休止のままになる。
-             if (pData.status === '休止') { obsMarkRecEdit(p.id, selectedDate, 'status'); pData.status = '出席'; }
+             // ★ 2026-11-21 1121a(ユーザー報告「欠席にしたのに出席に戻る」): 戻すのは今日以降の日だけ。過ぎた日の「休止」は事実(来ていない)なので勝手に出席にしない。
+             //   また、この自動の戻しには「編集した印」を付けない(付けると他の端末が付けた欠席より新しい時刻になり、この端末の保存で上書きしてしまう)
+             if (pData.status === '休止' && String(selectedDate).slice(0, 10) >= tsuTodayIso()) { pData.status = '出席'; }
              if (pData.tokki && /（\d{4}\/\d{1,2}\/\d{1,2}〜）\s*$/.test(pData.tokki)) {
                  // ★ 休止期間が終わった(出席等に戻った)のに、過去に焼き付いた休止ラベルが残っている → 消す。
                  obsMarkRecEdit(p.id, selectedDate, 'tokki');
@@ -30936,7 +30975,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               <BarChart3 size={20}/>
             </div>
             <div className="tsu-dash-name">
-              <div className="tsu-dash-sub" style={{fontSize:11,opacity:0.7,fontWeight:'bold'}}>分析・個人</div>
+              {/* ★ trial602: 「分析・個人」の小さな題名は上の見出し(分析（個人）)と重複するので出さない */}
               <div style={{fontSize:18,fontWeight:'bold'}}>{selectedPatient.name} 様</div>
             </div>
             {/* ★ 表示内容ポップアップ(2026-08-28 店舗要望): 本人/家族/ケアマネ・他関係者に何が見えるか。事業所のみ表示 */}
@@ -35186,7 +35225,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         {/* ★ 分析稼働ヘッダ: 淡いオレンジグラデーション、 文字は黒で読みやすく */}
         <div className="tsu-dash-hdr" style={{background:'linear-gradient(135deg,#fed7aa,#fdba74)',color:'#1e293b',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',rowGap:8,columnGap:8}}>
         {/* ★ 2026-10-08: スマホは見出し(画面の題名と重複)を省き、部品の高さをそろえる(CSS tsu-dash-hdr) */}
-        <div className="tsu-dash-sub" style={{display:'flex',alignItems:'center',gap:10,flexShrink:0,whiteSpace:'nowrap'}}><TrendingUp size={20}/><span style={{fontSize:17,fontWeight:'bold'}}>分析（稼働）</span></div>
+        <div className="tsu-dash-sub" style={{display:'flex',alignItems:'center',gap:10,flexShrink:0,whiteSpace:'nowrap'}} title="分析（稼働）"><TrendingUp size={20}/></div>{/* ★ 2026-11-19 trial602(ユーザー「上の見出しと帯に同じ『分析（稼働）』が2回」): 帯は印だけ */}
         <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:(typeof window!=='undefined'&&tsuViewW()<768)?'flex-start':'flex-end',order:(typeof window!=='undefined'&&tsuViewW()<768)?3:0,flexBasis:(typeof window!=='undefined'&&tsuViewW()<768)?'100%':'auto',flexGrow:1}}>
           {/* ★ 2026-10-08(ユーザー要望: スマホで3段→少なく): スマホは期間を選択欄に、同じ月の表示(1ヶ月のとき)は出さない */}
           <select className="tsu-period-sel" value={period} onChange={e=>{setPeriod(e.target.value);setOpenDow(null);}} aria-label="期間">
@@ -35453,6 +35492,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               };
             });
             
+            const _AXL = 88, _AXR = 56; // ★ trial596: 左右の軸の幅(=表の両端の列の幅)
             return (
               <div data-print-id="rate-chart-section" style={{marginTop:14,borderTop:'1px solid #94a3b8',paddingTop:12}}>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
@@ -35463,16 +35503,19 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                     売上入力
                   </button>
                 </div>
+                {/* ★ 2026-11-19 trial596(ユーザー「グラフの月の位置と下の表の月の列をそろえて。少し小さく。項目も要るものだけに」):
+                    グラフと表を同じ横枠(minWidth 760)に入れ、左の軸(_AXL)・右の軸(_AXR)の幅を表の両端の列と同じにして、12か月の列幅をそろえる(表は tableLayout:fixed)。
+                    表は10行→8行: 売上の「前年比(¥差)」「前月差(¥)」は %だけに、「稼働率前年比」は前年度稼働率の行で足りるので外した。売上は「224.4万」の表記で列を細く */}
                 <div data-print-id="rate-chart-graph" style={{overflowX:'auto'}}>
-                  <div style={{minWidth:700,height:340}}>
+                  <div style={{minWidth:760}}>
+                  <div style={{height:300}}>
                     <ResponsiveContainer width="100%" height="100%">
-                      {/* barCategoryGap で月間スペースを広げる。barSize は細めにして月ごとの空間を確保 */}
-                      <ComposedChart data={chartDataWithDiff} margin={{top:20,right:60,left:20,bottom:5}} barCategoryGap="28%" barGap={3}>
+                      <ComposedChart data={chartDataWithDiff} margin={{top:20,right:0,left:0,bottom:5}} barCategoryGap="28%" barGap={3}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0"/>
                         <XAxis dataKey="label" tick={{fontSize:13,fill:'#64748b'}} axisLine={{stroke:'#cbd5e1'}} interval={0}/>
                         <YAxis
                           yAxisId="sales"
-                          orientation="left"
+                          orientation="left" width={_AXL}
                           domain={[0, 3000000]}
                           ticks={[0, 500000, 1000000, 1500000, 2000000, 2500000, 3000000]}
                           tick={{fontSize:11,fill:'#64748b'}}
@@ -35481,7 +35524,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                         />
                         <YAxis
                           yAxisId="rate"
-                          orientation="right"
+                          orientation="right" width={_AXR}
                           domain={[0, 100]}
                           ticks={[0, 20, 40, 60, 80, 100]}
                           tick={{fontSize:11,fill:'#64748b'}}
@@ -35508,99 +35551,47 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
-                </div>
-                {/* 売上一覧テーブル: グラフと近接表示 */}
-                <div data-print-id="rate-detail-table" style={{marginTop:4,overflowX:'auto'}}>
-                  <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:4}}>■ 数値詳細</div>
-                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-                    <thead>
-                      <tr style={{background:'#f8fafc'}}>
-                        <th style={{padding:'4px 8px',borderBottom:'1px solid #94a3b8',textAlign:'left',color:'#64748b',minWidth:90}}>項目</th>
-                        {chartDataWithDiff.map(d=>(
-                          <th key={d.month} style={{padding:'4px 6px',borderBottom:'1px solid #94a3b8',textAlign:'center',color:'#64748b',minWidth:70}}>{d.label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#3b82f6'}}>今年度売上</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:'#1e293b',cursor:'pointer'}} 
-                              onClick={()=>setSalesEditModal({month:d.month})}>
-                            {d.sales ? `¥${d.sales.toLocaleString()}` : '-'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr style={{background:'#fafafa'}}>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#64748b'}}>前年度売上</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',color:'#64748b'}}>
-                            {d.prevSales ? `¥${d.prevSales.toLocaleString()}` : '-'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#3b82f6'}}>売上前年比</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.diffPrevYear>=0?'#3b82f6':'#dc2626'}}>
-                            {d.sales || d.prevSales ? (d.diffPrevYear>=0?'+':'')+`¥${d.diffPrevYear.toLocaleString()}` : '-'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr style={{background:'#fafafa'}}>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#06b6d4'}}>前月売上差</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.diffPrevMonth>=0?'#3b82f6':'#dc2626'}}>
-                            {d.sales || d.prevMonthSales ? (d.diffPrevMonth>=0?'+':'')+`¥${d.diffPrevMonth.toLocaleString()}` : '-'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#06b6d4'}}>前月売上比</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.ratioPrevMonth!==null?(d.ratioPrevMonth>=100?'#3b82f6':'#dc2626'):'#94a3b8'}}>
-                            {d.ratioPrevMonth !== null ? `${d.ratioPrevMonth}%` : '—'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr style={{background:'#fafafa'}}>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#0891b2'}}>稼働日数</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:'#0891b2'}}>
-                            {d.workDays}日
-                          </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#eab308'}}>今年度稼働率</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.rate!=null?RC(d.rate):'#cbd5e1'}}>{d.rate!=null?`${d.rate}%`:'—'}</td>
-                        ))}
-                      </tr>
-                      <tr style={{background:'#fafafa'}}>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#64748b'}}>前年度稼働率</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',color:'#64748b'}}>{d.prevRate !== null ? `${d.prevRate}%` : '—'}</td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#7c3aed'}}>稼働率前年比</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.diffRatePrevYear!==null?(d.diffRatePrevYear>=0?'#3b82f6':'#dc2626'):'#94a3b8'}}>
-                            {d.diffRatePrevYear !== null ? (d.diffRatePrevYear>=0?'+':'')+d.diffRatePrevYear+'%' : '—'}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr style={{background:'#fafafa'}}>
-                        <td style={{padding:'4px 8px',fontWeight:'bold',whiteSpace:'nowrap',color:'#06b6d4'}}>前月稼働率比</td>
-                        {chartDataWithDiff.map(d=>(
-                          <td key={d.month} style={{padding:'4px 6px',textAlign:'right',fontWeight:'bold',color:d.diffRatePrevMonth!==null?(d.diffRatePrevMonth>=0?'#3b82f6':'#dc2626'):'#94a3b8'}}>
-                            {d.diffRatePrevMonth !== null ? (d.diffRatePrevMonth>=0?'+':'')+d.diffRatePrevMonth+'%' : '—'}
-                          </td>
-                        ))}
-                      </tr>
-                    </tbody>
-                  </table>
+                  {/* 数値詳細: グラフと同じ列幅 */}
+                  <div data-print-id="rate-detail-table" style={{marginTop:2}}>
+                    <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:2}}>■ 数値詳細</div>
+                    {(() => {
+                      const _man = (v) => (v || v === 0) ? `${(Number(v) / 10000).toFixed(1)}万` : '-';
+                      const _pct = (a2, b2) => (a2 && b2) ? Math.round(a2 / b2 * 1000) / 10 : null;
+                      const _cell = (txt, color, extra) => <span style={{color: color || '#1e293b', ...(extra || {})}}>{txt}</span>;
+                      const rows = [
+                        { label: '今年度売上', lc: '#3b82f6', bg: '', v: d => _cell(d.sales ? _man(d.sales) : '-', '#1e293b', { fontWeight: 'bold', cursor: 'pointer' }), click: d => setSalesEditModal({ month: d.month }), title: d => d.sales ? `¥${d.sales.toLocaleString()}（押すと入力）` : '押すと入力' },
+                        { label: '前年度売上', lc: '#64748b', bg: '#fafafa', v: d => _cell(d.prevSales ? _man(d.prevSales) : '-', '#64748b'), title: d => d.prevSales ? `¥${d.prevSales.toLocaleString()}` : '' },
+                        { label: '売上 前年比', lc: '#3b82f6', bg: '', v: d => { const r = _pct(d.sales, d.prevSales); return _cell(r !== null ? `${r}%` : '—', r !== null ? (r >= 100 ? '#3b82f6' : '#dc2626') : '#94a3b8', { fontWeight: 'bold' }); } },
+                        { label: '売上 前月比', lc: '#06b6d4', bg: '#fafafa', v: d => _cell(d.ratioPrevMonth !== null ? `${d.ratioPrevMonth}%` : '—', d.ratioPrevMonth !== null ? (d.ratioPrevMonth >= 100 ? '#3b82f6' : '#dc2626') : '#94a3b8', { fontWeight: 'bold' }) },
+                        { label: '稼働日数', lc: '#0891b2', bg: '', v: d => _cell(`${d.workDays}日`, '#0891b2', { fontWeight: 'bold' }) },
+                        { label: '今年度稼働率', lc: '#eab308', bg: '#fafafa', v: d => _cell(d.rate != null ? `${d.rate}%` : '—', d.rate != null ? RC(d.rate) : '#cbd5e1', { fontWeight: 'bold' }) },
+                        { label: '前年度稼働率', lc: '#64748b', bg: '', v: d => _cell(d.prevRate !== null ? `${d.prevRate}%` : '—', '#64748b') },
+                        { label: '稼働率 前月比', lc: '#06b6d4', bg: '#fafafa', v: d => _cell(d.diffRatePrevMonth !== null ? (d.diffRatePrevMonth >= 0 ? '+' : '') + d.diffRatePrevMonth + 'pt' : '—', d.diffRatePrevMonth !== null ? (d.diffRatePrevMonth >= 0 ? '#3b82f6' : '#dc2626') : '#94a3b8', { fontWeight: 'bold' }) },
+                      ];
+                      return (
+                        <table data-testid="ops-detail-table" style={{width:'100%',tableLayout:'fixed',borderCollapse:'collapse',fontSize:11,lineHeight:1.25}}>
+                          <colgroup><col style={{width:_AXL}}/>{chartDataWithDiff.map(d => <col key={d.month}/>)}<col style={{width:_AXR}}/></colgroup>
+                          <thead>
+                            <tr style={{background:'#f8fafc'}}>
+                              <th style={{padding:'3px 4px',borderBottom:'1px solid #94a3b8',textAlign:'left',color:'#64748b'}}>項目</th>
+                              {chartDataWithDiff.map(d => <th key={d.month} style={{padding:'3px 2px',borderBottom:'1px solid #94a3b8',textAlign:'center',color:'#64748b'}}>{d.label}</th>)}
+                              <th style={{borderBottom:'1px solid #94a3b8'}}/>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map(r => (
+                              <tr key={r.label} style={{background: r.bg || 'transparent'}}>
+                                <td style={{padding:'3px 4px',fontWeight:'bold',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',color:r.lc}}>{r.label}</td>
+                                {chartDataWithDiff.map(d => <td key={d.month} title={r.title ? r.title(d) : undefined} onClick={r.click ? () => r.click(d) : undefined} style={{padding:'3px 2px',textAlign:'center',whiteSpace:'nowrap',overflow:'hidden'}}>{r.v(d)}</td>)}
+                                <td/>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      );
+                    })()}
+                  </div>
+                  </div>
                 </div>
               </div>
             );
@@ -39136,6 +39127,21 @@ const tpAttendsOnG = (appData, iso, sl, pid) => {
   const slotOf = (r) => r.furikaeAmpm ? (r.furikaeAmpm === '1日' ? 'AM' : r.furikaeAmpm) : (/午後/.test(String(r.tokki || '')) ? 'PM' : 'AM');
   return recs.some(r => (r.status === '振替' || r.status === '臨時') && slotOf(r) === sl);
 };
+// ★ 2026-11-16 trial583(ユーザー「『なし』は大抵 臨時や休止。休止から13:15で再開した、と分かるように。休止・欠席・臨時・休業が出ると嬉しい」):
+//   配布の控えに無かった方の「前」の字。臨時/振替は月間表・提供記録から。欠席/休業/休止は配布のときの控え(_base.abs・trial583 から控える)。
+//   休止は休止の履歴からも分かる(控えを取った日にまだ休止だった→再開)。基本の曜日に無い日なら臨時。分からなければ「なし」
+const tpAddReasonG = (appData, iso, sl, pid, pl) => { try {
+  const p = (appData.patients || []).find(x => x.id === pid); if (!p || !iso) return 'なし';
+  const d = new Date(iso + 'T00:00:00'); const dow = d.getDay(); const ov = appData.monthlyShifts?.[iso.slice(0, 7)]?.[pid]?.[`${d.getDate()}_${sl}`]; const recs = tpRecsOnG(appData, pid, iso);
+  if (ov === '臨時' || recs.some(r => r.status === '臨時')) return '臨時';
+  if ((ov && String(ov).startsWith('振')) || recs.some(r => r.status === '振替')) return '振替';
+  const bs = pl && (pl._final || pl._base); const ab = bs && bs.abs && bs.abs[pid]; if (ab) return String(ab);
+  const bv = pl && (pl._finalAt || pl._baseAt); const bd = bv ? new Date(typeof bv === 'number' ? bv : String(bv)) : null; const baseIso = (bd && !isNaN(bd.getTime())) ? tpIsoOf(bd) : iso;
+  const hist = Array.isArray(p.pauseHistory) ? p.pauseHistory : [];
+  if (hist.some(h => h && h.fromDate && String(h.fromDate).slice(0, 10) <= iso && (!h.toDate || String(h.toDate).slice(0, 10) >= baseIso))) return '休止';
+  const base = getScheduleOnDate(p, iso)?.[dow] || ''; if (!(base === sl || base === '1日')) return '臨時';
+  return 'なし';
+} catch { return 'なし'; } };
 const tpNoticeNeededG = (appData, targetIso, pid, chgAt) => {
   const t = Number(chgAt); if (!t) return true;
   const chgIso = tpIsoOf(new Date(t)); const todayIso = tpIsoOf(new Date()); if (chgIso >= targetIso) return true;
@@ -39156,7 +39162,7 @@ const tpNoticeListOn = (appData, iso) => {
       // ★ trial582(ユーザー報告「徒歩の方がずっと徒歩なのに 9時→未定 と出る」): 連絡帳が徒歩の方に印字する時間は送迎表の徒歩の時間ではない(利用者マスタの送迎時間・提供開始からの目安)ので、徒歩の方は連絡帳の時間と比べない(配布の控えとだけ比べる)。
       //   表示は「前→後」だけ(時間が変更（連絡帳 …）はやめる)。徒歩で時間なし=「徒歩」・その他=「その他」・車で時間なし=「未定」
       if (ref && now.zone !== 'other' && now.zone !== 'walk') { if (tpFmtT(now.t) !== tpFmtT(ref)) { from = ref; to = tpTimeLbl(now); } } /* ★ trial579: 送迎表(1113b)と同じ: 連絡帳に書いた時間が基準 */
-      else if (!was) { from = 'なし'; to = tpTimeLbl(now); } /* ★ trial579(ユーザー要望): 「配布後に追加」でなく時間の変更として「なし→時間」 */ else if (now.t !== was.t || ((now.zone === 'walk') !== (was.zone === 'walk'))) { from = tpTimeLbl(was); to = tpTimeLbl(now); } if (!to) return;
+      else if (!was) { from = tpAddReasonG(appData, iso, sl, pid, pl); to = tpTimeLbl(now); } /* ★ trial579(ユーザー要望): 「配布後に追加」でなく時間の変更として「なし→時間」 ★ trial583: なし→臨時/振替/欠席/休業/休止(分かるとき) */ else if (now.t !== was.t || ((now.zone === 'walk') !== (was.zone === 'walk'))) { from = tpTimeLbl(was); to = tpTimeLbl(now); } if (!to) return;
       const ac = `${from}→${to}`;
       const ca = (pl._chgAt || {})[pid] || 0; if (!tpNoticeNeededG(appData, iso, pid, ca)) return;
       const ck = String(ca || '0'); const td = (pl._telDone || {})[pid]; const done = !!(td && typeof td === 'object' && td.on && String(td.ck) === ck);
@@ -39748,7 +39754,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-26(ユーザー要望): 運行表を出した(ダウンロードした)ときに、そのコマの配置を「配布の控え(_base)」として残す(初めて出したときだけ)。以後の変更は赤枠・変更n件・要連絡に出る
   // ★ 2026-10-26(ユーザー「店舗によっては運行表を月1回しか出さないので、ダウンロード時点ではなく日付で」): 送迎日の7日前(それより前に開いていなければ、初めて開いた時点)の配置を自動で控える
   React.useEffect(() => { try { const t0 = new Date(); t0.setHours(0, 0, 0, 0); const isos = []; for (let i = 0; i <= 7; i++) { const d = new Date(t0); d.setDate(t0.getDate() + i); isos.push(_iso(d)); } _stampHanded(isos); } catch {} }, [plans]); // eslint-disable-line react-hooks/exhaustive-deps
-  const _stampHanded = (isos) => { try { const at = syncNow(); let np = null; (isos || []).forEach(iso => ['AM','PM'].forEach(sl => { const k = `${iso}_${sl}`; const pl = plans[k]; if (!pl || pl._base) return; if (![...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length) return; const { _draft, ...rest } = pl; np = np || { ...plans }; np[k] = { ...rest, _base: _snapPlan(pl), _baseAt: at, _baseId: at, _savedAt: at }; })); if (np) onSave({ ...appData, transportPlans: np }, { silent: true }); } catch {} };
+  const _stampHanded = (isos) => { try { const at = syncNow(); let np = null; (isos || []).forEach(iso => ['AM','PM'].forEach(sl => { const k = `${iso}_${sl}`; const pl = plans[k]; if (!pl || pl._base) return; if (![...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length) return; const { _draft, ...rest } = pl; np = np || { ...plans }; np[k] = { ...rest, _base: _snapPlan(pl, iso, sl), _baseAt: at, _baseId: at, _savedAt: at }; })); if (np) onSave({ ...appData, transportPlans: np }, { silent: true }); } catch {} };
   const _pname = (pid) => (appData.patients||[]).find(p => p.id === pid)?.name || '';
   const _noWhy = (m) => { const { why, ...rest } = m || {}; return rest; }; // ★ 2026-10-01: その他の理由は「その他」から出たら消す
   const _otherLabel = (m) => `${_pname(m.pid)}${m && m.why ? `（${m.why}）` : ''}`;
@@ -39785,7 +39791,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   // ★ 週の「完成」確定と、完成後に変えた箇所の自動赤丸(2026-09-26 ユーザー要望・2026-09-28 実装)
   //   完成時に各コマの配置(車・乗車順・時刻・徒歩/その他・運転者)を _final に控え、以後の表示/印刷で差分に●を付ける
-  const _snapPlan = (pl) => { const cars = {}; Object.keys(pl?.cars||{}).forEach(cid => { cars[cid] = (pl.cars[cid]||[]).map(m => ({ pid: m.pid, t: _fmtT(m.t) })); }); return { cars, walkers: (pl?.walkers||[]).map(m=>m.pid), walkT: Object.fromEntries((pl?.walkers||[]).map(m => [m.pid, /\d/.test(String(m.t||'')) ? _fmtT(m.t) : ''])), others: (pl?.others||[]).map(m=>m.pid), driver: { ...(pl?.driver||{}) } }; };
+  // ★ 2026-11-16 trial583(ユーザー「『なし→13:15』の『なし』は大抵 臨時や休止。休止から再開した、欠席、臨時、休業が分かるように」):
+  //   配布・確定の控えに「その時に送迎表にいなかった方の理由」(欠席/休業/休止)も abs として控える。後から「欠席→13:15」と出すため。
+  //   臨時/振替は後からでも月間表・提供記録で分かるので控えない。iso/sl を渡したときだけ(比較用の _snapPlan(pl) は従来どおり)
+  const _absMapOf = (pl, iso, sl) => { const m = {}; try { if (!iso || !sl) return m; const inPlan = new Set([...Object.values(pl?.cars || {}).flat(), ...(pl?.walkers || []), ...(pl?.others || [])].filter(Boolean).map(x => x.pid));
+    const d = new Date(iso + 'T00:00:00'); const dow = d.getDay(); const hol = (appData.holidays || []).find(h => (h && (h.date || h)) === iso); const holHit = !!(hol && (!hol.ampm || hol.ampm === '1日' || hol.ampm === sl));
+    (appData.patients || []).forEach(p => { if (!p || inPlan.has(p.id) || !isPatientListable(p)) return; const bs = getScheduleOnDate(p, iso)?.[dow] || ''; const sched = bs === sl || bs === '1日';
+      if (holHit) { if (sched) m[p.id] = '休業'; return; }
+      if (getPauseReasonOnDate(p, iso)) { m[p.id] = '休止'; return; }
+      const ov = appData.monthlyShifts?.[iso.slice(0, 7)]?.[p.id]?.[`${d.getDate()}_${sl}`]; const recs = tpRecsOnG(appData, p.id, iso);
+      if (ov === '欠席' || recs.some(r => r.status === '欠席')) m[p.id] = '欠席'; else if (ov === '休業' || recs.some(r => r.status === '休業')) m[p.id] = '休業'; else if (recs.some(r => r.status === '休止')) m[p.id] = '休止'; }); } catch {} return m; };
+  const _snapPlan = (pl, iso, sl) => { const cars = {}; Object.keys(pl?.cars||{}).forEach(cid => { cars[cid] = (pl.cars[cid]||[]).map(m => ({ pid: m.pid, t: _fmtT(m.t) })); }); return { cars, walkers: (pl?.walkers||[]).map(m=>m.pid), walkT: Object.fromEntries((pl?.walkers||[]).map(m => [m.pid, /\d/.test(String(m.t||'')) ? _fmtT(m.t) : ''])), others: (pl?.others||[]).map(m=>m.pid), driver: { ...(pl?.driver||{}) }, ...(iso && sl ? { abs: _absMapOf(pl, iso, sl) } : {}) }; };
+  const _addReasonOf = (pl, pid, iso) => { try { const k = Object.keys(plans || {}).find(x => plans[x] === pl) || ''; const sl = k.endsWith('_PM') ? 'PM' : 'AM'; return tpAddReasonG(appData, iso || k.slice(0, 10), sl, pid, pl); } catch { return 'なし'; } }; // ★ trial583: 控えに無かった方の「前」の字(臨時/振替/欠席/休業/休止/なし)
   const _locOf = (snap, pid) => { for (const cid of Object.keys(snap?.cars||{})) { const i = (snap.cars[cid]||[]).findIndex(m => m.pid === pid); if (i >= 0) return { zone: cid, idx: i, t: snap.cars[cid][i].t || '' }; } if ((snap?.walkers||[]).includes(pid)) return { zone: 'walk', wt: snap.walkT ? (snap.walkT[pid] || '') : null }; if ((snap?.others||[]).includes(pid)) return { zone: 'other' }; return null; };
   // ★ 2026-10-05(ユーザー報告「確定を解除してから時間を変えたのに赤くならない」・要望「休みの反映で確定を自動解除・変わった車をハイライト」):
   //   確定を解除しても、その時の控えを _base に残して「運行表を出した後の変更」を比べ続ける(作成中でも赤丸・黄色の枠が出る)。
@@ -39815,7 +39832,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _chgOf = (pl, pid, iso) => { const now = _locOf(_snapPlan(pl), pid); if (!now) return '';
     const ref = _cbRefOf(iso, pl, pid);
     if (ref && now.zone !== 'other' && now.zone !== 'walk') { const tN = _tOfLoc(now); return _hmN(tN) !== _hmN(ref) ? `${ref}→${_tLbl(now)}` : ''; }
-    const fin = _baseOf(pl); if (!fin) return ''; const was = _locOf(fin, pid); if (!was) return `なし→${_tLbl(now)}`; /* ★ trial579: 「配布後に追加」→「なし→時間」 */
+    const fin = _baseOf(pl); if (!fin) return ''; const was = _locOf(fin, pid); if (!was) return `${_addReasonOf(pl, pid, iso)}→${_tLbl(now)}`; /* ★ trial579: 「配布後に追加」→「なし→時間」 ★ trial583: なし→臨時/振替/欠席/休業/休止(分かるとき) */
     const tN = _tOfLoc(now), tW = _tOfLoc(was); if (tN !== tW || ((now.zone === 'walk') !== (was.zone === 'walk'))) return `${_tLbl(was)}→${_tLbl(now)}`; return ''; };
   // ★ 2026-10-02(ユーザー要望「赤丸は、前の来所日の連絡帳を渡した後に変わった分だけ」):
   //   確定後の変更ごとに「変えた時刻」を pl._chgAt[pid] に控える(位置が変わるたびに更新・元に戻れば消す)。
@@ -39903,7 +39920,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const np = { ...plans }; const at = syncNow(); let n = 0;
     days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = getPlan(iso, sl); const { _draft, _base, _baseAt, _baseId, ...rest } = pl;
       // 解除中(控えあり)の再確定は控えを基準のまま戻す。それ以外(初めて・確定の更新)は今の内容を新しい基準にする
-      np[`${iso}_${sl}`] = (_base && !pl._final && !already) ? { ...rest, _final: _base, _finalAt: at, _finalId: _baseId || _baseAt || at, _savedAt: at } : { ...rest, _final: _snapPlan(pl), _finalAt: at, _finalId: at, _savedAt: at }; n++; }));
+      np[`${iso}_${sl}`] = (_base && !pl._final && !already) ? { ...rest, _final: _base, _finalAt: at, _finalId: _baseId || _baseAt || at, _savedAt: at } : { ...rest, _final: _snapPlan(pl, iso, sl), _finalAt: at, _finalId: at, _savedAt: at }; n++; }));
     // ★ 2026-10-07(ユーザー要望「確定したら自動でダウンロードする機能はなくていい」): 確定後の運行表の自動ダウンロードは廃止。必要なときは「ダウンロード」から
     setTpEdit(false); // ★ 2026-10-03: 確定後は一覧(確定済み表示)に戻る
     _saveBulk('確定', np, { manual: true, message: `✓ 送迎表 ${_mon.getMonth()+1}/${_mon.getDate()}週を確定にしました(${n}コマ)` });
@@ -46417,7 +46434,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 const cells = []; for (let i=0;i<startDow;i++) cells.push(null); for (let d=1;d<=daysIn;d++) cells.push(d);
                 const sel = schedModal.applyFrom;
                 return (
-                  <div className="border border-slate-200 rounded-xl p-2.5 bg-white">
+                  <div className="border border-slate-200 rounded-xl p-2.5 bg-white" data-testid="sched-modal-cal" {...tsuHSwipeHandlers(d => setSchedModal(m => { const nm = (m.vM ?? new Date().getMonth()) + d; return nm < 0 ? { ...m, vY: (m.vY ?? new Date().getFullYear()) - 1, vM: 11 } : nm > 11 ? { ...m, vY: (m.vY ?? new Date().getFullYear()) + 1, vM: 0 } : { ...m, vM: nm }; }))}>{/* ★ trial601: 左右スワイプで月送り */}
                     <div className="flex items-center justify-between mb-2">
                       <button onClick={()=>setSchedModal(m=>{const nm=(m.vM??new Date().getMonth())-1; return nm<0?{...m,vY:(m.vY??new Date().getFullYear())-1,vM:11}:{...m,vM:nm};})} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold flex items-center justify-center active:scale-95">‹</button>
                       <span className="font-bold text-slate-800 text-sm">{vY}年 {vM+1}月</span>
@@ -53337,7 +53354,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           const nextMonth = () => { const d2=new Date(y,m+1,1); setSelectedDate(`${d2.getFullYear()}-${pad(d2.getMonth()+1)}-01`); };
           const selDow = ['日','月','火','水','木','金','土'][base.getDay()];
           return (
-            <div style={{position:'relative'}}>
+            <div style={{position:'relative'}} data-testid="diary-cal-root" {...tsuHSwipeHandlers(d => d > 0 ? nextMonth() : prevMonth())}>{/* ★ trial601: 左右スワイプで月送り */}
               {/* トリガーボタン */}
               <details style={{position:'static'}} data-testid={compact ? 'diary-fold-date' : undefined}>
                 <summary style={compact
@@ -53353,8 +53370,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                   </span>}
                   {compact && <span style={{fontSize:10,color:'#64748b'}}>▼</span>}
                 </summary>
+                {/* ★ 2026-11-19 trial602(ユーザー「日付のカレンダーは外を押したら閉じるように。開いている間は後ろを触れないように」): 開いている間だけ画面全体の薄い幕(CSS .tsu-cal-backdrop)。押すと閉じる・後ろのスクロールや押し間違いを防ぐ */}
+                <div className="tsu-cal-backdrop" aria-hidden="true" data-testid="diary-cal-backdrop" onClick={(ev) => { try { const d = ev.currentTarget.closest('details'); if (d) d.removeAttribute('open'); } catch {} }} />
                 {/* 浮上カレンダー (スマホの1行目からは画面に固定して出す=1行目の枠で切れないように) */}
-                <div style={compact ? {position:'fixed',top:104,left:8,right:8,zIndex:1000,background:'white',border:'1px solid #e2e8f0',borderRadius:16,padding:'10px 12px',boxShadow:'0 8px 24px rgba(0,0,0,0.2)'} : {position:'absolute',top:'100%',left:0,zIndex:100,background:'white',border:'1px solid #e2e8f0',borderRadius:16,padding:'8px 10px',boxShadow:'0 8px 24px rgba(0,0,0,0.15)',minWidth:214,marginTop:4}}>
+                <div style={compact ? {position:'fixed',top:104,left:8,right:8,zIndex:1000,background:'white',border:'1px solid #e2e8f0',borderRadius:16,padding:'10px 12px',boxShadow:'0 8px 24px rgba(0,0,0,0.2)'} : {position:'absolute',top:'100%',left:0,zIndex:1000,background:'white',border:'1px solid #e2e8f0',borderRadius:16,padding:'8px 10px',boxShadow:'0 8px 24px rgba(0,0,0,0.15)',minWidth:214,marginTop:4}}>{/* ★ trial602: 幕(999)より上 */}
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
                     <button type="button" onClick={prevMonth} style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',borderRadius:6,color:'#475569',fontSize:16,fontWeight:'bold'}}>‹</button>
                     <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b'}}>{y}年{m+1}月</span>
@@ -53883,6 +53902,10 @@ const KK_PRESET_LABELS = [['ryui','【3-3】機能訓練実施上の留意事項
 // ★ 2026-10-26: 優先順 = ①全店共通(管理局が保存・_globalPolicyCache.kkPresets) → ②店舗に残っている旧設定(systemSettings.kkPresets) → ③既定
 const kkPresetsOf = (ss) => { const o = (ss && ss.kkPresets && typeof ss.kkPresets === 'object') ? ss.kkPresets : {}; const g = (_globalPolicyCache && _globalPolicyCache.kkPresets && typeof _globalPolicyCache.kkPresets === 'object') ? _globalPolicyCache.kkPresets : {}; const out = {}; Object.keys(KK_PRESETS_DEFAULT).forEach(k => { const gv = Array.isArray(g[k]) ? g[k].filter(x => String(x||'').trim()) : []; out[k] = gv.length ? gv : (Array.isArray(o[k]) ? o[k].filter(x => String(x||'').trim()) : KK_PRESETS_DEFAULT[k]); }); return out; };
 // 職員の一覧(storeMembers + 日誌の職員)を 役職つきで重複なしに
+// ★ 2026-11-19 trial604(ユーザー「送付状などの担当者名は各種設定の日誌の従業員のみ。重複している。いちばん下に名前と職種を自由に入力できるように」):
+//   各種設定→日誌の職員のうち今日在籍している人(tsuStaffAsOf)・「この日だけ(ヘルプ)」は除く・同じ名前+役職は1つ(storeMembers から写した ds_sync_ と手で足した行が重なるため)
+const tsuCoverStaffList = (appData) => { const seen = new Set(); return tsuStaffAsOf((appData && appData.diarySettings && appData.diarySettings.staff) || [], tsuTodayIso()).filter(s => s && s.name && String(s.name).trim() && !s._tempHelp).filter(s => { const k = `${normalizeName(s.name).trim()}::${s.role || ''}`; if (seen.has(k)) return false; seen.add(k); return true; }); };
+const TSU_MGR_OTHER = '__other'; // 送付状の担当「その他(名前と職種を入力)」
 const tsuStaffList = (appData) => { const out = []; const seen = new Set(); const add = (name, role, id) => { const nm = String(name||'').trim(); if (!nm || nm === '管理局' || id === 'hq_viewer') return; const k = `${nm}|${role||''}`; if (seen.has(k)) return; seen.add(k); out.push({ name: nm, role: role || '' }); };
   (appData?.storeMembers||[]).forEach(m => { if (m && !m._preview) { add(m.name, m.roleLabel, m.id); if (m.role2) add(m.name, m.role2, m.id); } });
   (appData?.diarySettings?.staff||[]).forEach(st => { if (st && !st._tempHelp) { add(st.name, st.role, st.id); if (st.role2) add(st.name, st.role2, st.id); } });
@@ -60208,7 +60231,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const deleteAbsHist = (id) => onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id), deletedIds: addTombstone(appData,'faxHistory',id)});
   // 担当者プルダウン: 各種設定の従業員から選択。
   // ★ デフォルト優先順位: 1) 現在のアクティブ記録者 → 2) 管理者 → 3) リスト先頭
-  const staffList = (appData.diarySettings?.staff || []).filter(s => s.name && s.name.trim());
+  const staffList = tsuCoverStaffList(appData); // ★ trial604: 日誌の職員・今日在籍・重複なし
+  const [mgrOther, setMgrOther] = React.useState({ name: '', role: '' }); // ★ trial604: 「その他」の名前と職種
   const activeRecName = getActiveRecorderName();
   const activeInList = activeRecName && staffList.find(s => s.name === activeRecName);
   // ★ 同名で役職違いの担当者を区別できるよう、選択値は「名前::役職」の複合キーにする
@@ -60559,13 +60583,22 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 {/* ★ 担当: 他の TEL/FAX 行と同じ display:block + textAlign:'left' で左詰め統一 */}
                 <div style={{display:'block',width:'100%',textAlign:'left',whiteSpace:'nowrap'}}>
                   <span>担当：</span>
-                  <TsuFitSelect label={(() => { const _s = staffList.find(x => _mgrKey(x) === selectedManager); return _s ? `${_s.name}${_s.role ? `（${_s.role}）` : ''}` : ''; })()} basePx={16} value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
+                  {selectedManager === TSU_MGR_OTHER ? (
+                  <span data-testid="fax-mgr-other" style={{display:'inline-flex',alignItems:'baseline',gap:2,width:'calc(100% - 3.4em)',verticalAlign:'baseline'}}>{/* ★ trial604: その他=名前と職種を自由に入力 */}
+                    <TsuFitInput type="text" basePx={16} value={mgrOther.name} onChange={e=>setMgrOther(o=>({...o, name:e.target.value}))} placeholder="氏名" className="fax-inline-input" style={{width:'52%',minWidth:0,border:'none',outline:'none',background:'transparent',padding:0,fontFamily:'inherit',color:'inherit'}}/>
+                    <span>（</span><TsuFitInput type="text" basePx={16} value={mgrOther.role} onChange={e=>setMgrOther(o=>({...o, role:e.target.value}))} placeholder="職種" className="fax-inline-input" style={{width:'36%',minWidth:0,border:'none',outline:'none',background:'transparent',padding:0,fontFamily:'inherit',color:'inherit'}}/><span>）</span>
+                    <button type="button" className="no-print" onClick={()=>setSelectedManager(defaultManagerKey)} title="一覧から選び直す" style={{marginLeft:4,fontSize:10,padding:'1px 6px',border:'1px solid #cbd5e1',borderRadius:6,background:'#f8fafc',color:'#475569',cursor:'pointer',whiteSpace:'nowrap'}}>一覧</button>
+                  </span>
+                ) : (
+<TsuFitSelect label={(() => { const _s = staffList.find(x => _mgrKey(x) === selectedManager); return _s ? `${_s.name}${_s.role ? `（${_s.role}）` : ''}` : ''; })()} basePx={16} value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
                     style={{width:'calc(100% - 3.4em)',maxWidth:'calc(100% - 3.4em)',verticalAlign:'baseline',lineHeight:1.2,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:0,margin:0,cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'left',textAlignLast:'left'}}>
                     {staffList.length === 0 && <option value="">（従業員未登録）</option>}
                     {staffList.map((s, i) => (
                       <option key={s.id || i} value={_mgrKey(s)}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
                     ))}
+                    <option value={TSU_MGR_OTHER}>その他（名前と職種を入力）</option>
                   </TsuFitSelect>
+                )}
                 </div>
               </div>
             </div>
@@ -60876,7 +60909,8 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     markDirty && markDirty();
     setShowTemplates(false);
   };
-  const staffList = (appData.diarySettings?.staff || []).filter(s => s.name && s.name.trim());
+  const staffList = tsuCoverStaffList(appData); // ★ trial604: 日誌の職員・今日在籍・重複なし
+  const [mgrOther, setMgrOther] = React.useState(() => (draft.mgrOther && typeof draft.mgrOther === 'object') ? { name: String(draft.mgrOther.name || ''), role: String(draft.mgrOther.role || '') } : { name: '', role: '' }); // ★ trial604
   // ★ デフォルト優先順位: 1) draft 保存値 → 2) 現在のアクティブ記録者 → 3) 管理者 → 4) リスト先頭
   const _activeRec = getActiveRecorderName();
   const _activeInList = _activeRec && staffList.find(s => s.name === _activeRec);
@@ -60915,9 +60949,9 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const _firstRef = React.useRef(true);
   const _gfBaseRef = React.useRef(undefined);
   const _gfSig = React.useMemo(() => {
-    try { return JSON.stringify({ selectedPatientId, subject, memo, pageCount, checks, recipientOffice, recipientName, customPatientName, selectedManager }); }
+    try { return JSON.stringify({ selectedPatientId, subject, memo, pageCount, checks, recipientOffice, recipientName, customPatientName, selectedManager, mgrOther }); }
     catch { return null; }
-  }, [selectedPatientId, subject, memo, pageCount, checks, recipientOffice, recipientName, customPatientName, selectedManager]);
+  }, [selectedPatientId, subject, memo, pageCount, checks, recipientOffice, recipientName, customPatientName, selectedManager, mgrOther]);
   React.useEffect(() => {
     if (_firstRef.current) { _firstRef.current = false; if (_gfBaseRef.current === undefined) _gfBaseRef.current = _gfSig; return; }
     if (_gfBaseRef.current === undefined || _gfBaseRef.current === null) { _gfBaseRef.current = _gfSig; return; } // 復元/保存後の再基準化
@@ -60929,7 +60963,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const flushSave = () => {
     onSave && onSave({ ...appData, generalFaxDraft: {
       selectedPatientId, subject, memo, memoStyle, pageCount, checks,
-      recipientOffice, recipientName, customPatientName, selectedManager,
+      recipientOffice, recipientName, customPatientName, selectedManager, mgrOther,
     }});
     markClean();
   };
@@ -61224,14 +61258,23 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
               {/* ★ 担当: 他の TEL/FAX 行と同じ display:block + textAlign:'left' で左詰め統一 */}
               <div style={{display:'block',width:'100%',textAlign:'left',whiteSpace:'nowrap'}}>
                 <span>担当：</span>
-                <TsuFitSelect label={(() => { const _s = staffList.find(x => _mgrKey(x) === selectedManager); return _s ? `${_s.name}${_s.role ? `（${_s.role}）` : ''}` : ''; })()} basePx={16} value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
+                {selectedManager === TSU_MGR_OTHER ? (
+                  <span data-testid="fax-mgr-other" style={{display:'inline-flex',alignItems:'baseline',gap:2,width:'calc(100% - 3.4em)',verticalAlign:'baseline'}}>{/* ★ trial604: その他=名前と職種を自由に入力 */}
+                    <TsuFitInput type="text" basePx={16} value={mgrOther.name} onChange={e=>setMgrOther(o=>({...o, name:e.target.value}))} placeholder="氏名" className="fax-inline-input" style={{width:'52%',minWidth:0,border:'none',outline:'none',background:'transparent',padding:0,fontFamily:'inherit',color:'inherit'}}/>
+                    <span>（</span><TsuFitInput type="text" basePx={16} value={mgrOther.role} onChange={e=>setMgrOther(o=>({...o, role:e.target.value}))} placeholder="職種" className="fax-inline-input" style={{width:'36%',minWidth:0,border:'none',outline:'none',background:'transparent',padding:0,fontFamily:'inherit',color:'inherit'}}/><span>）</span>
+                    <button type="button" className="no-print" onClick={()=>setSelectedManager(defaultManagerKey)} title="一覧から選び直す" style={{marginLeft:4,fontSize:10,padding:'1px 6px',border:'1px solid #cbd5e1',borderRadius:6,background:'#f8fafc',color:'#475569',cursor:'pointer',whiteSpace:'nowrap'}}>一覧</button>
+                  </span>
+                ) : (
+<TsuFitSelect label={(() => { const _s = staffList.find(x => _mgrKey(x) === selectedManager); return _s ? `${_s.name}${_s.role ? `（${_s.role}）` : ''}` : ''; })()} basePx={16} value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
                   className="fax-inline-input"
                   style={{width:'calc(100% - 3.4em)',maxWidth:'calc(100% - 3.4em)',verticalAlign:'baseline',lineHeight:1.2,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:0,margin:0,cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'left',textAlignLast:'left'}}>
                   {staffList.length === 0 && <option value="">（従業員未登録）</option>}
                   {staffList.map((s, i) => (
                     <option key={s.id || i} value={_mgrKey(s)}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
                   ))}
-                </TsuFitSelect>
+                  <option value={TSU_MGR_OTHER}>その他（名前と職種を入力）</option>
+                  </TsuFitSelect>
+                )}
               </div>
             </div>
           </div>
@@ -61891,7 +61934,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     (patient.changeLog||[]).forEach((c,i)=>push(`chg_${c.date}_${i}`, c.date, '当事業所', `${c.label||''}変更：${c.oldValue||''}→${c.newValue||''}`));
     // ★ 2026-11-19 1119h(ユーザー「同じ日に『利用休止：理由』と『利用休止』が2行。再開も書いてほしい」): 休止の履歴があればそれを正とし、提供記録の『休止』から作る行はその期間は出さない。終了日がある休止は翌日に「利用再開」の行
     const _pauseRanges = (patient.pauseHistory||[]).map(p => ({ from: String(p.fromDate||'').slice(0,10), to: p.toDate ? String(p.toDate).slice(0,10) : '' })).filter(x => x.from);
-    const _inPause = (iso) => _pauseRanges.some(x => iso >= x.from && (!x.to || iso <= x.to));
+    const _inPause = (iso) => _pauseRanges.some(x => iso >= x.from && (x.to ? iso <= x.to : patient.status === '休止')); // ★ 2026-11-21 1121a: 終了日のない休止は、今も休止中(状態が休止)のときだけ(提供記録 getPauseReasonOnDate と同じ決まり)
     const _isoAdd1 = (iso) => { try { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; } catch { return iso; } };
     (patient.pauseHistory||[]).forEach((p,i)=>{ push(`pause_${p.fromDate||i}`, p.fromDate, 'ご家族/ケアマネ', `利用休止${p.reason?`：${p.reason}`:''}`); if (p.fromDate && p.toDate) push(`pause_end_${String(p.toDate).slice(0,10)}`, _isoAdd1(String(p.toDate).slice(0,10)), 'ご家族/ケアマネ', `利用再開（休止 ${String(p.fromDate).slice(5,10).replace('-','/')}〜${String(p.toDate).slice(5,10).replace('-','/')}）`); });
     (appData.initialReports||[]).filter(r=>r.patientId===patient.id).forEach(r=>push(`ir_${r.firstDate||r.id}`, (r.firstDate||r.sentAt), '当事業所', '初回ご利用報告'));
@@ -63521,6 +63564,21 @@ function TsuMeetFields({ form, onChange, patient, fs = 14, fill = false }) {
       <span style={lb}>開催理由（選んで、補足があれば入力）</span>
       <TsuMeetReasonPicker patient={patient} value={{ reasonType: form.reasonType, reasonNote: form.reasonNote, careBefore: form.careBefore, careAfter: form.careAfter }} onChange={v => onChange({ ...v })} fs={fs} />
     </div>
+    {/* ★ 2026-11-19 trial605(ユーザー「担会の記録で既往歴や留意点を入力したらフェイスシートに自動反映。既存の内容が表示された状態で編集できるように」):
+        フェイスシートの今の既往歴・留意点を出し、ここで直して保存するとフェイスシート(利用者マスタ)にも反映。変更履歴と支援経過表にも「既往歴変更」として残る */}
+    <div style={card} data-testid="meet-medical">
+      <span style={lb}>既往歴・留意点（フェイスシートと同じ内容。ここで直して保存すると、フェイスシートにも反映されます）</span>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8 }}>
+        {[['kiou', '既往歴', '例: 高血圧、〇年〇月 右大腿骨骨折（手術）'], ['ryui', '留意点（スタッフへの申し送り）', '例: 歩行時は見守り。血圧が高い日は運動を控える']].map(([k, label, ph]) => {
+          const cur = patient ? String(patient[k] || '') : ''; const v = form[k] != null ? String(form[k]) : cur; const changed = v !== cur;
+          return (
+            <div key={k}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}><span style={{ fontSize: Math.max(10, fs - 3), fontWeight: 'bold', color: '#475569' }}>{label}</span>{changed && <span data-testid={`meet-${k}-changed`} style={{ fontSize: Math.max(9, fs - 5), fontWeight: 'bold', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '1px 6px' }}>保存するとフェイスシートに反映</span>}</div>
+              <textarea data-testid={`meet-${k}`} value={v} onChange={e => onChange({ [k]: e.target.value })} rows={3} placeholder={ph} style={{ ...inp, fontWeight: 'normal', width: '100%', minHeight: fs * 5, resize: 'vertical', lineHeight: 1.5 }} />
+            </div>);
+        })}
+      </div>
+    </div>
     {/* 検討した項目: 枠は縮まない(中の欄が枠からはみ出さない)。1枚に入る量を超えたら、続きを次のページにするか聞く */}
     {pages.map((txt, i) => { const room = tsuMeetRoom(txt, i === 0); const grow = fill && i === pages.length - 1;
       return (
@@ -63622,7 +63680,15 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
     const _has = (pf.meetings||[]).some(m=>m.id===fl.meetingId);
     if (!_has && !fl.isNew && !fl.init) return;
     const list = _has ? (pf.meetings||[]).map(m => m.id===fl.meetingId ? _row(m) : m) : [...(pf.meetings||[]), _row({ id: fl.meetingId })];
-    sv({ ...ad, patients: ad.patients.map(p=>p.id===pt.id?{...pt, personalFile:{...pf, meetings:list}}:p) }, { silent: true });
+    // ★ 2026-11-19 trial605: 記録の中で既往歴・留意点を直していたら、フェイスシート(利用者マスタ)にも反映し、変更履歴(→支援経過表)に残す
+    let ptNext = { ...pt, personalFile: { ...pf, meetings: list } };
+    const _today = tsuTodayIso(); let _synced = [];
+    [['kiou', '既往歴'], ['ryui', '留意点']].forEach(([k, label]) => {
+      if (dr[k] == null) return; const nv = String(dr[k]); const ov = String(pt[k] || ''); if (nv === ov) return;
+      ptNext = { ...ptNext, [k]: nv, changeLog: [...(ptNext.changeLog || []), { date: _today, field: k, label, oldValue: ov || '未設定', newValue: nv || '（空）', note: '担当者会議の記録から' }] }; _synced.push(label);
+    });
+    sv({ ...ad, patients: ad.patients.map(p=>p.id===pt.id?ptNext:p) }, { silent: true });
+    if (_synced.length) { try { tsuPopNotice(`${_synced.join('・')}をフェイスシートにも反映しました`, 2400); } catch {} }
     setSavedAt(new Date()); tsuMeetDraftClear(fl.patientId, fl.meetingId);
   };
   // ★ 明示保存型(2026-08-28 店舗要望): 自動保存はせず、下部の「保存」で確定・「終了」で破棄。
@@ -63972,7 +64038,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
   React.useEffect(() => { if (attachFocus) { const t = setTimeout(()=>{ try { attachRef.current?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch {} }, 250); return ()=>clearTimeout(t); } }, [attachFocus]);
   // ★ 開いている間はクラウドポーリングを止める(再描画で入力欄のフォーカスが外れる/添付が中断するのを防ぐ)
   React.useEffect(() => { officeEditingActive.current = true; return () => { officeEditingActive.current = false; }; }, []);
-  const staffList = (appData?.diarySettings?.staff || []).filter(s => s.name && s.name.trim());
+  const staffList = tsuCoverStaffList(appData); // ★ trial604
   const [fs, setFs] = useState({
     // ① 受付・作成情報
     receptionDate: initial?.receptionDate || today,

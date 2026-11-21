@@ -2100,7 +2100,7 @@ async function staffApi(payload) {
   catch (e) { const err = new Error('サーバーに接続できません。通信状態をご確認ください。'); err.noServer = true; throw err; }
   if (r.status === 404) { const err = new Error('認証サーバーが見つかりません'); err.noServer = true; throw err; }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const err = new Error(j.error || `認証に失敗しました (${r.status})`); err.status = r.status; err.expired = !!j.expired; throw err; }
+  if (!r.ok) { const err = new Error(j.error || `認証に失敗しました (${r.status})`); err.status = r.status; err.expired = !!j.expired; err.data = j; throw err; } // ★ trial580: 返事の中身(pk_allow など)も持たせる
   return j;
 }
 const _isNoServer = (e) => !!(e && e.noServer) && !!supabase;
@@ -2147,7 +2147,7 @@ export async function supabaseStaffLogin({ username, password, code, noMail }) {
   try {
     const j = await staffApi({ action: 'login', username: String(username || '').trim(), password_hash, device: _devName(), code: code || undefined, no_mail: noMail ? true : undefined, hq_trust: tsuHqTrustGet() || undefined }); // ★ 段階4: 端末名も記録。本部は確認コード(2段階認証) ★ 2026-10-26: 信頼の印があれば送る(30分以内はコードなし)
     _hqTrustKeep(j);
-    if (j && j.need_code) return { _needCode: true, _hint: j.hint || '', _sent: !!j.sent, _passkeyFirst: !!j.passkey_first, _mailErr: j.mail_err || '', _sentAt: j.sent_at || '' }; // ★ 2026-10-26: 送れなかった理由・送った時刻 // ★ 2026-10-19: 本部の2段階認証 → コード入力へ ★ 2026-10-26: passkey_first=パスキーの登録があるのでメールは送っていない
+    if (j && j.need_code) return { _needCode: true, _hint: j.hint || '', _sent: !!j.sent, _passkeyFirst: !!j.passkey_first, _mailErr: j.mail_err || '', _sentAt: j.sent_at || '', _pkAllow: Array.isArray(j.pk_allow) ? j.pk_allow : null, _pkSid: j.pk_sid || '' }; // ★ trial580: この人の登録済みパスキーだけを出す // ★ 2026-10-26: 送れなかった理由・送った時刻 // ★ 2026-10-19: 本部の2段階認証 → コード入力へ ★ 2026-10-26: passkey_first=パスキーの登録があるのでメールは送っていない
     if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp); // ★ 2026-10-17: Supabase の証(発行されたときだけ)
     return { ...(j.staff || {}), _token: j.token || '' };
   } catch (e) {
@@ -2179,16 +2179,26 @@ export async function supabaseHqPasskeyRegister(token) {
   const { options } = await staffApi({ action: 'passkey_reg_options', token });
   const cred = await navigator.credentials.create({ publicKey: { ...options, challenge: _pkU2B(options.challenge), user: { ...options.user, id: _pkU2B(options.user.id) }, excludeCredentials: (options.excludeCredentials || []).map(c => ({ ...c, id: _pkU2B(c.id) })) } });
   const r = cred.response;
-  return staffApi({ action: 'passkey_reg_verify', token, device: _devName(), credential: { id: cred.id, type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), attestationObject: _pkB2U(r.attestationObject) } } });
+  const j = await staffApi({ action: 'passkey_reg_verify', token, device: _devName(), credential: { id: cred.id, type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), attestationObject: _pkB2U(r.attestationObject) } } });
+  try { if (j && j.pk_uid && Array.isArray(j.pk_ids)) tsuPasskeySignalAccepted(options.rp && options.rp.id, j.pk_uid, j.pk_ids); } catch {} // ★ trial580: 登録のついでに端末の古い残りを片づける
+  return j;
 }
 // ★ 2026-11-01 trial496(ユーザー「他のサイトのように ID を自動入力する時点で顔・指紋が出てほしい」): conditional=true で「自動入力」の問いかけ
 //   (ブラウザが ID 欄のそばに、この端末・iCloud キーチェーンにあるつむぎのパスキーを出す。選ぶと顔・指紋 → ログイン)。signal で中止できる(ボタンを押したとき・画面を離れるとき)
-export async function supabaseHqPasskeyLogin({ conditional = false, signal, onAuth } = {}) {
+// ★ 2026-11-16 trial580: 端末に残った古いパスキーの片づけ(WebAuthn Signal API。対応ブラウザだけ・失敗しても何もしない)
+//   signalUnknownCredential=「このパスキーはもう無い」・signalAllAcceptedCredentials=「この人の有効なパスキーはこれだけ」→ 端末(iCloud キーチェーン/Google)が古い方を候補から外す
+export const tsuPasskeySignalStale = (rpId, credentialId) => { try { const P = window.PublicKeyCredential; if (P && typeof P.signalUnknownCredential === 'function' && rpId && credentialId) return P.signalUnknownCredential({ rpId, credentialId }).catch(() => {}); } catch {} };
+export const tsuPasskeySignalAccepted = (rpId, userId, ids) => { try { const P = window.PublicKeyCredential; if (P && typeof P.signalAllAcceptedCredentials === 'function' && rpId && userId && Array.isArray(ids)) return P.signalAllAcceptedCredentials({ rpId, userId, allAcceptedCredentialIds: ids }).catch(() => {}); } catch {} };
+// ★ trial580: allow=この人の登録済みパスキーの id 一覧(ID・パスワードのあとや、古いパスキーだったときのやり直し)→ 端末はその中からだけ出す。expectSid=入力した ID の人以外のパスキーは拒む
+export async function supabaseHqPasskeyLogin({ conditional = false, signal, onAuth, allow = null, expectSid = '' } = {}) {
   const { options } = await staffApi({ action: 'passkey_login_options', ...(conditional ? { long: true } : {}) });
-  const cred = await navigator.credentials.get({ ...(conditional ? { mediation: 'conditional' } : {}), ...(signal ? { signal } : {}), publicKey: { ...options, challenge: _pkU2B(options.challenge), allowCredentials: [] } });
+  const _allow = Array.isArray(allow) && allow.length ? allow.map(id => ({ type: 'public-key', id: _pkU2B(id) })) : [];
+  const cred = await navigator.credentials.get({ ...(conditional ? { mediation: 'conditional' } : {}), ...(signal ? { signal } : {}), publicKey: { ...options, challenge: _pkU2B(options.challenge), allowCredentials: _allow } });
   try { if (onAuth) onAuth(); } catch {} // ★ 2026-11-01 trial497: 指紋・顔が終わった瞬間(サーバーの確認の前)に画面へ「ログインしています…」を出すため
   const r = cred.response;
-  const j = await staffApi({ action: 'passkey_login_verify', device: _devName(), credential: { id: _pkB2U(cred.rawId), type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), authenticatorData: _pkB2U(r.authenticatorData), signature: _pkB2U(r.signature), userHandle: r.userHandle ? _pkB2U(r.userHandle) : '' } } });
+  let j; try { j = await staffApi({ action: 'passkey_login_verify', device: _devName(), expect_sid: expectSid || undefined, credential: { id: _pkB2U(cred.rawId), type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), authenticatorData: _pkB2U(r.authenticatorData), signature: _pkB2U(r.signature), userHandle: r.userHandle ? _pkB2U(r.userHandle) : '' } } }); }
+  catch (e) { const d = e && e.data; if (d && d.pk_stale) { tsuPasskeySignalStale(options.rpId, d.pk_stale); if (d.pk_uid && Array.isArray(d.pk_allow)) tsuPasskeySignalAccepted(options.rpId, d.pk_uid, d.pk_allow); e.pkAllow = d.pk_allow || []; e.pkSid = d.pk_sid || ''; e.pkStale = true; } throw e; } // ★ trial580: 古いパスキー → 端末に知らせ、登録済みの一覧を呼び元へ
+  try { if (j.pk_uid && Array.isArray(j.pk_ids)) tsuPasskeySignalAccepted(options.rpId, j.pk_uid, j.pk_ids); } catch {} // ★ trial580: 入れたついでに端末の古い残りを片づける
   if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp);
   _hqTrustKeep(j); // ★ 2026-10-26: パスキーで入れた端末も30分は確認なし
   return { ...(j.staff || {}), _token: j.token || '' };

@@ -203,7 +203,9 @@ async function logLogin(staff, kind, device) {
   try { await sb('staff_logins', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ store_id: staff.store_id || null, staff_id: staff.id, member_id: staff.member_id || null, name: staff.display_name || `${staff.last_name || ''} ${staff.first_name || ''}`.trim(), kind, device: String(device || '').slice(0, 60) || null }) }); } catch {}
 }
 // ★ 2026-10-23 パスキー: 画面のアドレス(origin)と、この窓口のアドレス(host)が同じときだけ使う
-const PK_KEY = 'hq_passkeys', PK_CHAL = 'guard_passkey_chal';
+const PK_KEY = 'hq_passkeys', PK_CHAL = 'guard_passkey_chal', PK_CHAL_REG = 'guard_passkey_chal_reg'; // ★ 2026-11-16 trial580: 登録の問いかけは別の鍵(ログイン画面が同じ値を書き戻して登録中の問いかけを消していた→端末だけに残る古いパスキーの元)
+// ★ trial580: パスキーの控えを書き換える前の読み込みは「読めなければ止める」(読めなかったときに {} を保存して全員のパスキーを消さないため)
+async function kvLoadStrict(key) { const rows = await sb(`app_secrets?select=value&key=eq.${encodeURIComponent(key)}&limit=1`); if (!Array.isArray(rows)) throw new Error('読めませんでした'); const v = rows[0] && rows[0].value; const j = v ? JSON.parse(v) : {}; return (j && typeof j === 'object') ? j : {}; }
 function rpOf(req) {
   let u; try { u = new URL(String(req.headers.origin || '')); } catch { return null; }
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().split(':')[0];
@@ -309,7 +311,12 @@ export default async function handler(req, res) {
       const username = String(body.username || '').trim();
       const hash = String(body.password_hash || '').trim();
       if (!username || !/^[0-9a-f]{64}$/.test(hash)) return res.status(400).json({ error: 'IDまたはパスワードが違います' });
-      const rows = await sb(`staff?select=*,stores(id,name,short_name)&username=eq.${encodeURIComponent(username)}&password_hash=eq.${encodeURIComponent(hash)}&is_active=eq.true&deleted_at=is.null&limit=1`);
+      let rows = await sb(`staff?select=*,stores(id,name,short_name)&username=eq.${encodeURIComponent(username)}&password_hash=eq.${encodeURIComponent(hash)}&is_active=eq.true&deleted_at=is.null&limit=1`);
+      // ★ 2026-11-19 trial591(ユーザー「メールアドレスがIDになる方が楽では」): ID の欄にメールアドレスを入れたら、メールでも探す(ID で見つからなかったときだけ・パスワードも一致する人)。同じメールが複数いても、パスワードまで一致する人が1人だけなら通す
+      if (!(Array.isArray(rows) && rows.length) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
+        const byMail = await sb(`staff?select=*,stores(id,name,short_name)&email=ilike.${encodeURIComponent(username.replace(/[\\%_]/g, (c) => '\\' + c))}&password_hash=eq.${encodeURIComponent(hash)}&is_active=eq.true&deleted_at=is.null&limit=2`);
+        rows = (Array.isArray(byMail) && byMail.length === 1) ? byMail : [];
+      }
       const staff = Array.isArray(rows) ? rows[0] : null;
       if (!staff) { await loginFailNote(username); await sleep(FAIL_DELAY); return res.status(401).json({ error: 'IDまたはパスワードが違います' }); }
       // ★ 2026-10-19 本部の2段階認証(super_admin): メールの確認コード
@@ -321,7 +328,7 @@ export default async function handler(req, res) {
         else if (!code) {
           // ★ 2026-10-26(ユーザー: パスキーが登録されていても確認コードのメールが届く): 端末にパスキーがある端末は no_mail で来る → メールは送らず「コード待ち」だけ返し、端末側でパスキーを先に試す(失敗したら no_mail なしでもう一度来てメールを送る)
           // ★ 2026-10-26: サーバーで「この本部ユーザーにパスキーの登録があるか」を見る。あればメールを送らず端末にパスキーを先に試させる。無ければ従来どおりメールを送る
-          if (body.no_mail === true) { try { const allPk = await kvLoad(PK_KEY); if (Array.isArray(allPk[staff.id]) && allPk[staff.id].length > 0) return res.status(200).json({ need_code: true, hint: '', sent: false, passkey_first: true }); } catch {} }
+          if (body.no_mail === true) { try { const allPk = await kvLoad(PK_KEY); if (Array.isArray(allPk[staff.id]) && allPk[staff.id].length > 0) { const _rp = rpOf(req); return res.status(200).json({ need_code: true, hint: '', sent: false, passkey_first: true, pk_allow: allPk[staff.id].filter(c => _rp && c.rp === _rp.id).map(c => c.id), pk_sid: String(staff.id) }); } } catch {} } // ★ trial580: この人の登録済みパスキーだけを端末に出す(古い残りを選ばせない)
           const r2 = await hqCodeIssue(staff);
           if (!r2.skipped) return res.status(200).json({ need_code: true, hint: r2.hint, sent: !!r2.ok, mail_err: r2.err || '', sent_at: r2.at }); // ★ 2026-10-26: 送れたか・理由・時刻も返す
           // 本部にメールが無い → 従来どおり通す(警告)
@@ -342,25 +349,25 @@ export default async function handler(req, res) {
       // ★ 2026-11-01: 本部に加えて、職員の本人アカウントも登録できる(店舗共通のログイン・みんなで使う端末の証からは不可)
       const t = readToken(body.token); if (!t || t.shared) return res.status(403).json({ error: '本人のログイン(本部または職員の本人アカウント)だけが使えます' });
       const staff = await pkStaffById(t.sid); if (!staff) return res.status(403).json({ error: '本人のログイン(本部または職員の本人アカウント)だけが使えます' });
-      const all = await kvLoad(PK_KEY); const mine = Array.isArray(all[staff.id]) ? all[staff.id] : [];
+      let all; try { all = await kvLoadStrict(PK_KEY); } catch { return res.status(503).json({ error: 'パスキーの控えを読めませんでした。少し待ってからもう一度お試しください' }); } const mine = Array.isArray(all[staff.id]) ? all[staff.id] : []; // ★ trial580: 読めないときは書かない
       const view = (list) => list.map(c => ({ id: c.id, rp: c.rp, device: c.device || '', at: c.at, lastUsed: c.lastUsed || null }));
       if (action === 'passkey_list') return res.status(200).json({ passkeys: view(mine) });
       if (action === 'passkey_delete') { const next = mine.filter(c => c.id !== String(body.id || '')); all[staff.id] = next; await kvSave(PK_KEY, all); return res.status(200).json({ ok: true, passkeys: view(next) }); }
       const rp = rpOf(req); if (!rp) return res.status(400).json({ error: 'この画面からは登録できません（アドレスを確かめてください）' });
-      const ch = pkPrune(await kvLoad(PK_CHAL));
+      const ch = pkPrune(await kvLoad(PK_CHAL_REG)); // ★ trial580: 登録の問いかけは別の鍵
       if (action === 'passkey_reg_options') {
-        const challenge = wb64u(crypto.randomBytes(32)); ch['reg:' + staff.id] = { c: challenge, exp: Date.now() + 5 * 60 * 1000, rp: rp.id }; await kvSave(PK_CHAL, ch);
+        const challenge = wb64u(crypto.randomBytes(32)); ch['reg:' + staff.id] = { c: challenge, exp: Date.now() + 5 * 60 * 1000, rp: rp.id }; await kvSave(PK_CHAL_REG, ch);
         return res.status(200).json({ options: { challenge, rp: { name: staff.role === 'super_admin' ? 'つむぎ管理局' : 'つむぎ', id: rp.id }, user: { id: wb64u(Buffer.from('staff:' + staff.id)), name: staff.username, displayName: staff.display_name || staff.username },
           pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }], timeout: 60000, attestation: 'none',
           authenticatorSelection: { residentKey: 'required', userVerification: 'required' }, excludeCredentials: mine.filter(c => c.rp === rp.id).map(c => ({ type: 'public-key', id: c.id })) } });
       }
-      const e = ch['reg:' + staff.id]; delete ch['reg:' + staff.id]; await kvSave(PK_CHAL, ch);
+      const e = ch['reg:' + staff.id]; delete ch['reg:' + staff.id]; await kvSave(PK_CHAL_REG, ch);
       if (!e || e.rp !== rp.id) return res.status(400).json({ error: '登録の時間が切れました。もう一度押してください' });
       let cred; try { cred = verifyRegistration((body.credential && body.credential.response) || {}, { challenge: e.c, origin: rp.origin, rpId: rp.id }); }
       catch (err) { return res.status(400).json({ error: 'パスキーを登録できませんでした（' + String((err && err.message) || err).slice(0, 40) + '）' }); }
       const next = [...mine.filter(c => c.id !== cred.id), { ...cred, rp: rp.id, device: String(body.device || '').slice(0, 40), at: new Date().toISOString(), lastUsed: null }].slice(-10);
       all[staff.id] = next; await kvSave(PK_KEY, all);
-      return res.status(200).json({ ok: true, passkeys: view(next) });
+      return res.status(200).json({ ok: true, passkeys: view(next), pk_ids: next.filter(c => c.rp === rp.id).map(c => c.id), pk_uid: wb64u(Buffer.from('staff:' + staff.id)) }); // ★ trial580: 端末に「今有効なパスキー一覧」を知らせる材料
     }
     if (action === 'passkey_login_options') {
       const rp = rpOf(req); if (!rp) return res.status(400).json({ error: 'この画面からは使えません' });
@@ -381,9 +388,10 @@ export default async function handler(req, res) {
       if (!e || e.rp !== rp.id) return fail('時間が切れました。もう一度押してください');
       const uh = wunb64u(resp.userHandle || '').toString('utf8'); const sid = uh.startsWith('staff:') ? uh.slice(6) : '';
       if (!sid) return fail();
-      const all = await kvLoad(PK_KEY); const mine = Array.isArray(all[sid]) ? all[sid] : [];
+      if (body.expect_sid && String(body.expect_sid) !== sid) { await loginFailNote('passkey'); return fail('別の人のパスキーが選ばれました。入力した ID の方のパスキーを選んでください'); } // ★ trial580: ID・パスワードを入れた人と違う人のパスキーでは入れない
+      let all; try { all = await kvLoadStrict(PK_KEY); } catch { return res.status(503).json({ error: 'パスキーの控えを読めませんでした。少し待ってからもう一度お試しください' }); } const mine = Array.isArray(all[sid]) ? all[sid] : [];
       const cred = mine.find(x => x.id === String(c.id || '') && x.rp === rp.id);
-      if (!cred) { await loginFailNote('passkey'); return fail(`このパスキーは登録されていません（この端末に古いパスキーが残っているかもしれません。もう一度押すと別のパスキーを選べます。登録済み: ${mine.filter(x => x.rp === rp.id).length}件）`); } // ★ 2026-11-13 1113c: 古いパスキーが端末に残っている場合の案内
+      if (!cred) { await loginFailNote('passkey'); const _mine = mine.filter(x => x.rp === rp.id); await sleep(FAIL_DELAY); return res.status(401).json({ error: `このパスキーは古いものです（登録済み: ${_mine.length}件）`, pk_stale: String(c.id || ''), pk_allow: _mine.map(x => x.id), pk_sid: sid, pk_uid: wb64u(Buffer.from('staff:' + sid)) }); } // ★ 2026-11-13 1113c → trial580: 端末に残った古いパスキーは端末に「もう無い」と知らせ、登録済みのものだけでやり直す
       let out; try { out = verifyAuthentication(resp, cred, { challenge, origin: rp.origin, rpId: rp.id }); } catch { await loginFailNote('passkey'); return fail(); }
       const staff = await pkStaffById(sid); if (!staff) return fail(); // ★ 2026-11-01: 本部または職員の本人アカウント
       cred.signCount = out.signCount; cred.lastUsed = new Date().toISOString(); all[sid] = mine; await kvSave(PK_KEY, all);
@@ -391,7 +399,7 @@ export default async function handler(req, res) {
       const mc = await mintSbTokenChecked(staff);
       await logLogin(staff, 'passkey', body.device);
       let _tr = null; if (staff.role === 'super_admin') { try { _tr = await hqTrustIssue(staff, body.device); } catch {} } // ★ 2026-10-26: パスキーで入れた端末も30分は確認なし(本部だけ)
-      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason, hq_trust: _tr ? _tr.token : undefined, hq_trust_exp: _tr ? _tr.exp : undefined });
+      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason, hq_trust: _tr ? _tr.token : undefined, hq_trust_exp: _tr ? _tr.exp : undefined, pk_ids: mine.filter(x => x.rp === rp.id).map(x => x.id), pk_uid: wb64u(Buffer.from('staff:' + sid)) }); // ★ trial580: 今有効なパスキー一覧(端末の古い残りを片づける材料)
     }
     // ★ 2026-10-19 段階4: 招待コードの確認と本人アカウントの作成(ログイン不要)
     if (action === 'invite_lookup' || action === 'invite_accept') {
@@ -405,7 +413,7 @@ export default async function handler(req, res) {
       if (inv.used_by) return res.status(409).json({ error: 'この招待コードは使用済みです' });
       if (inv.expires_at && new Date(inv.expires_at) < new Date()) return res.status(410).json({ error: '招待コードの有効期限が切れています(店舗の管理者に発行し直してもらってください)' });
       let storeName = ''; try { const st = await sb(`stores?select=name,short_name&id=eq.${encodeURIComponent(inv.store_id)}&limit=1`); storeName = (st && st[0] && (st[0].name || st[0].short_name)) || ''; } catch {}
-      if (action === 'invite_lookup') return res.status(200).json({ invite: { store_id: inv.store_id, store_name: storeName, name: inv.name || '', role: inv.role || 'member', member_id: inv.member_id || null } });
+      if (action === 'invite_lookup') return res.status(200).json({ invite: { store_id: inv.store_id, store_name: storeName, name: inv.name || '', role: inv.role || 'member', member_id: inv.member_id || null, email: inv.email || '' } }); // ★ 2026-11-19 trial592: 招待のメールを返す(本人登録で ID の初期値に)
       const username = String(body.username || '').trim(); const hash = String(body.password_hash || '').trim();
       if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(username)) return res.status(400).json({ error: 'ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください' });
       if (!/^[0-9a-f]{64}$/.test(hash)) return res.status(400).json({ error: 'パスワードが不正です' });

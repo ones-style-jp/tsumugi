@@ -70,7 +70,7 @@ const seedTp = (page, custom) => page.evaluate(([iso, custom]) => { const d = JS
   await shot('trial_set_tokki', async () => { const c = page.getByTestId('tokki-preset-card'); await c.scrollIntoViewIfNeeded(); await page.screenshot({ path: `${OUT}/trial_set_tokki.png`, clip: await clipOf(page, c, 4) }); });
   await tab(page, '体力測定'); await page.waitForTimeout(600);
   await shot('trial_set_fitpreset', async () => { const c = page.getByTestId('fit-preset-card'); await c.scrollIntoViewIfNeeded(); await page.screenshot({ path: `${OUT}/trial_set_fitpreset.png`, clip: await clipOf(page, c, 4) }); });
-  await tab(page, 'システム'); await page.waitForTimeout(600);
+  await tab(page, 'ログイン・管理者'); await page.waitForTimeout(600); // 2026-10-23 からログインとロックの設定はここ
   await shot('trial_set_security', async () => { const c = page.getByTestId('login-security').locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]'); await c.scrollIntoViewIfNeeded(); await page.screenshot({ path: `${OUT}/trial_set_security.png`, clip: await clipOf(page, c, 4) }); });
   await go(page, 'print'); await page.locator('button:visible', { hasText: /^各種入力/ }).first().click().catch(() => {}); await page.waitForTimeout(600);
   await shot('trial_cb_hub', async () => { const c = page.getByTestId('cb-hub-renraku').locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]'); await page.screenshot({ path: `${OUT}/trial_cb_hub.png`, clip: await clipOf(page, c, 4) }); });

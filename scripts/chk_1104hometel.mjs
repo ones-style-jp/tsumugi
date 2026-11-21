@@ -48,8 +48,8 @@ const seed = async (page, view) => {
   const cfgRow = page.getByTestId('home-tasks-cfg-tpNotice'); r.cfg_row = (await cfgRow.count()) === 1;
   await cfgRow.locator('input').first().uncheck(); await page.waitForTimeout(700); r.cfg_off = (await page.getByTestId('home-tp-notice').count()) === 0;
   await cfgRow.locator('input').first().check(); await page.waitForTimeout(700); r.cfg_on = (await page.getByTestId('home-tp-notice').count()) === 1;
-  await cfgRow.locator('input').nth(1).check(); await page.waitForTimeout(700); r.cfg_todayOnly = (await page.getByTestId('home-tp-notice').count()) === 1 && (await page.evaluate(() => JSON.parse(localStorage.getItem('daycareAppData_v3')).systemSettings.homeTasks.tpNotice.todayOnly)) === true;
-  await cfgRow.locator('input').nth(1).uncheck(); await page.waitForTimeout(400); await page.locator('button', { hasText: /^閉じる$/ }).last().click().catch(() => {}); await page.waitForTimeout(300);
+  await cfgRow.locator('select').selectOption('today'); /* trial583: 本日だけ は select */ await page.waitForTimeout(700); r.cfg_todayOnly = (await page.getByTestId('home-tp-notice').count()) === 1 && (await page.evaluate(() => JSON.parse(localStorage.getItem('daycareAppData_v3')).systemSettings.homeTasks.tpNotice.todayOnly)) === true;
+  await cfgRow.locator('select').selectOption('two'); await page.waitForTimeout(400); await page.locator('button', { hasText: /^閉じる$/ }).last().click().catch(() => {}); await page.waitForTimeout(300);
   // 全員連絡済になったら枠ごと消える
   await page.getByTestId(`home-tp-row-${S.today}-PM-${S.ids.C}`).locator('input').click({ noWaitAfter: true }); await page.waitForTimeout(900); r.hidden_when_done = (await page.getByTestId('home-tp-notice').count()) === 0;
   // 送迎表側の確認のため C は未連絡に戻す

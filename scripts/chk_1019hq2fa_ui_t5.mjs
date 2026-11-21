@@ -1,0 +1,23 @@
+// ログイン画面(本部): ID/PW → 確認コード欄が出る → 間違いは表示 → 正しいコードでログイン
+import { chromium } from 'playwright';
+const OUT = '/private/tmp/claude-502/-Users-masabou/fa482dc7-6256-4b2b-92db-cbf4767db5bd/scratchpad';
+const b = await chromium.launch(); const page = await (await b.newContext({ viewport: { width: 420, height: 860 }, locale: 'ja-JP' })).newPage();
+page.on('pageerror', e => console.log('PAGEERROR', e.message.slice(0, 160)));
+await page.addInitScript(() => { window.__tsumugiE2E = { loginMock: true }; });
+await page.route('**/api/staff-auth', async (route) => { const body = JSON.parse(route.request().postData() || '{}');
+  if (body.action === 'login' && !body.code) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ need_code: true, hint: 'hq***@example.com', sent: true }) });
+  if (body.action === 'login' && body.code === '123456') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ staff: { id: 'hq1', username: 'hq', role: 'super_admin', store_id: null, display_name: '管理局' }, token: 'tok' }) });
+  if (body.action === 'login') return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: '確認コードが違うか、期限が切れています', code_invalid: true }) });
+  return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); });
+await page.goto('http://localhost:4175/#stafflogin', { waitUntil: 'networkidle' }); await page.waitForTimeout(600);
+const r = {};
+await page.locator('input').nth(0).fill('hq'); await page.locator('input[type=password]').first().fill('Testpass1234');
+await page.locator('button[type=submit]').click(); await page.waitForTimeout(600);
+const box = page.getByTestId('hq-code'); r.codeBox = (await box.count()) === 1 && /hq\*\*\*@example\.com/.test(await box.innerText());
+await page.screenshot({ path: `${OUT}/hq2fa.png` });
+await box.locator('input').fill('000000'); await page.locator('button[type=submit]').click(); await page.waitForTimeout(600);
+r.badShown = /確認コードが違う/.test(await page.locator('body').innerText());
+await box.locator('input').fill('123456'); await page.locator('button[type=submit]').click(); await page.waitForTimeout(800);
+const sess = await page.evaluate(() => window.__tsumugiE2E && window.__tsumugiE2E.staffSession);
+r.loggedIn = !!(sess && sess.role === 'super_admin' && sess.token === 'tok');
+console.log(r, Object.values(r).every(Boolean) ? 'PASS' : 'FAIL'); await b.close();

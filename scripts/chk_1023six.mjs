@@ -1,0 +1,34 @@
+// 2026-10-23 試験版 trial391: ①迎えと同じの日も送りの出発(車ごと)と「家に着く目安を入れる」が表に出る・各人の「送」ボタンがいつも出る ②ホームの今日のようす/今月の稼働率
+import { chromium } from 'playwright';
+const PORT = (() => { const i = process.argv.indexOf('--port'); return i >= 0 ? process.argv[i + 1] : '4173'; })();
+const b = await chromium.launch(); const r = {};
+async function start(view, prep) {
+  const ctx = await b.newContext({ viewport: { width: 1366, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' }); const page = await ctx.newPage(); page.on('dialog', d => d.accept()); page.on('pageerror', e => console.log('PAGEERROR', e.message.slice(0, 200)));
+  await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' }); await page.waitForTimeout(800);
+  if (await page.getByText('担当者を選択', { exact: false }).count()) { await page.locator('button', { hasText: /見本|例示|架空/ }).first().click().catch(() => {}); await page.waitForTimeout(800); }
+  const out = await page.evaluate(([view, prep]) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); d.systemSettings = d.systemSettings || {}; const ret = (new Function('d', prep))(d); localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view, pid: null, t: Date.now() })); return ret; }, [view, prep]);
+  await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 600 }).catch(() => {}); return { page, out }; }
+// ① 送迎表: 迎えと同じ(dropMode なし)の月曜 AM
+{ const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const now = new Date(); const mon = new Date(now); mon.setDate(now.getDate() + (now.getDay() === 0 ? -6 : 1 - now.getDay())); mon.setHours(0, 0, 0, 0); const key = `${iso(mon)}_AM`;
+  const { page, out: ids } = await start('transport', `const ps = (d.patients || []).filter(p => p.status === '利用中').slice(0, 3); ps.forEach(p => { p.scheduleAmPm = ['', 'AM', '', '', '', '', '']; p.pickupTimes = ['', '08:30', '', '', '', '', '']; p.startDate = '2020-01-01'; p.endDate = ''; p.pickupMinutes = '2'; });
+    ps[1].dropMinutes = '5'; d.diarySettings = d.diarySettings || {}; d.diarySettings.cars = [{ id: 'car1', name: '1号車', type: '' }, { id: 'car2', name: '2号車', type: '' }]; d.transportPlans = d.transportPlans || {};
+    d.transportPlans['${key}'] = { cars: { car1: [{ pid: ps[0].id, t: '8:30', mark: false }, { pid: ps[1].id, t: '8:40', mark: false }], car2: [{ pid: ps[2].id, t: '8:40', mark: false }] }, walkers: [], others: [], un: [], memo: '', _savedAt: Date.now() }; return ps.map(p => p.id);`);
+  const blk = page.getByTestId(`tp-same-drop-${iso(mon)}-AM`); r.sameBlock = await blk.count() === 1; const txt = r.sameBlock ? await blk.innerText() : ''; console.log('same block', JSON.stringify(txt));
+  r.estButton = await page.getByTestId(`tp-same-est-${iso(mon)}-AM`).count() === 1 && /家に着く目安を入れる/.test(txt) && await page.getByTestId(`tp-same-dep-${iso(mon)}-AM-car1`).count() === 0; /* trial396: 車ごとの出発ボタンは出さない */
+  r.datAlways = (await page.getByTestId(`tp-dat-${ids[0]}`).count()) >= 1 && /--:--/.test(await page.getByTestId(`tp-dat-${ids[0]}`).first().innerText());
+  await page.screenshot({ path: '/private/tmp/claude-502/-Users-masabou/fa482dc7-6256-4b2b-92db-cbf4767db5bd/scratchpad/same_drop.jpg', type: 'jpeg', quality: 55 });
+  await page.context().close(); }
+// ② ホーム: 今日のようす・今月の稼働率
+{ const { page } = await start('dashboard', `const now = new Date(); const dn = ['日','月','火','水','木','金','土']; const ps = (d.patients || []).filter(p => p.status === '利用中').slice(0, 4); (d.patients || []).forEach(p => { p.scheduleAmPm = p.scheduleAmPm || []; p.scheduleAmPm[now.getDay()] = ''; }); ps.forEach(p => { p.scheduleAmPm[now.getDay()] = 'AM'; });
+    d.systemSettings.facilityInfo = { ...(d.systemSettings.facilityInfo || {}), capacity: 10, closedDays: [] }; d.ticketRecords = (d.ticketRecords || []).filter(t => !ps.some(p => p.id === t.patientId));
+    const date = (now.getMonth() + 1) + '月' + now.getDate() + '日'; d.ticketRecords.push({ id: 'tst_home_1', patientId: ps[0].id, name: ps[0].name, date, year: now.getFullYear(), dayOfWeek: dn[now.getDay()], status: '出席', temp_AM: '36.5', _savedAt: Date.now() }); d.ticketRecords.push({ id: 'tst_home_2', patientId: ps[1].id, name: ps[1].name, date, year: now.getFullYear(), dayOfWeek: dn[now.getDay()], status: '欠席', tokki: '通院', _savedAt: Date.now() }); return ps.length;`);
+  const t = await page.getByTestId('home-today').innerText().catch(() => ''); console.log('home', JSON.stringify(t.replace(/\n/g, ' ')));
+  r.homePlan = /午前の出席者\s*3名/.test(t) && /欠席 1/.test(t) && /午後の出席者\s*0名/.test(t); /* trial397: 記録が無い方も出席(提供記録と同じ)。4名中 欠席1 → 出席者3 */ r.homeHero = await page.getByTestId('home-hero').count() === 1 && (await page.getByTestId('home-scroll').evaluate(e => getComputedStyle(e).overscrollBehavior)) === 'contain'; r.monLabel = /モニタリング（\d+月分） 未確定/.test(await page.getByTestId('home-tasks').innerText()); r.homeTasks = await page.getByTestId('home-tasks-today').count() === 1 && await page.getByTestId('home-tasks-week').count() === 1 && await page.getByTestId('home-tasks-month').count() === 1 && /日誌/.test(await page.getByTestId('home-tasks-today').innerText()) && !/来週の送迎表/.test(await page.getByTestId('home-tasks').innerText()); /* trial401: 来週の送迎表は出さない */ /* trial393: 本日/今週/今月 */ console.log('tasks', JSON.stringify((await page.getByTestId('home-tasks').innerText().catch(() => 'none')).replace(/\n/g, ' ').slice(0, 300))); r.homeRate = /今月の稼働率\s*\d+%/.test(t) && /前月 \d+%（[+-]\d+）|前月の記録なし/.test(t) && !/定員 10名/.test(t); /* trial427: 定員・コマ数ではなく前月との比較 */
+  // trial404: 表示設定で体力測定を外すと業務から消える
+  await page.getByTestId('home-tasks-cfg').click(); await page.waitForTimeout(300); await page.locator('[data-testid="home-tasks-cfg-fitness"] input').first().uncheck(); await page.waitForTimeout(2500);
+  r.cfgHidesFitness = !/体力測定/.test((await page.getByTestId('home-tasks-today').innerText()) + (await page.getByTestId('home-tasks-week').innerText()) + (await page.getByTestId('home-tasks-month').innerText())) && /* 設定の小窓の文字は除く */ (await page.evaluate(() => (JSON.parse(localStorage.getItem('daycareAppData_v3')).systemSettings.homeTasks || {}).fitness?.on === false));
+  await page.locator('[data-testid="home-tasks-cfg-fitness"] input').first().check(); await page.waitForTimeout(600); await page.locator('[data-testid="home-tasks-cfg-panel"] button', { hasText: '閉じる' }).click();
+  await page.getByTestId('home-today-rate').click(); await page.waitForTimeout(800); r.rateJump = await page.getByText('分析（稼働）', { exact: false }).count() >= 1;
+  await page.context().close(); }
+console.log(r, Object.values(r).every(Boolean) ? 'PASS' : 'FAIL'); await b.close();
