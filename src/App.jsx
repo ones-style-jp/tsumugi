@@ -2881,7 +2881,7 @@ const computePlanDues = (appData, baseDate, opts) => {
     if (!_includeFuture && daysLeft > PLAN_DUE_LEAD_DAYS) return; // まだ先 → 出さない(月別ブラウズ時は返す)
     out.push({ patient, kind, label, due, view, note, daysLeft, overdue: daysLeft < 0, ym: ymKey(due) });
   };
-  (appData?.patients || []).filter(p => p && (p.status === '利用中' || p.status === '休止') && isPatientListable(p)).forEach(p => {
+  (appData?.patients || []).filter(p => p && (p.status === '利用中' || p.status === '休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))).forEach(p => {
     // --- 通所介護計画書 ---
     // ★ 一時保存(draft)対応(2026-09-08 店舗要望): 期日の計算は完成版(draftでない)だけで行い、
     //   最新が一時保存中なら「作成予定」に残して続きから作成できるようにする。
@@ -11061,6 +11061,12 @@ const isPatientResigned = (p) => {
 // ★ 2026-09-28(ユーザー指摘): 退所済み(利用終了日を過ぎた／status が退所・終了)は、利用者マスタの「退所済み」タブ以外の
 //   一覧(モニタリング・LIFE・記録系・ご家族プレビュー等)に出さない。休止は各画面の判定に任せる。
 const isPatientListable = (p) => !!p && !isPatientResigned(p) && !/退所|終了/.test(String(p.status || ''));
+// ★ 2026-11-21 trial606(ユーザー要望「利用者マスタで利用開始日が未設定の新規利用者は、提供記録や書類に出さない」):
+//   利用開始日が空で、提供記録が1件も無い方=「まだ利用が始まっていない方」。開始日を入れるか最初の記録ができるまで、提供記録入力と書類の利用者の選択に出さない。
+//   (古いデータで開始日が空でも、記録のある方はこれまでどおり出す。利用者マスタ・送迎表・月間表はこれまでどおり)
+const _tsuUsedPidsCache = new WeakMap();
+const tsuUsedPids = (appData) => { const arr = appData && appData.ticketRecords; if (!Array.isArray(arr)) return new Set(); let s = _tsuUsedPidsCache.get(arr); if (!s) { s = new Set(arr.map(r => r && String(r.patientId))); _tsuUsedPidsCache.set(arr, s); } return s; };
+const tsuNotStarted = (p, appData) => !!p && !String(p.startDate || '').trim() && !tsuUsedPids(appData).has(String(p && p.id));
 // ★ 2026-10-28(ユーザー「月の途中で退所してもモニタリングは送る」): その月(y年m月)のモニタリングの対象か。
 //   退所していない方は従来どおり(isPatientListable)。利用終了日がその月の初日以降の方は、退所済み(状態が退所・終了)でもその月は対象に残す
 //   (終了日の当日も利用中=isPatientActiveOnDate と同じ)。利用開始日がその月より後の方は対象外
@@ -27217,6 +27223,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     
     const filtered = appData.patients.filter(p => {
           if (!isPatientActiveOnDate(p, selectedDate)) return false;
+          if (tsuNotStarted(p, appData)) return false; // ★ 2026-11-21 trial606: 利用開始日が未設定で記録のない方(まだ始まっていない)は出さない
           let shiftAM = appData.monthlyShifts?.[monthKey]?.[p.id]?.[`${dayNum}_AM`];
           let shiftPM = appData.monthlyShifts?.[monthKey]?.[p.id]?.[`${dayNum}_PM`];
           // ★ その日付時点の基本利用曜日 (後から増回した曜日を過去に出さない)
@@ -32887,7 +32894,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               const line = (pts, isTog, unitL, all) => { if (!pts.length) return <span style={{color:'#cbd5e1',fontSize:11}}>記録なし</span>; const vs = pts.map(p => p.v); const mx = Math.max(...vs, isTog ? 100 : 0.001), mn = Math.min(...vs, 0); const x = (i) => P + (pts.length > 1 ? i * (W - 2 * P) / (pts.length - 1) : (W / 2 - P)); const y = (v) => H - 14 - ((v - mn) / ((mx - mn) || 1)) * (H - 28); const d = pts.map((pt, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(pt.v).toFixed(1)}`).join(' '); const fmt = (v) => isTog ? `${Math.round(v)}%` : `${Math.round(v * 10) / 10}${unitL}`; const last = pts[pts.length - 1]; const imax = vs.indexOf(Math.max(...vs)); return (
                 <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{display:'block'}}><path d={d} fill="none" stroke="#6366f1" strokeWidth="2"/>{pts.map((pt, i) => <circle key={i} cx={x(i)} cy={y(pt.v)} r={pts.length > 40 ? 1.5 : 2.5} fill="#6366f1"/>)}
                   {pts.map((pt, i) => { const tip = (e) => { const t = e.touches ? e.touches[0] : e; setExSumTip({ px: t.clientX, py: t.clientY, t: `${pt.d}　${fmt(pt.v)}` }); }; return <circle key={`h${i}`} data-testid="ex-sum-dot" cx={x(i)} cy={y(pt.v)} r={pts.length > 40 ? 5 : 9} fill="transparent" style={{cursor:'pointer'}} onMouseEnter={tip} onMouseMove={tip} onMouseLeave={() => setExSumTip(null)} onTouchStart={tip}/>; })}
-                  <text x={x(0)} y={H - 3} fontSize="9" fill="#64748b">{pts[0].d}</text><text x={x(pts.length - 1)} y={H - 3} textAnchor="end" fontSize="9" fill="#64748b">{last.d}</text>
+                  <text x={x(0)} y={H - 3} fontSize="9" fill="#64748b">{pts[0].d}</text>{pts.length > 1 && last.d !== pts[0].d && <text x={x(pts.length - 1)} y={H - 3} textAnchor="end" fontSize="9" fill="#64748b">{last.d}</text>}{/* ★ 2026-11-21 trial606(ユーザー報告「日付が2つ出る」): 点が1つのときは右端の同じ日付を出さない */}
                   {all ? pts.map((pt, i) => <text key={`l${i}`} x={Math.min(W - 2, Math.max(14, x(i)))} y={Math.max(9, y(pt.v) - 5)} textAnchor="middle" fontSize="9" fill="#1e293b" fontWeight="bold">{fmt(pt.v)}</text>) : (<>
                   <text x={Math.min(W - 2, Math.max(28, x(imax)))} y={Math.max(9, y(vs[imax]) - 5)} textAnchor="middle" fontSize="9" fill="#1e293b" fontWeight="bold">{fmt(vs[imax])}</text>
                   {imax !== pts.length - 1 && <text x={x(pts.length - 1)} y={Math.min(H - 16, y(last.v) + 12)} textAnchor="end" fontSize="9" fill="#4338ca" fontWeight="bold">{fmt(last.v)}</text>}</>)}</svg>); };
@@ -33519,6 +33526,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                   const tempN=r.temp?Number(r.temp):null;
                   const bpN=r.bpUpSt?Number(r.bpUpSt):null;
                   const tempW=tempN&&tempN>=37.1; const bpW=bpN&&bpN>=140;
+                  // ★ 2026-11-21 trial606(ユーザー要望「詳細記録の血圧を上/下で色分け(終了時も)」): 上は140以上、下は90以上をそれぞれ別の色で。脈はそのまま
+                  const _bpCell=(up,dn,pl)=>{ if(!up) return '-'; const u=Number(up), d=(dn!==''&&dn!=null)?Number(dn):null; const uw=u>=140, dw=d!=null&&d>=90; return <><span data-bp="up" style={{color:uw?'#dc2626':'#475569'}}>{up}</span><span style={{color:'#94a3b8'}}>/</span><span data-bp="dn" style={{color:dw?'#ea580c':'#475569'}}>{dn}</span>{pl&&<span style={{color:'#334155',marginLeft:3,fontSize:14}}>({pl})</span>}{(uw||dw)&&<span title={uw&&dw?'上も下も高め':uw?'上が高め':'下が高め'}>⚠</span>}</>; };
                   return (
                     <tr key={r.id} style={{borderBottom:'1px solid #eef2f6',backgroundColor:ri%2===0?'white':'#eef2f6'}}>
                       {/* ★ データセルも中央配置で項目名と揃える */}
@@ -33539,11 +33548,11 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       <td style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:tempW?'#dc2626':'#475569',whiteSpace:'nowrap'}}>
                         {r.temp?`${r.temp}℃`:'-'}{tempW&&'⚠'}
                       </td>
-                      <td style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:bpW?'#dc2626':'#475569',whiteSpace:'nowrap'}}>
-                        {r.bpUpSt?`${r.bpUpSt}/${r.bpDnSt}`:'-'}{r.plSt&&<span style={{color:'#334155',marginLeft:3,fontSize:14}}>({r.plSt})</span>}{bpW&&'⚠'}
+                      <td data-testid="det-bp-st" style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}>
+                        {_bpCell(r.bpUpSt,r.bpDnSt,r.plSt)}
                       </td>
-                      {_showEn2 && <td style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}>
-                        {r.bpUpEn?`${r.bpUpEn}/${r.bpDnEn}`:'-'}{r.plEn&&<span style={{color:'#334155',marginLeft:3,fontSize:14}}>({r.plEn})</span>}
+                      {_showEn2 && <td data-testid="det-bp-en" style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}>
+                        {_bpCell(r.bpUpEn,r.bpDnEn,r.plEn)}
                       </td>}
                       {(effExerciseItems(appData.systemSettings)).map(ex=>{
                         let rawV = r.exercises?.[ex.id];
@@ -33985,7 +33994,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   const order = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const lv = (p) => { const i = order.indexOf(String(p.careLevel || '')); return i < 0 ? 99 : i; };
   const short = (c) => String(c || '').replace('要支援', '支援').replace('要介護', '介護').replace('事業対象者', '事業');
-  const pats = (appData.patients || []).filter(p => isPatientListable(p) && (p.status || '利用中') !== '退所');
+  const pats = (appData.patients || []).filter(p => (isPatientListable(p) && !tsuNotStarted(p, appData)) && (p.status || '利用中') !== '退所');
   const isPaused = (p) => { try { return !!getPauseReasonOnDate(p, todayIso) || (p.status === '休止' && !(p.pauseHistory || []).length); } catch { return false; } };
   const ss = appData.systemSettings || {};
   const wait = ss.classRosterWait || {};
@@ -54155,7 +54164,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
   // ★ 2026-10-28: 個別機能訓練計画書は要介護だけ。LIFE(科学的介護推進体制加算)は要支援も対象なので、LIFE のある店舗だけ要支援の方も出す(個別機能訓練計画書は出さない)
   //   (個別機能訓練加算Ⅱ・ADL維持等加算は要介護だけなので、要支援の方を出すのは 科学的介護推進体制加算 のある店舗だけ)
   const _kagakuOn = !!((appData.systemSettings || {}).addons || {}).kasan_kagaku;
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p) && (_kagakuOn || kpCareGroup(p) !== 'shien')));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData)) && (_kagakuOn || kpCareGroup(p) !== 'shien')));
   const [pid, setPid] = React.useState((targetPatientId!=null && patients.some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const patient = patients.find(p => p.id === pid);
   const _shienP = kpCareGroup(patient) === 'shien';
@@ -54248,7 +54257,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
 const PLAN_KIND_COLOR = { tsusho:'#0891b2', kinou:'#7c3aed', kagaku:'#059669', adl:'#d97706' };
 function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
   // ★ 2026-10-14(ユーザー要望): 「未作成の方も表示」のチェックはやめ、未作成の方も常に表示する(初回も作る必要があるため)
-  const _yPatients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const _yPatients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))));
   // ★ 月別ブラウズ(2026-09-08 店舗要望): null=直近(従来の「期限1ヶ月前から」) / 1〜12=その月が期日の人を表示
   const [duesMonth, setDuesMonth] = React.useState(null);
   const _allDues = React.useMemo(() => computePlanDues(appData, null, { includeFuture: true }), [appData]);
@@ -54502,7 +54511,7 @@ function LifeDiseaseSearch({ onPick }) {
 // === 個別機能訓練計画書 (アドオン: kinou_keikaku) ===
 function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p) && kpCareGroup(p) !== 'shien') /* ★ 2026-10-28: 要介護だけ */);
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData)) && kpCareGroup(p) !== 'shien') /* ★ 2026-10-28: 要介護だけ */);
   const [pid, setPid] = React.useState((targetPatientId!=null && patients.some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null)); // ★ 2026-10-28: 要支援の方を渡されたら先頭の方
   const [editing, setEditing] = React.useState(null); // 編集中レコード or null
   const patient = (appData.patients||[]).find(p => p.id === pid);
@@ -55202,7 +55211,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
 function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null);
   const patient = (appData.patients||[]).find(p => p.id === pid);
@@ -55348,7 +55357,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
 function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null);
   const [newItem, setNewItem] = React.useState('');
@@ -55538,7 +55547,7 @@ function TsuShienTitleSetting({ ss, saveSS }) {
 function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null);
   const patient = (appData.patients||[]).find(p => p.id === pid);
@@ -56929,7 +56938,7 @@ function AdlGainEstimate({ appData, navigateTo }) {
       if (!used.has(k)) used.set(k, new Set()); used.get(k).add(ym);
     });
     const complete = (it) => BARTHEL_ITEMS.every(b => it && it[b.key] != null && it[b.key] !== '');
-    return sortPatientsByKana((appData.patients || []).filter(p => p && isPatientListable(p) && kpCareGroup(p) === 'kaigo')).map(p => {
+    return sortPatientsByKana((appData.patients || []).filter(p => p && (isPatientListable(p) && !tsuNotStarted(p, appData)) && kpCareGroup(p) === 'kaigo')).map(p => {
       const all = [...(used.get(String(p.id)) || [])].sort();
       const inPeriod = all.filter(ym => ym >= startYm && ym <= endYm);
       if (!inPeriod.length) return null;
@@ -57021,7 +57030,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const _isSubmit = mode === 'submit'; // ★ 2026-10-14: LIFE提出(月1回の提出・CSV・取込)と、利用者ごとのADL評価・科学的介護を別の画面に
   const _kkPL = kkPresetsOf(appData.systemSettings); const _kkStaffL = tsuStaffList(appData); // ★ 2026-10-14: 評価・計画(一括評価)にも定型文・職員
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const patient = (appData.patients||[]).find(p => p.id === pid);
   const addons = appData.systemSettings?.addons || {};
@@ -58449,7 +58458,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   //   対象月ごとに使用回数を記録するので、月を越しても「その月の上限の残り」は変わらない
   //   (上限に達していない月は、いつ開いてもAIを使える)。
   const _aiMonthKey = `${tY}-${String(tM).padStart(2,'0')}`;
-  const _aiActiveCount = (appData.patients||[]).filter(p => p.status === '利用中' && isPatientListable(p)).length;
+  const _aiActiveCount = (appData.patients||[]).filter(p => p.status === '利用中' && (isPatientListable(p) && !tsuNotStarted(p, appData))).length;
   const _aiLimit = _aiActiveCount * 2;
   const _aiUsed = (appData.systemSettings?.aiUsage?.[_aiMonthKey]) || 0;
   const _aiRemaining = Math.max(0, _aiLimit - _aiUsed);
@@ -58470,7 +58479,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 2026-09-30 追加(ユーザー指示: 茂木さんのように休止中で今月来ていない方も「通所なし」に表示): 休止中の方は通所の有無にかかわらず対象
   const _monPaused = (p) => getPatientDisplayStatus(p) === '休止'; // ★ 2026-10-14: 休止予定(開始日が未来)は含めない
   // ★ 2026-10-28(ユーザー「月の途中で退所してもモニタリングは送る」): 選んだ月の途中で退所した方も、その月に通所していれば対象に残す
-  const allActive = (appData.patients||[]).filter(p => tsuMonListable(p, tY, tM) && isPatientStartedByToday(p) && (isPatientListable(p) ? (p.status === '利用中' || _monPaused(p) || hasAttendance(p)) : hasAttendance(p)));
+  const allActive = (appData.patients||[]).filter(p => tsuMonListable(p, tY, tM) && isPatientStartedByToday(p) && ((isPatientListable(p) && !tsuNotStarted(p, appData)) ? (p.status === '利用中' || _monPaused(p) || hasAttendance(p)) : hasAttendance(p)));
   const careLevelOrd = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const dowStr = ['日','月','火','水','木','金','土'];
   // ★ 利用曜日は月曜起点で統一(表示・並び替えとも月→日の順)
@@ -60411,7 +60420,10 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       const absD = new Date(date + 'T00:00:00');
       const sessionStart = new Date(absD.getFullYear(), absD.getMonth(), absD.getDate(), 9, 0, 0);
       const pastOrDuring = now >= sessionStart; // 通所開始を過ぎている(=通所中/後)
-      const lines = ['いつもお世話になっております。', `上記理由でお休みされ${pastOrDuring ? 'ました' : 'ます'}。`];
+      // ★ 2026-11-21 trial606(ユーザー要望「大まかな理由の下に『いつもお世話になっております。〇〇のためお休みです』と詳しい理由を自然につなげる」):
+      //   理由の詳しい方(「通院（整形外科）」なら 整形外科)を文に入れる。詳しい方が無ければ大まかな理由、それも無ければ従来の「上記理由で」
+      const _rsn = (() => { const s = String(defaultReason || '').trim(); const m = s.match(/^(.+?)[（(]([\s\S]+)[）)]$/); let t = (m ? (m[2] || m[1]) : s).trim(); t = t.replace(/(のため|ため|ので)$/, ''); return t; })();
+      const lines = ['いつもお世話になっております。', `${_rsn ? `${_rsn}のため` : '上記理由で'}お休みされ${pastOrDuring ? 'ました' : 'ます'}。`];
       if (parsed.isFurikae && parsed.furikaeNote) {
         const fm = parsed.furikaeNote.match(/(\d+)月(\d+)日\s*(AM|PM|午前|午後)?/);
         if (fm) {
