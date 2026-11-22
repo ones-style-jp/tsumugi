@@ -35,13 +35,18 @@ ok(/運動器機能向上計画書/.test(docsTxt), 'A2 書類の一覧に「運�
 const startBtn = (await page.getByTestId('uk-start').count()) ? page.getByTestId('uk-start') : page.getByTestId('kk-start');
 await startBtn.first().click(); await page.waitForTimeout(1200);
 ok((await page.getByTestId('uk-form').count()) === 1, 'A3 「計画書を作る」で運動器機能向上計画書の入力画面が開く');
+ok((await page.getByTestId('uk-goal').count()) === 1 && (await page.getByTestId('uk-fit').count()) === 0, 'A3b 最初は「目標と3ヵ月の計画」だけ。自動で入った内容は畳んである(trial613)');
+const presetSel = page.locator('[data-testid="uk-goal"] select').first(); const presetOpts = await presetSel.locator('option').allTextContents().catch(() => []);
+ok(presetOpts.some(t => /買い物|転ば|階段/.test(t)), `A3c 長期目標の定型文がプルダウンにある(${presetOpts.length}件)`);
+await page.getByTestId('uk-more').click(); await page.waitForTimeout(500);
+ok((await page.getByTestId('uk-auto').count()) === 1, 'A3d 「自動で入った内容を見る・直す」で基本・体力測定などが開く');
 const fitVals = await page.locator('[data-testid="uk-fit"] input').evaluateAll(els => els.map(e => e.value));
 ok(fitVals.some(v => String(v).trim()), `A4 体力測定が自動で入る → ${JSON.stringify(fitVals.slice(0, 6))}`);
-const lvl = await page.locator('[data-testid="uk-form"] select').first().inputValue().catch(() => '');
+const lvl = await page.locator('[data-testid="uk-auto"] select').nth(1).inputValue().catch(() => '');
 ok(/要支援|事業対象者/.test(lvl), `A5 要支援度が自動で入る → ${lvl}`);
-const hist = await page.locator('[data-testid="uk-form"] textarea').nth(1).inputValue().catch(() => '');
+const hist = await page.locator('[data-testid="uk-auto"] textarea').first().inputValue().catch(() => '');
 ok(/膝|高血圧/.test(hist), `A6 既往歴がフェイスシートから入る → ${hist.slice(0, 30)}`);
-await page.locator('[data-testid="uk-form"] textarea').nth(2).fill('膝の痛みなく買い物に歩いて行ける'); await page.waitForTimeout(200);
+await page.locator('[data-testid="uk-goal"] textarea').first().fill('膝の痛みなく買い物に歩いて行ける'); await page.waitForTimeout(200);
 await page.getByTestId('uk-save').click(); await page.waitForTimeout(1800);
 // 「計画書を作る」から入ったので、保存すると「利用者ごと」へ戻る → カードに 1 件
 const docsAfter = (await page.getByTestId('kk-docs').textContent().catch(() => '')) || '';
@@ -54,7 +59,7 @@ ok((await page.getByTestId('kk-side-kinou-undouki_keikaku').count()) === 1, 'C1 
 await page.getByTestId('kk-side-kinou-undouki_keikaku').click(); await page.waitForTimeout(1200);
 ok((await page.getByTestId('uk-list').count()) === 1 && (await page.getByTestId('uk-row').count()) === 1, 'C2 左の並びから一覧へ(1 件)');
 const pr = (await page.locator('#uk-print-area').innerHTML().catch(() => '')) || '';
-ok(/運動器機能向上計画書/.test(pr) && /３ヵ月評価/.test(pr) && /【運動メニュー】/.test(pr) && pr.includes(seed.name), 'A8 印刷の枠に 様式の見出し・3ヵ月評価・運動メニュー・氏名');
+ok(/個別サービス計画書 兼 運動器機能向上計画書/.test(pr) && /３ヵ月評価/.test(pr) && /【運動メニュー】/.test(pr) && /本人・家族の意向/.test(pr) && /留意事項/.test(pr) && pr.includes(seed.name), 'A8 印刷の枠に 兼用の題名・3ヵ月評価・意向・留意事項・運動メニュー・氏名');
 ok((await page.getByTestId('uk-print').count()) === 1, 'A9 ダウンロードのボタン');
 // ---- B 作成予定
 await resume('kinou_yotei', null);

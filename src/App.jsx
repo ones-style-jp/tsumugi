@@ -2895,6 +2895,9 @@ const computePlanDues = (appData, baseDate, opts) => {
   };
   (appData?.patients || []).filter(p => p && (p.status === '利用中' || p.status === '休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))).forEach(p => {
     // --- 通所介護計画書 ---
+    // ★ 2026-11-22 trial613: 要支援・事業対象者で「個別サービス計画書 兼 運動器機能向上計画書」を作っている方は、通所介護計画書(個別サービス計画書)の予定を別に出さない
+    const _ukUse = kpCareGroup(p) === 'shien' && (appData?.undoukiRecords||[]).some(r => r && r.patientId === p.id);
+    if (!_ukUse) {
     // ★ 一時保存(draft)対応(2026-09-08 店舗要望): 期日の計算は完成版(draftでない)だけで行い、
     //   最新が一時保存中なら「作成予定」に残して続きから作成できるようにする。
     const _tkDraft = latestBy((appData?.tsushoKeikakuRecords||[]).filter(r=>r&&r.draft), p.id, 'createdDate');
@@ -2907,6 +2910,7 @@ const computePlanDues = (appData, baseDate, opts) => {
       const goal = [short, long].filter(Boolean).sort((a,b)=>a-b)[0];
       const due = goal || addMonths(tk.d, 6);
       push(p, 'tsusho', '通所介護計画書', due, 'tsusho_keikaku', goal ? '目標の達成予定' : '前回作成から6ヶ月');
+    }
     }
     // --- 個別機能訓練計画書 (3ヶ月ごと) ---
     // ★ 2026-10-28: 個別機能訓練計画書(個別機能訓練加算)・ADL維持等加算は要介護だけ。要支援・事業対象者は出さない(介護度が未登録の方は出す)
@@ -54175,6 +54179,11 @@ function KKDateField({ label, value, onChange, ph }) {
 const KK_PRESETS_DEFAULT = {
   ryui: ['血圧・脈拍を確認してから開始する','転倒に注意し見守りの下で行う','痛みが出たら中止する','中腰・前かがみの姿勢は避ける','息を止めずに行う','立ち上がり時はふらつきに注意','水分補給をこまめに行う','疲労の訴えがあれば休憩を入れる','運動強度は軽〜中等度(会話ができる程度)'],
   goalKinou: ['下肢筋力の維持・向上','体幹の安定性の向上','関節可動域の維持','バランス能力の向上','持久力の維持・向上','上肢筋力の維持','痛みの軽減'],
+  // ★ 2026-11-22 trial613: 運動器機能向上計画書(要支援)の定型文
+  ukLong: ['膝の痛みを悪化させず、近所まで歩いて買い物に行ける','転ばずに自宅の中を安全に移動できる','手すりを使って階段の昇り降りができる','ふらつかずに立ち上がり・座りができる','30分続けて歩ける体力を保つ','痛みなく家事（掃除・洗濯）を続けられる','今の身体の状態を保ち、通いを続けられる'],
+  ukShort: ['下肢の筋力を保ち、立ち上がりが楽にできる','片足立ちが10秒できる','5m歩行の時間を保つ','膝・腰の痛みを増やさずに運動を続ける','屋外歩行を15分続けられる','肩・腕の可動域を保つ','バランスを保ち、ふらつきを減らす'],
+  ukEval: ['痛みなく実施できた','予定どおり実施。負荷を少し上げた','疲労の訴えがあり、時間を短くした','体調不良で休みが多く、次月も同じ目標を続ける','目標を達成。次月は負荷を上げる','ふらつきがあり、見守りを強めた'],
+  ukIkou: ['今の生活を続けたい','家の中で転ばないようにしたい','買い物に自分で行けるようになりたい','膝・腰の痛みを減らしたい','友人と外出できる体力をつけたい','家族に迷惑をかけずに過ごしたい'],
   goalKatsudo: ['見守りで屋内を安全に歩行できる','手すりを使って階段の昇り降りができる','椅子から一人で立ち上がれる','トイレ動作を自分でできる','シルバーカーで屋外を30分歩ける','入浴動作を一部介助で行える'],
   goalSanka: ['近所のコンビニへ買い物に行ける','家族と外食に出かけられる','趣味の活動に参加できる','通院を安全に行える','町内の行事に参加できる','友人との交流を続けられる'],
   progContent: ['下肢筋力訓練（椅子からの立ち座り）','歩行訓練（平行棒・屋内）','屋外歩行訓練','階段昇降訓練','バランス訓練（片足立ち・踏み台）','関節可動域訓練（ストレッチ）','上肢機能訓練（セラバンド）','持久力訓練（エルゴメーター）','基本動作訓練（起き上がり・立ち上がり）','ADL訓練（トイレ・更衣）'],
@@ -54191,7 +54200,7 @@ const KK_PRESETS_DEFAULT = {
   tsRisk: ['高血圧のため運動前に血圧を確認する','転倒の危険があり移動時は見守る','嚥下機能の低下があり食事・水分はとろみを付ける','糖尿病のため低血糖の症状に注意する','心疾患があり息切れ・胸の痛みに注意する','膝の痛みがあり負荷を調整する'],
 };
 // ★ 2026-10-26(ユーザー決定「計画書の定型文は本部で管理」): 定型文の種類(キー・見出し)。管理局の全店共通パネルと各種設定の案内で共用
-const KK_PRESET_LABELS = [['ryui','【3-3】機能訓練実施上の留意事項（チェックで複数選択）'],['goalKinou','【3-3】目標（機能）'],['goalKatsudo','【3-3】目標（活動）'],['goalSanka','【3-3】目標（参加）'],['progContent','【3-3】プログラム内容'],['progPoint','【3-3】プログラムの留意点'],['henka','【3-3】実施による変化'],['kadai','【3-3】課題とその要因'],['skNinchi','【3-2】認知機能・コミュニケーション'],['skKadai','【3-2】生活上の課題・背景因子'],['kyBikou','【3-1】備考（希望・エピソード）'],['tsGoal','【通所介護計画書】目標'],['tsContent','【通所介護計画書】目的とケアの提供方針・内容'],['tsEffect','【通所介護計画書】効果・満足度'],['tsRisk','【通所介護計画書】医学的リスク・留意事項']];
+const KK_PRESET_LABELS = [['ryui','【3-3】機能訓練実施上の留意事項（チェックで複数選択）'],['goalKinou','【3-3】目標（機能）'],['goalKatsudo','【3-3】目標（活動）'],['goalSanka','【3-3】目標（参加）'],['progContent','【3-3】プログラム内容'],['progPoint','【3-3】プログラムの留意点'],['henka','【3-3】実施による変化'],['kadai','【3-3】課題とその要因'],['skNinchi','【3-2】認知機能・コミュニケーション'],['skKadai','【3-2】生活上の課題・背景因子'],['kyBikou','【3-1】備考（希望・エピソード）'],['tsGoal','【通所介護計画書】目標'],['tsContent','【通所介護計画書】目的とケアの提供方針・内容'],['tsEffect','【通所介護計画書】効果・満足度'],['tsRisk','【通所介護計画書】医学的リスク・留意事項'],['ukLong','【運動器機能向上計画書】長期目標'],['ukShort','【運動器機能向上計画書】短期目標'],['ukEval','【運動器機能向上計画書】評価'],['ukIkou','【運動器機能向上計画書】本人・家族の意向']];
 // ★ 2026-10-26: 優先順 = ①全店共通(管理局が保存・_globalPolicyCache.kkPresets) → ②店舗に残っている旧設定(systemSettings.kkPresets) → ③既定
 const kkPresetsOf = (ss) => { const o = (ss && ss.kkPresets && typeof ss.kkPresets === 'object') ? ss.kkPresets : {}; const g = (_globalPolicyCache && _globalPolicyCache.kkPresets && typeof _globalPolicyCache.kkPresets === 'object') ? _globalPolicyCache.kkPresets : {}; const out = {}; Object.keys(KK_PRESETS_DEFAULT).forEach(k => { const gv = Array.isArray(g[k]) ? g[k].filter(x => String(x||'').trim()) : []; out[k] = gv.length ? gv : (Array.isArray(o[k]) ? o[k].filter(x => String(x||'').trim()) : KK_PRESETS_DEFAULT[k]); }); return out; };
 // 職員の一覧(storeMembers + 日誌の職員)を 役職つきで重複なしに
@@ -54812,6 +54821,9 @@ function LifeDiseaseSearch({ onPick }) {
 //   この様式は「運動器機能向上計画書 兼 個別サービス計画(総合事業)」として使う。記録は appData.undoukiRecords(id・patientId・_savedAt・墓石あり)。
 const UK_MENU_DEFAULT = ['心肺機能・下肢筋力全体（エアロバイク）','大腿部～臀筋強化（レッグプレス）','腕・胸筋・肩甲骨周りの筋強化（チェストプレス）','大腿中外部・排尿筋強化（ヒップアブダクション）','大腿前後部筋肉の筋強化（レッグエクステンション）','肩可動域訓練（滑車）','片足立ちバランス運動（平行棒）','ステッパー','室内歩行（平行棒）','屋外歩行','足温浴（血行促進）','可動域訓練・抵抗運動（片麻痺）','段差昇降訓練','ストレッチ','マッサージ'];
 const UK_CIRCLED = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫','⑬','⑭','⑮','⑯','⑰','⑱','⑲','⑳'];
+// ★ 2026-11-22 trial613(ユーザー「1枚にまとめて、必要なところだけ入力できるように」): 題名は店舗ごとに選べる。既定は 個別サービス計画書 兼 運動器機能向上計画書(総合事業の個別サービス計画と運動器の計画を 1 枚で)
+const UK_TITLE_DEFAULT = '個別サービス計画書 兼 運動器機能向上計画書';
+const UK_TITLES = [UK_TITLE_DEFAULT, '運動器機能向上計画書', '個別サービス計画書（運動器機能向上計画を含む）'];
 const ukLevelOf = (p) => { const cl = String(p?.careLevel || ''); if (/要支援\s*2|要支援２/.test(cl)) return '要支援2'; if (/要支援\s*1|要支援１/.test(cl)) return '要支援1'; if (/事業対象/.test(cl)) return '事業対象者'; return ''; };
 // 体力測定の項目を名前で見つける(店舗ごとに項目名が違うため)。戻り値は { height, weight, gripR, gripL, standup, standupLabel, oneLegR, oneLegL, walk5m, date }
 const ukFitAuto = (appData, pid) => {
@@ -54847,6 +54859,8 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
   const records = (appData.undoukiRecords||[]).filter(r => r.patientId === pid).sort((a,b) => tsuByJpDesc('createdDate')(a,b));
   const toReiwa = (iso) => { if(!iso) return ''; const d=new Date(iso); if(isNaN(d.getTime())) return iso; const r=d.getFullYear()-2018; return `令和${r}年${d.getMonth()+1}月${d.getDate()}日`; };
   const _staff = tsuStaffList(appData);
+  const _kkP = kkPresetsOf(appData.systemSettings); // ★ trial613: 定型文(プルダウン)
+  const [more, setMore] = React.useState(false); // ★ trial613: 自動で入った内容を見る・直す
   const _byRole = (re) => _staff.filter(s => re.test(String(s.role || ''))).map(s => s.name);
   const _recorderName = () => { try { const r = JSON.parse(sessionStorage.getItem('tsumugiActiveRecorder') || 'null'); return (r && r.id !== 'hq_viewer' && r.name) || ''; } catch { return ''; } };
   const _menuDefault = () => { const saved = appData.systemSettings?.undoukiMenu; if (Array.isArray(saved) && saved.length) return saved.slice(0, 20); const ex = effExerciseItems(appData.systemSettings || {}).map(i => String(i.name || '').trim()).filter(Boolean); return ex.length >= 5 ? ex.slice(0, 20) : UK_MENU_DEFAULT; };
@@ -54857,6 +54871,7 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
   const newRecord = () => {
     const today = tsuTodayIso(); const kaigo = _byRole(/介護職員|介護福祉士|ヘルパー/);
     return { id:`uk_${pid}_${Date.now()}`, patientId: pid, createdAt: Date.now(), createdDate: toReiwa(today), planDate: '', author: _recorderName(),
+      title: appData.systemSettings?.undoukiTitle || UK_TITLE_DEFAULT, ikou: '', ryui: '', cpAuthor: '', // ★ trial613
       seals: { manager: _byRole(/管理者/)[0] || '', soudan: _byRole(/生活相談員|相談員/)[0] || '', kinou: _byRole(/機能訓練指導員|機能訓練/)[0] || '', kaigo1: kaigo[0] || '', kaigo2: kaigo[1] || '', kaigo3: kaigo[2] || '', kaigo4: kaigo[3] || '' },
       visitsPerWeek: String((patient?.scheduleAmPm || []).filter(Boolean).length || ''), level: ukLevelOf(patient), periodFrom: today, periodTo: _plusMonths(today, 3),
       paralysis: '無', upper: '', lower: '', strength: '', pain: '無', painSite: '', fit: ukFitAuto(appData, pid), walkAid: '',
@@ -54884,7 +54899,7 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
     onSave({ ...appData, undoukiRecords: (appData.undoukiRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'undoukiRecords',id) }, { manual:true, message:'削除しました' });
   };
   const dupRecord = (r) => { const today = tsuTodayIso(); setEditing({ ...r, id:`uk_${pid}_${Date.now()}`, createdAt: Date.now(), createdDate: toReiwa(today), planDate: '', draft: false, periodFrom: today, periodTo: _plusMonths(today, 3), fit: ukFitAuto(appData, pid), months: _monthsFrom(today).map((lb, i) => ({ ...blankMonth(lb), shortGoal: (r.months?.[i]?.shortGoal) || '', content: (r.months?.[i]?.content) || '', times: (r.months?.[i]?.times) || ['', '', ''], form: (r.months?.[i]?.form) || '個別' })), consentDate: '', reportDate: '', _savedAt: undefined }); markDirty(); };
-  const saveMenuDefault = () => { if (!editing) return; onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), undoukiMenu: (editing.menu || []).map(x => String(x || '').trim()).filter(Boolean) } }, { manual: true, message: '✓ 運動メニューを店舗の既定にしました' }); };
+  const saveMenuDefault = () => { if (!editing) return; onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), undoukiMenu: (editing.menu || []).map(x => String(x || '').trim()).filter(Boolean), undoukiTitle: editing.title || UK_TITLE_DEFAULT } }, { manual: true, message: '✓ 題名と運動メニューを店舗の既定にしました' }); };
   const _retRef = useKkReturn(!!editing, navigateTo, pid);
   React.useEffect(() => {
     if (kkFocusBase(navFocus) !== 'start_edit') return;
@@ -54903,7 +54918,7 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
   }, [navFocus]);
   React.useEffect(() => {
     if (printPickId == null) return;
-    if (printRec && String(printRec.id) === String(printPickId) && onShowPrintPreview) onShowPrintPreview('運動器機能向上計画書','A4','uk-print-area');
+    if (printRec && String(printRec.id) === String(printPickId) && onShowPrintPreview) onShowPrintPreview((printRec && printRec.title) || UK_TITLE_DEFAULT,'A4','uk-print-area');
     setPrintPickId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [printPickId]);
@@ -54930,7 +54945,7 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
     const tel = [facility.phone ? `TEL：${facility.phone}` : '', facility.fax ? `FAX：${facility.fax}` : ''].filter(Boolean).join('　');
     return `<div class="uk-sheet" style="width:210mm;min-height:297mm;box-sizing:border-box;padding:10mm 12mm;font-family:'Hiragino Kaku Gothic ProN','Yu Gothic',Meiryo,sans-serif;color:#000;background:#fff">
 <table style="width:100%;border-collapse:collapse;table-layout:fixed"><tr>
-<td style="width:52%;vertical-align:bottom;padding:0 0 4px 0"><div style="font-size:20px;font-weight:bold;letter-spacing:4px;margin:6px 0 10px">運動器機能向上計画書</div><div style="font-size:10px">作成日　<span style="display:inline-block;min-width:34mm;border-bottom:1px solid #000">${esc(rec.createdDate)}</span>　作成者　<span style="font-weight:bold;font-size:12px;display:inline-block;min-width:30mm;border-bottom:1px solid #000">${esc(rec.author||'')}</span></div></td>
+<td style="width:52%;vertical-align:bottom;padding:0 0 4px 0"><div style="font-size:${String(rec.title || UK_TITLE_DEFAULT).length > 12 ? 15 : 20}px;font-weight:bold;letter-spacing:2px;margin:6px 0 8px">${esc(rec.title || UK_TITLE_DEFAULT)}</div><div style="font-size:10px">作成日　<span style="display:inline-block;min-width:34mm;border-bottom:1px solid #000">${esc(rec.createdDate)}</span>　作成者　<span style="font-weight:bold;font-size:12px;display:inline-block;min-width:30mm;border-bottom:1px solid #000">${esc(rec.author||'')}</span></div></td>
 <td style="width:48%;vertical-align:top;padding:0"><div style="font-size:9px;text-align:right;margin-bottom:2px">立案日　${esc(rec.planDate ? toReiwa(rec.planDate) : '　　　年　　月　　日')}</div><table style="width:100%;border-collapse:collapse;table-layout:fixed"><tr>${seal('管理者', s.manager)}${seal('生活相談員', s.soudan)}${seal('機能訓練指導員', s.kinou)}${seal('介護職員', s.kaigo1)}${seal('介護職員', s.kaigo2)}${seal('介護職員', s.kaigo3)}${seal('介護職員', s.kaigo4)}</tr></table></td></tr></table>
 <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:4px">
 <tr><td style="${th}width:14%">ご利用者</td><td style="${td}width:38%;font-size:12px;font-weight:bold;vertical-align:middle">${esc(nm)}<span style="font-size:9px;font-weight:normal">　様　（${circ(['男','女'], patient?.gender)}）</span></td><td style="${td}width:30%;vertical-align:middle;text-align:center">${esc(bd)}　生</td><td style="${td}width:18%;vertical-align:middle;text-align:center">${age != null ? `${age} 歳` : ''}</td></tr>
@@ -54944,23 +54959,25 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
 <tr><td style="${th}">詳細</td><td style="${pre}">${esc(rec.detail || '')}</td></tr>
 </table>
 <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:-1px">
-<tr><td style="${th}width:17%">既往歴<br>リスク</td><td style="${pre}height:14mm">${esc(rec.history)}</td></tr>
-<tr><td style="${th}">長期目標</td><td style="${pre}height:14mm">${esc(rec.longGoal)}</td></tr>
+<tr><td style="${th}width:17%">既往歴<br>リスク</td><td style="${pre}height:10mm">${esc(rec.history)}</td></tr>
+<tr><td style="${th}">本人・家族の意向<br><span style="font-size:7px;font-weight:normal">介護予防プランの概要</span></td><td style="${pre}height:8mm">${esc(rec.ikou || '')}</td></tr>
+<tr><td style="${th}">長期目標</td><td style="${pre}height:10mm">${esc(rec.longGoal)}</td></tr>
+<tr><td style="${th}">留意事項</td><td style="${pre}height:8mm">${esc(rec.ryui || '')}</td></tr>
 </table>
 <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:-1px">
 <tr><td rowspan="7" style="${th}width:8%;font-size:13px;letter-spacing:4px;writing-mode:vertical-rl">３ヵ月評価</td><td style="${th}width:9%">実施月</td>${months.map(m => `<td style="${th}">${esc(m.month)}</td>`).join('')}</tr>
-<tr><td style="${th}">短期目標</td>${months.map(m => `<td style="${pre}height:12mm">${esc(m.shortGoal)}</td>`).join('')}</tr>
-<tr><td style="${th}">実施内容<br><span style="font-size:7px">（運動メニューより）</span></td>${months.map(m => `<td style="${pre}height:16mm">${esc(m.content)}</td>`).join('')}</tr>
+<tr><td style="${th}">短期目標</td>${months.map(m => `<td style="${pre}height:10mm">${esc(m.shortGoal)}</td>`).join('')}</tr>
+<tr><td style="${th}">実施内容<br><span style="font-size:7px">（運動メニューより）</span></td>${months.map(m => `<td style="${pre}height:13mm">${esc(m.content)}</td>`).join('')}</tr>
 <tr><td style="${th}">実施時間</td>${months.map(m => `<td style="${td}text-align:center">${(m.times || ['','','']).map(t => `<span style="display:inline-block;margin:0 3px"><b>${esc(t || '　')}</b><span style="font-size:8px">分/回</span></span>`).join('')}</td>`).join('')}</tr>
 <tr><td style="${th}">実施形態</td>${months.map(m => `<td style="${td}text-align:center">${circ(['個別','集団'], m.form)}</td>`).join('')}</tr>
 <tr><td style="${th}">目標達成度</td>${months.map(m => `<td style="${td}text-align:center">${circ(['達成','一部','未達'], m.achieve)}</td>`).join('')}</tr>
-<tr><td style="${th}">評価</td>${months.map(m => `<td style="${pre}height:14mm">${esc(m.evalText)}</td>`).join('')}</tr>
+<tr><td style="${th}">評価</td>${months.map(m => `<td style="${pre}height:11mm">${esc(m.evalText)}</td>`).join('')}</tr>
 </table>
 <div style="font-size:11px;font-weight:bold;margin:5px 0 2px">【運動メニュー】</div>
 <table style="width:100%;border-collapse:collapse;table-layout:fixed">${menuRows.join('')}</table>
 <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:6px"><tr>
 <td style="width:50%;vertical-align:top;padding-right:6mm;font-size:9.5px"><div>${esc(rec.consentDate ? toReiwa(rec.consentDate) : '令和　　年　　月　　日')}</div><div style="margin:2px 0 4px">上記の内容について説明を受け、同意の上交付を受けました。</div><table style="width:100%;border-collapse:collapse;table-layout:fixed"><tr><td style="${th}width:30%">ご本人氏名</td><td style="${td}height:8mm;vertical-align:middle">${esc(rec.consentName || '')}</td></tr><tr><td style="${th}">ご家族<br>氏名</td><td style="${td}height:8mm;vertical-align:middle">${esc(rec.familyName || '')}<span style="float:right;font-size:8px">続柄　${esc(rec.relation || '')}　様</span></td></tr></table></td>
-<td style="width:50%;vertical-align:top;font-size:9px"><div style="line-height:1.5">　上記計画書に基づきサービスを実施し、評価させて頂きましたのでご報告申し上げます。<br>　サービス継続が不要と判断される場合はご連絡お願い致します。</div><div style="border:${B};height:18mm;margin-top:3px;padding:2px 4px;font-size:9px;position:relative"><div style="text-align:right">${esc(rec.reportDate ? toReiwa(rec.reportDate) : '令和　　年　　月　　日')}</div><div style="position:absolute;right:4px;bottom:2px">${esc(rec.reportTo || '')}　様</div></div></td></tr></table>
+<td style="width:50%;vertical-align:top;font-size:9px"><div style="line-height:1.5">　上記計画書に基づきサービスを実施し、評価させて頂きましたのでご報告申し上げます。<br>　サービス継続が不要と判断される場合はご連絡お願い致します。</div><div style="border:${B};height:18mm;margin-top:3px;padding:2px 4px;font-size:9px;position:relative"><div style="text-align:right">${esc(rec.reportDate ? toReiwa(rec.reportDate) : '令和　　年　　月　　日')}</div><div style="position:absolute;left:4px;bottom:2px;font-size:8px">${rec.cpAuthor ? 'ケアプラン作成者：' + esc(rec.cpAuthor) : ''}</div><div style="position:absolute;right:4px;bottom:2px">${esc(rec.reportTo || '')}　様</div></div></td></tr></table>
 <div style="text-align:center;font-size:10px;font-weight:bold;margin-top:7px">${esc(facility.name || '')}${officeNo ? `　　総合事業　${esc(officeNo)}` : ''}</div>
 <div style="text-align:center;font-size:8.5px;margin-top:2px">${esc(addr)}${tel ? `　　${esc(tel)}` : ''}</div>
 </div>`;
@@ -54974,7 +54991,7 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
         {editing ? <>
           <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="uk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><X size={16}/>閉じる</button>
-          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">運動器機能向上計画書の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
+          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">{(editing.title || UK_TITLE_DEFAULT)}の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
         </> : <>
           <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
           <KeikakuTabs current="undouki_keikaku" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
@@ -54986,13 +55003,57 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
           <button data-testid="uk-save" onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
         {printRec && <MaskToggle storeKey="undouki"/>}
-        {printRec && <button data-testid="uk-print" onClick={()=>onShowPrintPreview('運動器機能向上計画書','A4','uk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
+        {printRec && <button data-testid="uk-print" onClick={()=>onShowPrintPreview((printRec && printRec.title) || UK_TITLE_DEFAULT,'A4','uk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
       </div>
       <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">要支援・事業対象者の方がいません</div> : editing ? (
           <div className="max-w-4xl mx-auto space-y-4" data-testid="uk-form">
-            <div className="tsu-hint-row"><TsuHint>体力測定・既往歴・利用回数・要支援度・職員名は、利用者マスタ・体力測定・職員名簿から自動で入っています。直したいところだけ書き換えてください。印刷は店舗の紙の様式（A4 1枚）です。</TsuHint></div>
+            <div className="tsu-hint-row"><TsuHint>書くのは「目標・3ヵ月の計画・運動器の状況・同意」だけです。体力測定・既往歴・利用回数・要支援度・職員名・運動メニューは利用者マスタ・体力測定・職員名簿から自動で入っています（下の「自動で入った内容を見る・直す」で直せます）。印刷は店舗の紙の様式と同じ A4 1 枚です。</TsuHint></div>
+            <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3" data-testid="uk-goal">
+              <div className="text-sm font-bold text-slate-700">目標と 3ヵ月の計画<span className="ml-2 text-[11px] font-normal text-slate-500">定型文はプルダウンから選べます（下に追記）</span></div>
+              <KKField label="長期目標（3か月）" value={editing.longGoal || ''} onChange={v => upd({ longGoal: v })} rows={2} max={120} presets={_kkP.ukLong}/>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {(editing.months || []).map((m, i) => (
+                  <div key={i} className="border border-slate-200 rounded-lg p-3 space-y-2 bg-slate-50/60">
+                    <div className="flex items-center gap-2 text-sm font-bold text-slate-700">{i + 1}か月目 {_in(m.month, v => updMonth(i, { month: v }), 'w-16 text-center')}</div>
+                    <KKField label="短期目標" value={m.shortGoal || ''} onChange={v => updMonth(i, { shortGoal: v })} rows={2} max={60} presets={_kkP.ukShort}/>
+                    <KKField label="実施内容（運動メニューから選ぶ）" value={m.content || ''} onChange={v => updMonth(i, { content: v })} rows={3} max={90} presets={(editing.menu || []).map((x, k) => `${UK_CIRCLED[k] || (k + 1)} ${String(x || '').trim()}`).filter(x => x.length > 2)}/>
+                    <div>{_lbl('実施時間（分/回・3つまで）')}<div className="flex gap-1">{[0,1,2].map(k => <input key={k} {...TSU_NOFILL} inputMode="numeric" value={(m.times || ['','',''])[k] || ''} onChange={e => { const t = [...(m.times || ['','',''])]; t[k] = e.target.value; updMonth(i, { times: t }); }} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm text-center outline-none"/>)}</div></div>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">形態 {_sel(m.form, v => updMonth(i, { form: v }), ['個別','集団'], false)}</div>
+                    <div className="border-t border-slate-200 pt-2 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2 text-sm"><span className="text-[11px] font-bold text-slate-500">月末の評価</span> {_sel(m.achieve, v => updMonth(i, { achieve: v }), ['達成','一部','未達'])}</div>
+                      <KKField label="評価" value={m.evalText || ''} onChange={v => updMonth(i, { evalText: v })} rows={2} max={90} presets={_kkP.ukEval}/>
+                    </div>
+                  </div>))}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+                <div className="text-sm font-bold text-slate-700">運動器の状況</div>
+                <div className="flex flex-wrap items-center gap-2 text-sm">運動麻痺 {_sel(editing.paralysis, v => upd({ paralysis: v }), ['有','無'], false)} 上肢 {_sel(editing.upper, v => upd({ upper: v }), ['軽度','中等度','重度'])} 下肢 {_sel(editing.lower, v => upd({ lower: v }), ['軽度','中等度','重度'])}</div>
+                <div className="flex flex-wrap items-center gap-2 text-sm">筋力 {_sel(editing.strength, v => upd({ strength: v }), ['正常','やや弱い','弱い'])}</div>
+                <div className="flex flex-wrap items-center gap-2 text-sm">痛み {_sel(editing.pain, v => upd({ pain: v }), ['有','無'], false)} 部位 {_in(editing.painSite, v => upd({ painSite: v }), 'w-28')}</div>
+                <div className="flex flex-wrap items-center gap-2 text-sm">歩行の補助 {_sel(editing.walkAid, v => upd({ walkAid: v }), ['杖','手引き'])}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+                <div className="text-sm font-bold text-slate-700">説明・同意と報告</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>{_lbl('説明・同意の日')}<input type="date" value={editing.consentDate || ''} onChange={e => upd({ consentDate: e.target.value })} className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm outline-none w-full"/></div>
+                  <div>{_lbl('ご本人氏名')}{_in(editing.consentName, v => upd({ consentName: v }), 'w-full')}</div>
+                  <div>{_lbl('ご家族氏名')}{_in(editing.familyName, v => upd({ familyName: v }), 'w-full')}</div>
+                  <div>{_lbl('続柄')}{_in(editing.relation, v => upd({ relation: v }), 'w-full')}</div>
+                  <div>{_lbl('包括への報告日')}<input type="date" value={editing.reportDate || ''} onChange={e => upd({ reportDate: e.target.value })} className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm outline-none w-full"/></div>
+                  <div>{_lbl('報告先（包括）')}{_in(editing.reportTo, v => upd({ reportTo: v }), 'w-full')}</div>
+                  <div className="col-span-2">{_lbl('ケアプラン作成者（包括・担当者名）')}{_in(editing.cpAuthor, v => upd({ cpAuthor: v }), 'w-full')}</div>
+                </div>
+              </div>
+            </div>
+            <button type="button" data-testid="uk-more" onClick={() => setMore(m => !m)} className="w-full text-left px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+              {more ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}自動で入った内容を見る・直す<span className="font-normal text-slate-500 text-[11px]">（基本・押印欄・体力測定・既往歴・意向と留意事項・運動メニュー・題名）</span>
+            </button>
+            {more && (<div className="space-y-4" data-testid="uk-auto">
             <div className="bg-white rounded-xl border border-slate-200 p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="col-span-2">{_lbl('題名（印刷の見出し）')}{_sel(editing.title || UK_TITLE_DEFAULT, v => upd({ title: v }), UK_TITLES, false)}</div>
               <div>{_lbl('作成日')}<div className="text-sm font-bold">{editing.createdDate}</div></div>
               <div>{_lbl('立案日')}<input type="date" value={editing.planDate || ''} onChange={e => upd({ planDate: e.target.value })} className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm outline-none w-full"/></div>
               <div>{_lbl('作成者')}{_in(editing.author, v => upd({ author: v }), 'w-full')}</div>
@@ -55009,58 +55070,30 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
                 <datalist id="uk-staff-list">{_staff.map(s => <option key={`${s.name}|${s.role}`} value={s.name}/>)}</datalist>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
-                <div className="text-sm font-bold text-slate-700">運動器の状況</div>
-                <div className="flex flex-wrap items-center gap-2 text-sm">運動麻痺 {_sel(editing.paralysis, v => upd({ paralysis: v }), ['有','無'], false)} 上肢 {_sel(editing.upper, v => upd({ upper: v }), ['軽度','中等度','重度'])} 下肢 {_sel(editing.lower, v => upd({ lower: v }), ['軽度','中等度','重度'])}</div>
-                <div className="flex flex-wrap items-center gap-2 text-sm">筋力 {_sel(editing.strength, v => upd({ strength: v }), ['正常','やや弱い','弱い'])}</div>
-                <div className="flex flex-wrap items-center gap-2 text-sm">痛み {_sel(editing.pain, v => upd({ pain: v }), ['有','無'], false)} 部位 {_in(editing.painSite, v => upd({ painSite: v }), 'w-28')}</div>
-                <KKField label="詳細" value={editing.detail || ''} onChange={v => upd({ detail: v })} rows={2} max={80}/>
-              </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2" data-testid="uk-fit">
-                <div className="text-sm font-bold text-slate-700 flex items-center gap-2">体力測定 <span className="text-[11px] font-normal text-slate-500">{(editing.fit || {}).date ? `（体力測定 ${(editing.fit || {}).date} から）` : '（体力測定の記録がありません）'}</span><button type="button" onClick={() => upd({ fit: ukFitAuto(appData, pid) })} className="ml-auto px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[11px] font-bold">最新を読み直す</button></div>
-                <div className="grid grid-cols-3 gap-2 text-sm">
-                  <div>{_lbl('身長 cm')}{_in((editing.fit||{}).height, v => updFit({ height: v }), 'w-full')}</div>
-                  <div>{_lbl('体重 kg')}{_in((editing.fit||{}).weight, v => updFit({ weight: v }), 'w-full')}</div>
-                  <div>{_lbl(`立上り動作 ${(editing.fit||{}).standupLabel || '回/10秒'}`)}{_in((editing.fit||{}).standup, v => updFit({ standup: v }), 'w-full')}</div>
-                  <div>{_lbl('握力 右 kg')}{_in((editing.fit||{}).gripR, v => updFit({ gripR: v }), 'w-full')}</div>
-                  <div>{_lbl('握力 左 kg')}{_in((editing.fit||{}).gripL, v => updFit({ gripL: v }), 'w-full')}</div>
-                  <div>{_lbl('5m歩行 秒')}{_in((editing.fit||{}).walk5m, v => updFit({ walk5m: v }), 'w-full')}</div>
-                  <div>{_lbl('片足立ち 右 秒')}{_in((editing.fit||{}).oneLegR, v => updFit({ oneLegR: v }), 'w-full')}</div>
-                  <div>{_lbl('片足立ち 左 秒')}{_in((editing.fit||{}).oneLegL, v => updFit({ oneLegL: v }), 'w-full')}</div>
-                  <div>{_lbl('歩行の補助')}{_sel(editing.walkAid, v => upd({ walkAid: v }), ['杖','手引き'])}</div>
-                </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2" data-testid="uk-fit">
+              <div className="text-sm font-bold text-slate-700 flex items-center gap-2">体力測定 <span className="text-[11px] font-normal text-slate-500">{(editing.fit || {}).date ? `（体力測定 ${(editing.fit || {}).date} から）` : '（体力測定の記録がありません）'}</span><button type="button" onClick={() => upd({ fit: ukFitAuto(appData, pid) })} className="ml-auto px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[11px] font-bold">最新を読み直す</button></div>
+              <div className="grid grid-cols-3 md:grid-cols-4 gap-2 text-sm">
+                <div>{_lbl('身長 cm')}{_in((editing.fit||{}).height, v => updFit({ height: v }), 'w-full')}</div>
+                <div>{_lbl('体重 kg')}{_in((editing.fit||{}).weight, v => updFit({ weight: v }), 'w-full')}</div>
+                <div>{_lbl(`立上り動作 ${(editing.fit||{}).standupLabel || '回/10秒'}`)}{_in((editing.fit||{}).standup, v => updFit({ standup: v }), 'w-full')}</div>
+                <div>{_lbl('5m歩行 秒')}{_in((editing.fit||{}).walk5m, v => updFit({ walk5m: v }), 'w-full')}</div>
+                <div>{_lbl('握力 右 kg')}{_in((editing.fit||{}).gripR, v => updFit({ gripR: v }), 'w-full')}</div>
+                <div>{_lbl('握力 左 kg')}{_in((editing.fit||{}).gripL, v => updFit({ gripL: v }), 'w-full')}</div>
+                <div>{_lbl('片足立ち 右 秒')}{_in((editing.fit||{}).oneLegR, v => updFit({ oneLegR: v }), 'w-full')}</div>
+                <div>{_lbl('片足立ち 左 秒')}{_in((editing.fit||{}).oneLegL, v => updFit({ oneLegL: v }), 'w-full')}</div>
               </div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-              <KKField label="既往歴・リスク（フェイスシートから自動）" value={editing.history || ''} onChange={v => upd({ history: v })} rows={3} max={160}/>
-              <KKField label="長期目標" value={editing.longGoal || ''} onChange={v => upd({ longGoal: v })} rows={3} max={160}/>
+              <KKField label="既往歴・リスク（フェイスシートから自動）" value={editing.history || ''} onChange={v => upd({ history: v })} rows={2} max={120}/>
+              <KKField label="本人・家族の意向／介護予防プランの概要" value={editing.ikou || ''} onChange={v => upd({ ikou: v })} rows={2} max={100} presets={_kkP.ukIkou}/>
+              <KKField label="留意事項（チェックで複数選択）" value={editing.ryui || ''} onChange={v => upd({ ryui: v })} rows={2} max={100} presets={_kkP.ryui} presetMode="check"/>
+              <KKField label="運動器の状況の詳細" value={editing.detail || ''} onChange={v => upd({ detail: v })} rows={1} max={60}/>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <div className="text-sm font-bold text-slate-700 mb-2">３ヵ月評価（実施月ごと）</div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {(editing.months || []).map((m, i) => (
-                  <div key={i} className="border border-slate-200 rounded-lg p-3 space-y-2 bg-slate-50/60">
-                    <div className="flex items-center gap-2">{_lbl('実施月')}{_in(m.month, v => updMonth(i, { month: v }), 'w-20 text-center')}</div>
-                    <KKField label="短期目標" value={m.shortGoal || ''} onChange={v => updMonth(i, { shortGoal: v })} rows={2} max={60}/>
-                    <KKField label="実施内容（運動メニューの番号・名前）" value={m.content || ''} onChange={v => updMonth(i, { content: v })} rows={3} max={90}/>
-                    <div>{_lbl('実施時間（分/回）')}<div className="flex gap-1">{[0,1,2].map(k => <input key={k} {...TSU_NOFILL} inputMode="numeric" value={(m.times || ['','',''])[k] || ''} onChange={e => { const t = [...(m.times || ['','',''])]; t[k] = e.target.value; updMonth(i, { times: t }); }} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm text-center outline-none"/>)}</div></div>
-                    <div className="flex flex-wrap items-center gap-2 text-sm">形態 {_sel(m.form, v => updMonth(i, { form: v }), ['個別','集団'], false)} 達成度 {_sel(m.achieve, v => updMonth(i, { achieve: v }), ['達成','一部','未達'])}</div>
-                    <KKField label="評価" value={m.evalText || ''} onChange={v => updMonth(i, { evalText: v })} rows={3} max={90}/>
-                  </div>))}
-              </div>
-            </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <div className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2">運動メニュー（印刷の①〜⑮・1行に1つ）<button type="button" onClick={saveMenuDefault} className="ml-auto px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[11px] font-bold">この並びを店舗の既定にする</button></div>
+              <div className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2">運動メニュー（印刷の①〜⑮・1行に1つ）<button type="button" onClick={saveMenuDefault} className="ml-auto px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[11px] font-bold">題名とこの並びを店舗の既定にする</button></div>
               <textarea value={(editing.menu || []).join('\n')} onChange={e => upd({ menu: e.target.value.split('\n').slice(0, 20) })} rows={6} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm outline-none font-mono"/>
             </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-4 grid grid-cols-2 md:grid-cols-3 gap-3">
-              <div>{_lbl('説明・同意の日')}<input type="date" value={editing.consentDate || ''} onChange={e => upd({ consentDate: e.target.value })} className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm outline-none w-full"/></div>
-              <div>{_lbl('ご本人氏名')}{_in(editing.consentName, v => upd({ consentName: v }), 'w-full')}</div>
-              <div>{_lbl('ご家族氏名 ／ 続柄')}<div className="flex gap-1">{_in(editing.familyName, v => upd({ familyName: v }), 'w-full')}{_in(editing.relation, v => upd({ relation: v }), 'w-20')}</div></div>
-              <div>{_lbl('包括への報告日')}<input type="date" value={editing.reportDate || ''} onChange={e => upd({ reportDate: e.target.value })} className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm outline-none w-full"/></div>
-              <div className="md:col-span-2">{_lbl('報告先（包括・ケアマネ）')}{_in(editing.reportTo, v => upd({ reportTo: v }), 'w-full')}</div>
-            </div>
+            </div>)}
           </div>
         ) : (
           <div className="max-w-4xl mx-auto space-y-3" data-testid="uk-list">
