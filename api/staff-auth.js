@@ -267,6 +267,13 @@ function inviteMailHtml({ storeName, name, url, code, expiresAt }) {
 </body></html>`;
 }
 const strip = (row) => { if (!row) return row; const { password_hash, pin_hash, ...rest } = row; return { ...rest, has_pin: !!pin_hash }; };
+// ★ 2026-11-22 trial608(計画書 P1-6・データ保護の仕上げ): パスワードの保存は scrypt(塩つき・Node 標準)。端末からは従来どおり SHA-256(64桁)が届く。
+//   保存値が 'scrypt$<塩>$<値>' なら照合、旧形式(64桁)なら一致したときに通して、その場で scrypt に書き換える(ログインのたびに段階的に移行)。
+const pwStore = (hash64) => { const salt = crypto.randomBytes(16).toString('hex'); const dk = crypto.scryptSync(String(hash64), salt, 32, { N: 16384, r: 8, p: 1 }).toString('hex'); return `scrypt$${salt}$${dk}`; };
+const pwMatch = (hash64, stored) => { const s = String(stored || ''); if (!s) return false;
+  if (s.startsWith('scrypt$')) { const [, salt, dk] = s.split('$'); if (!salt || !dk) return false; try { const got = crypto.scryptSync(String(hash64), salt, 32, { N: 16384, r: 8, p: 1 }); const want = Buffer.from(dk, 'hex'); return got.length === want.length && crypto.timingSafeEqual(got, want); } catch { return false; } }
+  try { const a = Buffer.from(String(hash64)), b = Buffer.from(s); return a.length === b.length && crypto.timingSafeEqual(a, b); } catch { return false; } };
+const pwIsLegacy = (stored) => /^[0-9a-f]{64}$/.test(String(stored || ''));
 
 async function sb(path, init) {
   const r = await fetch(`${SUPA_URL}/rest/v1/${path}`, { ...(init || {}), headers: { ...hdrs(), ...((init && init.headers) || {}) } });
@@ -311,11 +318,13 @@ export default async function handler(req, res) {
       const username = String(body.username || '').trim();
       const hash = String(body.password_hash || '').trim();
       if (!username || !/^[0-9a-f]{64}$/.test(hash)) return res.status(400).json({ error: 'IDまたはパスワードが違います' });
-      let rows = await sb(`staff?select=*,stores(id,name,short_name)&username=eq.${encodeURIComponent(username)}&password_hash=eq.${encodeURIComponent(hash)}&is_active=eq.true&deleted_at=is.null&limit=1`);
+      let rows = await sb(`staff?select=*,stores(id,name,short_name)&username=eq.${encodeURIComponent(username)}&is_active=eq.true&deleted_at=is.null&limit=2`);
+      rows = (Array.isArray(rows) ? rows : []).filter(r => pwMatch(hash, r.password_hash)); // ★ 2026-11-22 P1-6: 照合はサーバーで(scrypt/旧形式の両対応)
       // ★ 2026-11-19 trial591(ユーザー「メールアドレスがIDになる方が楽では」): ID の欄にメールアドレスを入れたら、メールでも探す(ID で見つからなかったときだけ・パスワードも一致する人)。同じメールが複数いても、パスワードまで一致する人が1人だけなら通す
       if (!(Array.isArray(rows) && rows.length) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
-        const byMail = await sb(`staff?select=*,stores(id,name,short_name)&email=ilike.${encodeURIComponent(username.replace(/[\\%_]/g, (c) => '\\' + c))}&password_hash=eq.${encodeURIComponent(hash)}&is_active=eq.true&deleted_at=is.null&limit=2`);
-        rows = (Array.isArray(byMail) && byMail.length === 1) ? byMail : [];
+        const byMail0 = await sb(`staff?select=*,stores(id,name,short_name)&email=ilike.${encodeURIComponent(username.replace(/[\\%_]/g, (c) => '\\' + c))}&is_active=eq.true&deleted_at=is.null&limit=20`);
+        const byMail = (Array.isArray(byMail0) ? byMail0 : []).filter(r => pwMatch(hash, r.password_hash)); // ★ 2026-11-22 P1-6
+        rows = (byMail.length === 1) ? byMail : [];
       }
       const staff = Array.isArray(rows) ? rows[0] : null;
       if (!staff) { await loginFailNote(username); await sleep(FAIL_DELAY); return res.status(401).json({ error: 'IDまたはパスワードが違います' }); }
@@ -339,7 +348,7 @@ export default async function handler(req, res) {
       if ((staff.kind || 'store') === 'store' && staff.role !== 'super_admin' && staff.store_id && (await storeSecurity(staff.store_id)).storeLoginDisabled) {
         return res.status(403).json({ error: 'この店舗は「従業員ごとのログイン」に切り替わりました。ご自身のログインIDとパスワードでログインしてください。', store_login_disabled: true });
       }
-      try { await sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString() }) }); } catch {}
+      try { await sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString(), ...(pwIsLegacy(staff.password_hash) ? { password_hash: pwStore(hash) } : {}) }) }); } catch {} // ★ 2026-11-22 P1-6: 旧形式はこの機会に scrypt へ
       const mc = await mintSbTokenChecked(staff);
       await logLogin(staff, staff.kind === 'person' ? 'person' : 'store', body.device); // ★ 段階4: ログイン記録(表が無ければ何もしない)
       return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason, hq_trust: _trustOut ? _trustOut.token : undefined, hq_trust_exp: _trustOut ? _trustOut.exp : undefined });
@@ -422,7 +431,7 @@ export default async function handler(req, res) {
       // ★ 2026-11-01(10/23 ユーザー決定): PIN は本人が決めず、つむぎが乱数4桁を作って登録の返事で一度だけ渡す(端末が表示・保存はハッシュだけ)
       let gp; try { gp = await genStorePin(inv.store_id, null); } catch (e) { return res.status(503).json({ error: (e && e.message) || 'PIN を作れませんでした' }); }
       const nm = String(inv.name || '').trim(); const sp = nm.split(/[\s\u3000]+/);
-      const rec = { store_id: inv.store_id, username, password_hash: hash, role: (inv.role === 'manager' ? 'manager' : 'staff') /* ★ 2026-11-01 実機で判明: staff.role の許容値は super_admin/manager/staff(member は制約違反) */, last_name: sp[0] || nm, first_name: sp.slice(1).join(' ') || '', email: inv.email || null, is_active: true, kind: 'person', member_id: inv.member_id || null, pin_hash: gp.hash }; // ★ 2026-11-01 実機で判明: display_name は DB の自動生成列(入れると『cannot insert a non-DEFAULT value』で登録できない)ので入れない
+      const rec = { store_id: inv.store_id, username, password_hash: pwStore(hash), role: (inv.role === 'manager' ? 'manager' : 'staff') /* ★ 2026-11-01 実機で判明: staff.role の許容値は super_admin/manager/staff(member は制約違反) */, last_name: sp[0] || nm, first_name: sp.slice(1).join(' ') || '', email: inv.email || null, is_active: true, kind: 'person', member_id: inv.member_id || null, pin_hash: gp.hash }; // ★ 2026-11-01 実機で判明: display_name は DB の自動生成列(入れると『cannot insert a non-DEFAULT value』で登録できない)ので入れない
       const created = await sb('staff?select=*,stores(id,name,short_name)', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(rec) });
       const staff = Array.isArray(created) ? created[0] : created;
       try { await sb(`staff_invites?id=eq.${encodeURIComponent(inv.id)}&used_by=is.null`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ used_by: staff.id, used_at: new Date().toISOString() }) }); } catch {}
@@ -612,7 +621,7 @@ export default async function handler(req, res) {
         if (Array.isArray(dup) && dup.length) return res.status(409).json({ error: 'このログインIDは既に使われています' });
         const dupMail = await sb(`staff?select=id&role=eq.super_admin&email=eq.${encodeURIComponent(email)}&deleted_at=is.null&limit=1`);
         if (Array.isArray(dupMail) && dupMail.length) return res.status(409).json({ error: 'このメールアドレスの本部アカウントは既にあります(1人1つ)' });
-        await sb('staff', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ store_id: null, username, password_hash: hash, role: 'super_admin', last_name, first_name, email, phone: '', is_active: true, kind: 'store' }) });
+        await sb('staff', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ store_id: null, username, password_hash: pwStore(hash), role: 'super_admin', last_name, first_name, email, phone: '', is_active: true, kind: 'store' }) });
         return res.status(200).json({ ok: true, accounts: await listHq() });
       }
       // hq_set_active
@@ -648,7 +657,7 @@ export default async function handler(req, res) {
       const dup = await sb(`staff?select=id&username=eq.${encodeURIComponent(username)}&limit=1`);
       if (Array.isArray(dup) && dup.length) return res.status(409).json({ error: 'このログインIDは既に使用されています' });
       const ins = await sb(`staff?select=${SAFE_COLS}`, { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({
-        store_id: store_id || null, username, password_hash, role,
+        store_id: store_id || null, username, password_hash: pwStore(password_hash), role,
         last_name: String(body.last_name || ''), first_name: String(body.first_name || ''), email: String(body.email || ''), phone: String(body.phone || ''),
       }) });
       return res.status(200).json({ staff: strip(Array.isArray(ins) ? ins[0] : ins) });
@@ -659,7 +668,7 @@ export default async function handler(req, res) {
       const password_hash = String(body.password_hash || '').trim();
       if (!staffId || !/^[0-9a-f]{64}$/.test(password_hash)) return res.status(400).json({ error: '入力が不正です' });
       if (!isHq && t.sid !== staffId) return res.status(403).json({ error: '自分のパスワードだけ変更できます' });
-      await sb(`staff?id=eq.${encodeURIComponent(staffId)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ password_hash }) });
+      await sb(`staff?id=eq.${encodeURIComponent(staffId)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ password_hash: pwStore(password_hash) }) }); // ★ 2026-11-22 P1-6
       return res.status(200).json({ ok: true });
     }
 

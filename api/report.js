@@ -23,6 +23,8 @@ export default async function handler(req, res) {
   body = body || {};
   const description = String(body.description || '').slice(0, 4000);
   const ctx = body.context || {};
+  // ★ 2026-11-22 1122c(不具合修正): trial502(11/2)のメール共通化で宛先の変数(toEmail)が消え、不具合レポートが 500 で送れなくなっていた。宛先は環境変数 → 管理局の設定 → 既定
+  const toEmail = (await getSecret('REPORT_TO_EMAIL', 'REPORT_TO_EMAIL')) || 'support@ones-style.co.jp';
 
   { const cfg = await mailConfig(); if (!cfg.gmail && !cfg.brevo) return res.status(500).json({ error: 'サーバー設定エラー: メール送信の設定がありません' }); } // ★ 2026-11-02
 
@@ -30,9 +32,11 @@ export default async function handler(req, res) {
     ? ctx.errors.map((e, i) => `${i + 1}. ${esc(e)}`).join('<br/>')
     : '（記録されたエラーはありません）';
 
+  // ★ 2026-11-22 trial608 案B: 店舗からの「管理者の交代」の申請も同じ経路で本部へ(件名と見出しだけ変える)
+  const isHandover = String(body.kind || '') === 'admin_handover';
   const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"></head>
 <body style="font-family:'Hiragino Sans','Yu Gothic','Noto Sans JP',sans-serif;color:#1e293b;padding:20px;">
-  <h2 style="color:#b45309;margin:0 0 12px;">🐞 つむぎ 不具合レポート</h2>
+  <h2 style="color:#b45309;margin:0 0 12px;">${isHandover ? 'つむぎ 管理者の交代の申請（管理局で承認してください）' : 'つむぎ 不具合レポート'}</h2>
   <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:14px;margin-bottom:16px;">
     <div style="font-weight:bold;margin-bottom:6px;">利用者(報告者)からの内容</div>
     <div style="font-size:14px;line-height:1.8;">${esc(description) || '（説明なし）'}</div>
@@ -51,7 +55,7 @@ export default async function handler(req, res) {
 </body></html>`.trim();
 
   try {
-    const r = await sendMailAny({ to: [toEmail], subject: `【つむぎ不具合】${(ctx.facility || '事業所')} / ${(ctx.view || '')}`.slice(0, 120), html, senderName: 'つむぎ 不具合レポート', replyTo: toEmail }); // ★ 2026-11-02: 共通部品
+    const r = await sendMailAny({ to: [toEmail], subject: (isHandover ? `【つむぎ】管理者の交代の申請: ${(ctx.facility || '事業所')}` : `【つむぎ不具合】${(ctx.facility || '事業所')} / ${(ctx.view || '')}`).slice(0, 120), html, senderName: isHandover ? 'つむぎ 管理局' : 'つむぎ 不具合レポート', replyTo: toEmail }); // ★ 2026-11-02: 共通部品
     if (!r.ok) return res.status(500).json({ error: 'メール送信に失敗しました', detail: (r.error || '').slice(0, 300) });
     return res.status(200).json({ ok: true });
   } catch (e) {

@@ -14,6 +14,11 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
+// ★ 2026-11-22 trial608(ユーザー「スマホのアプリのように、更新しないと進めない画面を」): update-notes.json の minVersion(最低版)より古い版は、
+//   画面全体を覆って「更新してください」を出し、更新するまで操作できない(同期や記録の決まりが変わる配信のとき、本部が minVersion を上げる)。
+//   版の比べ方: "upd-2026-1122b" → 日付 20261122 と末尾 b。日付が古ければ古い版。同じ日付なら末尾の文字で比べる(trial は同じ日の安定版より新しい扱い)
+const tsuVerParse = (v) => { const m = String(v || '').match(/(\d{4})-(\d{4})(.*)$/); return m ? { d: m[1] + m[2], s: m[3] || '' } : null; };
+const tsuVerBelow = (cur, min) => { const a = tsuVerParse(cur), b = tsuVerParse(min); if (!a || !b) return false; if (a.d !== b.d) return a.d < b.d; if (/trial/.test(a.s)) return false; return a.s < b.s; };
 import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, PAUSE_HEAL_FROM, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
 import { PATIENT_TEXT_FL, mergeEmergencyContacts } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL) ★ 2026-11-16 1116d: 緊急連絡先の付き合わせ
 import {
@@ -20017,6 +20022,27 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
     if (n.length === 4 && onPinLogin) { setQuickBusy(true); try { const m = await onPinLogin(n); if (m) { setQuickPin(''); setQuickBusy(false); afterPin(m); return; } setQuickErr('PIN が違います'); } catch (e) { setQuickErr(e?.message || 'PIN が違います'); } setQuickPin(''); setQuickBusy(false); }
   };
   const [pendingAdmin, setPendingAdmin] = React.useState(null); // 管理者選択 → 認証待ち
+  // ★ 2026-11-22 trial608 案B(ユーザー決定「管理者が急に代わったとき、店舗だけで進められて本部は承認1回」):
+  //   店舗はここから「管理者の交代」を申請(新しい管理者・前の管理者の新しい役職・申請者)。申請は adminAuth.handover に控え、本部へメール。
+  //   本部が管理局で承認すると 役職の入れ替え＋管理者パスワードの消去が全端末に届き、新しい管理者は自分を選んで(自分の PIN)そのまま使える。
+  const [hoOpen, setHoOpen] = React.useState(false);
+  const [hoForm, setHoForm] = React.useState({ newId: '', oldRole: '介護職員', by: '', note: '', busy: false, err: '' });
+  const _ho = adminAuth && adminAuth.handover && typeof adminAuth.handover === 'object' ? adminAuth.handover : null;
+  const _hoAdmins = (members || []).filter(m => m && (m.isAdmin || m.roleLabel === '管理者') && m.id !== 'hq_viewer');
+  const _hoCands = (members || []).filter(m => m && !(m.isAdmin || m.roleLabel === '管理者') && m.id !== 'hq_viewer');
+  const submitHandover = async () => {
+    const nm = _hoCands.find(m => String(m.id) === String(hoForm.newId));
+    if (!nm) { setHoForm(f => ({ ...f, err: '新しい管理者を選んでください' })); return; }
+    if (!String(hoForm.by || '').trim()) { setHoForm(f => ({ ...f, err: '申請する方のお名前を入れてください' })); return; }
+    if (!window.confirm(`管理者の交代を本部に申請します。\n\n新しい管理者: ${nm.name}\n前の管理者: ${_hoAdmins.map(a => a.name).join('・') || '（なし）'} → ${hoForm.oldRole}\n\n本部が承認すると切り替わります。よろしいですか？`)) return;
+    setHoForm(f => ({ ...f, busy: true, err: '' }));
+    const ho = { status: 'pending', newMemberId: nm.id, newMemberName: nm.name, oldMemberIds: _hoAdmins.map(a => a.id), oldMemberNames: _hoAdmins.map(a => a.name), oldNewRole: hoForm.oldRole, by: String(hoForm.by).trim(), note: String(hoForm.note || '').trim().slice(0, 300), requestedAt: Date.now() };
+    try { await onSetAdminAuth({ handover: ho }); } catch {}
+    try {
+      await fetch('/api/report', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'admin_handover', description: `新しい管理者: ${ho.newMemberName}\n前の管理者: ${ho.oldMemberNames.join('・') || '（なし）'} → ${ho.oldNewRole}\n申請者: ${ho.by}\nメモ: ${ho.note || '（なし）'}\n\n管理局の「管理者の交代の申請」で承認してください。`, context: { facility: storeName, storeId, recorder: ho.by, view: '管理者の交代の申請', when: new Date().toLocaleString('ja-JP'), url: (typeof location !== 'undefined' ? location.href : ''), appVersion: (__builtUpdateNotes && __builtUpdateNotes.version) || '' } }) });
+    } catch {}
+    setHoForm({ newId: '', oldRole: '介護職員', by: '', note: '', busy: false, err: '' }); setHoOpen(false);
+  };
   const [pendingPin, setPendingPin] = React.useState(null); // ★ 2026-10-19 段階4: 本人アカウント＋PIN のある職員 → PIN 待ち
   // ★ 2026-10-26(ユーザー要望「同じ人で役職が複数ある人は、PIN のあとにどちらにするか選べるように」): 同じ名前の行が複数あれば役職を選んでから入る
   const [roleChoice, setRoleChoice] = React.useState(null);
@@ -20167,6 +20193,61 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
                 <button type="submit" style={{whiteSpace:'nowrap',flex:1,padding:'10px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>追加</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ★ 2026-11-22 trial608 案B: 管理者の交代(申請中/承認済みの表示と申請の入口) */}
+      {!isSuperAdmin && !loading && (
+        <div data-testid="handover-box" style={{maxWidth:720,margin:'10px auto 0',padding:'0 12px'}}>
+          {_ho && _ho.status === 'pending' && (
+            <div style={{background:'#fff8ea',border:'1px solid #f0c66b',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#7a4b00',lineHeight:1.7}}>
+              <b>管理者の交代を本部に申請中</b>（新しい管理者: {_ho.newMemberName}・申請: {_ho.by}）。本部の承認をお待ちください。
+              <button type="button" onClick={async()=>{ if(!window.confirm('申請を取り下げますか？')) return; try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #d9b25a',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#7a4b00',cursor:'pointer'}}>取り下げる</button>
+            </div>
+          )}
+          {_ho && _ho.status === 'approved' && (
+            <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#166534',lineHeight:1.7}}>
+              <b>本部が管理者の交代を承認しました。</b>{_ho.newMemberName} さんが管理者です。{_ho.newMemberName} さんを選ぶと、管理者パスワードを新しく設定できます。
+              <button type="button" onClick={async()=>{ try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #86efac',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#166534',cursor:'pointer'}}>確認しました</button>
+            </div>
+          )}
+          {_ho && _ho.status === 'rejected' && (
+            <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#991b1b',lineHeight:1.7}}>
+              <b>管理者の交代の申請は承認されませんでした。</b>{_ho.reason ? `理由: ${_ho.reason}` : ''} 本部にご確認ください。
+              <button type="button" onClick={async()=>{ try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #fca5a5',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#991b1b',cursor:'pointer'}}>閉じる</button>
+            </div>
+          )}
+          {!_ho && _hoCands.length > 0 && (
+            <div style={{textAlign:'right',marginTop:4}}>
+              <button type="button" data-testid="handover-open" onClick={()=>setHoOpen(true)} style={{background:'transparent',border:'none',color:'#64748b',fontSize:12,textDecoration:'underline',cursor:'pointer',padding:'6px 4px'}}>管理者が代わるとき（管理者の交代を本部に申請）</button>
+            </div>
+          )}
+        </div>
+      )}
+      {hoOpen && (
+        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.6)',zIndex:100000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{ if(!hoForm.busy) setHoOpen(false); }}>
+          <div data-testid="handover-modal" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:18,padding:22,width:'100%',maxWidth:440,boxShadow:'0 12px 40px rgba(0,0,0,0.3)'}}>
+            <div style={{fontSize:17,fontWeight:'bold',color:'#1e293b',marginBottom:6}}>管理者の交代を申請</div>
+            <div style={{fontSize:12,color:'#64748b',marginBottom:14,lineHeight:1.7}}>前の管理者と連絡が取れなくても申請できます。本部が承認すると、新しい管理者に切り替わり、前の管理者パスワードは消えます（新しい管理者が設定し直します）。</div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>新しい管理者</label>
+            <select data-testid="handover-new" value={hoForm.newId} onChange={e=>setHoForm(f=>({...f,newId:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box',background:'white'}}>
+              <option value="">選んでください</option>
+              {_hoCands.map(m => <option key={m.id} value={m.id}>{m.name}（{m.roleLabel || ''}）</option>)}
+            </select>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>前の管理者（{_hoAdmins.map(a=>a.name).join('・') || 'なし'}）の新しい役職</label>
+            <select data-testid="handover-oldrole" value={hoForm.oldRole} onChange={e=>setHoForm(f=>({...f,oldRole:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box',background:'white'}}>
+              {(roleChoices || ['介護職員']).filter(r => r && r !== '管理者').map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <div style={{fontSize:11,color:'#94a3b8',marginBottom:10,lineHeight:1.6}}>退職された場合も名簿からは消さないでください（過去の日誌・送迎表から名前が消えます）。役職を変えたあと、各種設定のスタッフで「いつまで」を入れます。</div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>申請する方のお名前</label>
+            <input data-testid="handover-by" value={hoForm.by} onChange={e=>setHoForm(f=>({...f,by:e.target.value}))} placeholder="例: 新しい管理者ご本人" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box'}}/>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>本部へのメモ（任意）</label>
+            <input value={hoForm.note} onChange={e=>setHoForm(f=>({...f,note:e.target.value}))} placeholder="例: 前任者は11月末で退職" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box'}}/>
+            {hoForm.err && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:10}}>{hoForm.err}</div>}
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button type="button" disabled={hoForm.busy} onClick={()=>setHoOpen(false)} style={{padding:'9px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>やめる</button>
+              <button type="button" data-testid="handover-submit" disabled={hoForm.busy} onClick={submitHandover} style={{padding:'9px 20px',background:'#5e8030',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',opacity:hoForm.busy?0.6:1}}>{hoForm.busy ? '送信中…' : '本部に申請する'}</button>
+            </div>
           </div>
         </div>
       )}
@@ -21039,15 +21120,18 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
   const [loading, setLoading] = useState(true);
   // ★ アドオン (店舗ごとの ON/OFF を本部がここで管理)
   const [storeAddons, setStoreAddons] = useState({}); // {storeId: {kinou_keikaku:true,...}}
+  const [storeHandover, setStoreHandover] = useState({}); // ★ 2026-11-22 trial608 案B: {storeId: adminAuth.handover}(申請中のもの)
+  const [hoBusy, setHoBusy] = useState(null);
   const [addonModal, setAddonModal] = useState(null); // {storeId, storeName}
   const [addonBusy, setAddonBusy] = useState(null);   // 保存中の storeId
   const loadStoreAddons = async (list) => {
     try {
       const entries = await Promise.all((list||[]).map(async s => {
-        try { const row = await supabaseLoadStateForStore(s.id); return [s.id, row?.data?.systemSettings?.addons || {}]; }
-        catch { return [s.id, {}]; }
+        try { const row = await supabaseLoadStateForStore(s.id); return [s.id, row?.data?.systemSettings?.addons || {}, row?.data?.systemSettings?.adminAuth?.handover || null]; }
+        catch { return [s.id, {}, null]; }
       }));
-      setStoreAddons(Object.fromEntries(entries));
+      setStoreAddons(Object.fromEntries(entries.map(e => [e[0], e[1]])));
+      setStoreHandover(Object.fromEntries(entries.filter(e => e[2] && e[2].status === 'pending').map(e => [e[0], e[2]]))); // ★ 2026-11-22 trial608
     } catch (e) { console.warn('[addons] load failed', e); }
   };
   const toggleStoreAddon = async (storeId, key) => {
@@ -21064,6 +21148,49 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
       setStoreAddons(prev => ({ ...prev, [storeId]: (row?.data?.systemSettings?.addons) || { ...(prev[storeId]||{}), [key]: want } }));
     } catch (e) { alert('アドオンの更新に失敗しました: ' + (e?.message||'')); }
     setAddonBusy(null);
+  };
+  // ★ 2026-11-22 trial608 案B: 店舗からの「管理者の交代」の申請を承認/却下する。承認=役職の入れ替え(storeMembers と日誌の担当職員の役職は履歴つき)＋管理者パスワードの消去＋一時譲渡の解除。
+  //   書き込みは管理者PWリセットと同じ道(読む→直す→merge して保存)。storeMembers は id ごとに _savedAt の新しい方が勝つので、変えた人に今の時刻を付ける
+  const decideHandover = async (storeId, storeName, approve) => {
+    const ho0 = storeHandover[storeId]; if (!ho0) return;
+    let reason = '';
+    if (!approve) { reason = window.prompt(`「${storeName}」の申請を承認しない理由（店舗に表示されます）:`, ''); if (reason === null) return; }
+    else if (!window.confirm(`「${storeName}」の管理者を「${ho0.newMemberName}」に交代します。\n前の管理者（${(ho0.oldMemberNames||[]).join('・') || 'なし'}）は「${ho0.oldNewRole}」になります。\n店舗の管理者パスワードは消え、新しい管理者が設定し直します。\nよろしいですか？`)) return;
+    setHoBusy(storeId);
+    try {
+      const row = await supabaseLoadStateForStore(storeId); const data = row?.data || {}; const ss = data.systemSettings || {};
+      const ho = ss.adminAuth && ss.adminAuth.handover; if (!ho || ho.status !== 'pending') { alert('申請が見つかりません（取り下げ済みか、処理済みです）'); setStoreHandover(prev => { const n = { ...prev }; delete n[storeId]; return n; }); setHoBusy(null); return; }
+      const now = Date.now(); const today = tsuTodayIso(); const _y = new Date(); _y.setDate(_y.getDate() - 1); const yIso = `${_y.getFullYear()}-${String(_y.getMonth() + 1).padStart(2, '0')}-${String(_y.getDate()).padStart(2, '0')}`;
+      const nextAuth = { ...(ss.adminAuth || {}) };
+      if (approve) {
+        const _nn = normalizeName(ho.newMemberName || '').trim();
+        let found = false;
+        let members = (data.storeMembers || []).map(m => {
+          if (!m) return m;
+          if (String(m.id) === String(ho.newMemberId) || (_nn && normalizeName(m.name || '').trim() === _nn)) { found = true; return { ...m, roleLabel: '管理者', isAdmin: true, _savedAt: now }; }
+          if (m.isAdmin || m.roleLabel === '管理者') return { ...m, roleLabel: ho.oldNewRole || '介護職員', isAdmin: false, _savedAt: now };
+          return m;
+        });
+        if (!found) members = [...members, { id: now, name: ho.newMemberName, roleLabel: '管理者', isAdmin: true, _savedAt: now }];
+        // 日誌の担当職員の役職も、前の日までの役職を履歴に残して変える(trial519 の _roles)
+        const ds = data.diarySettings || {}; const _oldN = new Set((ho.oldMemberNames || []).map(x => normalizeName(x || '').trim()));
+        const staff = (ds.staff || []).map(st => {
+          if (!st || !st.name) return st; const n = normalizeName(st.name).trim(); let role = null;
+          if (_nn && n === _nn) role = '管理者'; else if (_oldN.has(n) && (st.role === '管理者')) role = ho.oldNewRole || '介護職員';
+          if (!role || role === st.role) return st;
+          return { ...st, role, _roles: [...(Array.isArray(st._roles) ? st._roles : []), { until: yIso, role: st.role || '', role2: st.role2 || '' }] };
+        });
+        delete nextAuth.passwordHash; delete nextAuth.resetCodeHash; delete nextAuth.resetCodeExp;
+        nextAuth.handover = { ...ho, status: 'approved', approvedAt: now }; nextAuth.setAt = now;
+        await supabaseMergeAndSyncStateForStore(storeId, { ...data, storeMembers: members, diarySettings: { ...ds, staff }, systemSettings: { ...ss, adminAuth: nextAuth, adminDelegate: null } });
+        alert(`「${storeName}」の管理者を「${ho.newMemberName}」に交代しました。\n店舗側には「承認しました」と表示され、新しい管理者がご自身を選ぶと管理者パスワードを設定できます。\n変更管理台帳に「いつ・どの店舗・誰から誰へ」を記録してください。`);
+      } else {
+        nextAuth.handover = { ...ho, status: 'rejected', reason: String(reason || '').slice(0, 200), decidedAt: now }; nextAuth.setAt = now;
+        await supabaseMergeAndSyncStateForStore(storeId, { ...data, systemSettings: { ...ss, adminAuth: nextAuth } });
+      }
+      setStoreHandover(prev => { const n = { ...prev }; delete n[storeId]; return n; });
+    } catch (e) { alert('処理に失敗しました: ' + (e?.message || '')); }
+    setHoBusy(null);
   };
   // ★ 本部から店舗の管理者パスワードをリセット (忘れた時の最終手段)。 次に管理者を選んだ時に新規設定になる
   const resetStoreAdminPw = async (storeId, storeName) => {
@@ -21263,6 +21390,23 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         <div ref={_secNotices} style={{scrollMarginTop:56}}>
         <SystemNoticesPanel stores={stores} staffSession={staffSession}/>
         </div>
+        {/* ★ 2026-11-22 trial608 案B: 店舗からの「管理者の交代」の申請 */}
+        {Object.keys(storeHandover).length > 0 && (
+          <div data-testid="hq-handover-panel" style={{background:'#fff8ea',border:'2px solid #f0c66b',borderRadius:14,padding:'12px 16px',marginBottom:14}}>
+            <div style={{fontSize:15,fontWeight:'bold',color:'#7a4b00',marginBottom:8}}>管理者の交代の申請（{Object.keys(storeHandover).length}件）</div>
+            {Object.entries(storeHandover).map(([sid, ho]) => { const st = stores.find(s => String(s.id) === String(sid)); const nm = st ? st.name : sid; return (
+              <div key={sid} style={{display:'flex',flexWrap:'wrap',alignItems:'center',gap:'6px 12px',padding:'8px 10px',background:'white',border:'1px solid #f0c66b',borderRadius:10,marginBottom:6,fontSize:13,color:'#1e293b'}}>
+                <div style={{flex:'1 1 320px',lineHeight:1.7}}>
+                  <b>{nm}</b>　新しい管理者: <b>{ho.newMemberName}</b>　前の管理者: {(ho.oldMemberNames||[]).join('・') || 'なし'} → {ho.oldNewRole}<br/>
+                  <span style={{fontSize:12,color:'#64748b'}}>申請: {ho.by}　{ho.requestedAt ? new Date(ho.requestedAt).toLocaleString('ja-JP') : ''}{ho.note ? `　メモ: ${ho.note}` : ''}</span>
+                </div>
+                <div style={{display:'flex',gap:8}}>
+                  <button data-testid={`hq-handover-ok-${sid}`} disabled={hoBusy===sid} onClick={()=>decideHandover(sid, nm, true)} style={{padding:'8px 16px',background:'#5e8030',color:'white',border:'none',borderRadius:8,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{hoBusy===sid ? '処理中…' : '承認する'}</button>
+                  <button disabled={hoBusy===sid} onClick={()=>decideHandover(sid, nm, false)} style={{padding:'8px 12px',background:'white',color:'#b45309',border:'1px solid #f59e0b',borderRadius:8,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>承認しない</button>
+                </div>
+              </div>); })}
+          </div>
+        )}
         {/* 店舗一覧 */}
         <div ref={_secStores} style={{background:'white',borderRadius:16,padding:24,marginBottom:16,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',scrollMarginTop:56}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,gap:10,flexWrap:'wrap'}}>
@@ -23205,7 +23349,9 @@ export default function App() {
     };
     _pullNowRef.current = checkAndPull; // ★ trial545: 保存の前の「まず取り込む」で使う
     checkAndPull(); // 即時1回
-    const timer = setInterval(checkAndPull, 4000); // ★ 4秒ごと (Realtime未有効時の保険。反映を速く)
+    // ★ 2026-11-22 trial608(計画書 P1-4・ユーザー承認「早めに」): 定期の確認は 4秒→20秒。画面が隠れている間は確認しない(戻った瞬間に onWakePull が取り込む)。
+    //   ふだんの反映は Realtime(即時)で届くので速さは変わらない。Realtime が切れているときだけ最長 20 秒。保存の前の「まず取り込む」(60秒以上空いたら)はそのまま
+    const timer = setInterval(() => { try { if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return; } catch {} checkAndPull(); }, 20000);
     // ★ 生存確認: これが途切れていたら「ブラウザがタブを休止させている/画面が固まっている」と判別できる
     const heartbeat = setInterval(() => {
       syncLog('alive', { vis: document.visibilityState, online: navigator.onLine });
@@ -23234,7 +23380,7 @@ export default function App() {
     if (!isSupabaseEnabled || !staffSession?.storeId) return;
     const send = () => { try { supabaseUploadSyncDiag(staffSession.storeId, _effDevRef.current || '名称未設定の端末', __builtUpdateNotes?.version || '-', tsuUseRead()); } catch {} }; // ★ 2026-10-17: 最新の端末名(自動付与・管理局)で送る
     const t0 = setTimeout(send, 10000);
-    const t = setInterval(send, 60000);
+    const t = setInterval(send, 5 * 60 * 1000); // ★ 2026-11-22 trial608(P1-4): 60秒→5分。変化が無ければ supabaseUploadSyncDiag が15分に1回だけ書く
     return () => { clearTimeout(t0); clearInterval(t); };
   }, [staffSession?.storeId]); // eslint-disable-line
 
@@ -23931,6 +24077,7 @@ export default function App() {
   // ★ 新バージョン検知 → 通知バナー＋安全時の自動リロード。 デプロイ後に各端末を手動リロードしなくても更新される。
   //   仕組み: index.html(no-cache)を定期取得し、参照する /assets/*.js が起動時と変わっていたら「更新あり」。
   const [updateAvailable, setUpdateAvailable] = React.useState(false);
+  const [forceUpdate, setForceUpdate] = React.useState(false); // ★ 2026-11-22 trial608: minVersion より古い → 全画面で更新を促す
   // ★ 更新バナーの表示範囲(2026-09-01 店舗要望・V1/V2運用): update-notes.json の "prompt" で制御。
   //   'all'(既定)=全店に表示 / 'silent'=どこにも表示しない(背景化時の自動更新のみで静かに配信) /
   //   ["storeId",...]=指定店舗のみ表示(扇橋だけのV2先行デプロイで他店にバナーを出さない)
@@ -23958,6 +24105,11 @@ export default function App() {
         const html = await res.text();
         const latest = (html.match(/\/assets\/[^"'()\s]+\.js/g) || []).sort().join('|');
         if (latest && latest !== _selfAssetsRef.current && !stopped) setUpdateAvailable(true);
+      } catch {}
+      // ★ 2026-11-22 trial608: 最低版(minVersion)の確認。古ければ更新の帯に加えて全画面の案内を出す(閉じられない)
+      try {
+        const r2 = await fetch('/update-notes.json?_v=' + Date.now(), { cache: 'no-store' });
+        if (r2.ok) { const j = await r2.json(); const minV = String((j && j.minVersion) || ''); if (minV && tsuVerBelow(__builtUpdateNotes?.version, minV) && !stopped) { setForceUpdate(true); setUpdateAvailable(true); } }
       } catch {}
     };
     const t = setInterval(check, 60 * 1000); // ★ 1分ごと (端末間で更新バナーの出るタイミングを揃える)
@@ -25842,7 +25994,16 @@ export default function App() {
       <SyncDebugPanel />
       {/* ★ 新バージョン通知バナー (安全時は自動更新するが、すぐ更新したい場合の手動ボタンも出す)。
           update-notes.json の "prompt" が silent または他店限定のときは出さない(背景化時の自動更新のみ) */}
-      {updateAvailable && (() => { const sc = updatePromptScope; if (sc === 'silent') return false; if (Array.isArray(sc)) return sc.map(String).includes(String(staffSession?.storeId||'')); return true; })() && ReactDOM.createPortal(
+      {forceUpdate && ReactDOM.createPortal(
+        <div data-testid="force-update-overlay" style={{position:'fixed',inset:0,zIndex:1999999,background:'rgba(15,23,42,0.92)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <div style={{background:'white',borderRadius:18,padding:'26px 22px',maxWidth:460,width:'100%',textAlign:'center',boxShadow:'0 12px 40px rgba(0,0,0,0.35)'}}>
+            <div style={{fontSize:20,fontWeight:'bold',color:'#1e293b',marginBottom:10}}>更新が必要です</div>
+            <div style={{fontSize:14,color:'#475569',lineHeight:1.8,marginBottom:18}}>この端末のつむぎは古い版です。同期や記録の決まりが変わっているため、更新するまで操作できません。<br/>下の「更新する」を押してください（入力中のものは先に保存されます）。</div>
+            <button type="button" data-testid="force-update-go" disabled={appUpdating} onClick={()=>{ try { document.querySelector('[data-testid="update-banner-go"]')?.click(); } catch {} }} style={{padding:'14px 28px',background:'#5e8030',color:'white',border:'none',borderRadius:12,fontSize:16,fontWeight:'bold',cursor:'pointer',minWidth:200}}>{appUpdating ? '更新中…' : '更新する'}</button>
+            <div style={{fontSize:11,color:'#94a3b8',marginTop:12}}>今の版 {String(__builtUpdateNotes?.version || '')}</div>
+          </div>
+        </div>, document.body)}
+      {updateAvailable && (() => { if (forceUpdate) return true; const sc = updatePromptScope; if (sc === 'silent') return false; if (Array.isArray(sc)) return sc.map(String).includes(String(staffSession?.storeId||'')); return true; })() && ReactDOM.createPortal(
         // ★ 2026-10-09(ユーザー指摘: スマホで文が1文字ずつ縦に並ぶ): left:50% で置くと使える幅が画面の半分になり、ボタンの幅に押されて文が細くなっていた。
         //   画面の左右いっぱいの枠の中で中央に置き、狭い画面では文を上・ボタンを下の2段に折り返す
         <div data-testid="update-banner-wrap" style={{position:'fixed',left:0,right:0,bottom:'calc(20px + env(safe-area-inset-bottom, 0px))',zIndex:2000000,display:'flex',justifyContent:'center',padding:'0 12px',pointerEvents:'none'}}>
@@ -25854,7 +26015,7 @@ export default function App() {
           {/* ★ 単なる reload だとブラウザのキャッシュから古いプログラムが読み直されることがあり、
               「押しても更新されない/しばらく経ってから反映」という症状になる。
               キャッシュとService Workerを消してから、URLに印を付けて確実に取り直す。 */}
-          <button disabled={appUpdating} onClick={async ()=>{
+          <button data-testid="update-banner-go" disabled={appUpdating} onClick={async ()=>{
             // ★ 更新中表示(2026-08-28): 保存→キャッシュ削除→再読込に数秒かかるため、押した直後から「更新中…」を出す
             if (appUpdating) return;
             setAppUpdating(true);
