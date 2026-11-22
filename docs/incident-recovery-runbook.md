@@ -207,3 +207,14 @@ where a.key = 'store_XXXX';
 - **復旧**: `create table app_state_rescue_20261102 as select * from app_state;` で退避 → `update app_state a set data = s.data, version = a.version+1 from app_state_snapshots s where s.id = 13196 and a.key = s.key;`(**この件は丸ごと戻すのが正しい**: 全項目が消えていたため)。08:20〜消えるまでの間の送迎表・日誌の変更だけ入れ直し。
 - **恒久対策(安定版 1102c・試験版 trial499)**: ①`src/lib/logic.js` の `pushEmptyGuard`=クラウドに利用者がいるのに端末が 利用者0／読み込み前(_sbStoreId なし)／別店舗／半分未満に急減 なら、どの経路からでも書かない(CAS の mutate で null)。意図した減少(一括削除・重複統合)は `allowEmpty` で通す。止めたら `'blocked'` を返し、再送キューに積まず案内だけ(診断ログ `push-blocked-empty`)。②更新ボタン直前の保存は読み込み済み・利用者ありのときだけ(`update-skip-push`)。③配信は `prompt: silent`(古い端末に更新ボタンを押させない)。
 - **見分け方(次に似た症状が出たら)**: 端末の診断(diag_<店舗>)で `save` の `why.hd=false`(利用者0)や `push-blocked-empty` が出ていないか。控えの比較 SQL(3章)で「変わった項目」を一覧にすると、空の初期値かどうかが一目で分かる。
+
+## 10. 管理者が急に代わった(前の管理者と連絡が取れない)(R-09・2026-11-22)
+
+前の管理者が設定したものは3つ。どれも本部の管理局で新しくできる(前の管理者の協力は不要)。
+
+1. **店舗の管理者パスワード**(systemSettings.adminAuth): 管理局 → 店舗一覧 → 「管理者PWリセット」(SuperAdminConsole resetStoreAdminPw。passwordHash/resetCode を消すだけで他の設定は残る)。店舗で次に「管理者」を選ぶと新規設定になる。再設定用メールも新しい管理者のものに入れ直す。
+2. **管理者の役職**(storeMembers.roleLabel): 1 で入った管理者が 各種設定 → スタッフ → 「管理者を譲渡」。前の管理者は名簿から消さず「いつまで」を入れる(消すと過去の日誌・送迎表から名前が消える。2026-11-04 江古田店の事故)。
+3. **個人のログイン**(public.staff): 管理局 → 店舗一覧 → 「この店舗のログイン情報」→ 無ければ「+ 店舗管理者を追加」(action create)、あれば「パスワード再設定」(action change_password。本部は他人の分も可・trial607。2026-11-22 時点は試験版の管理局だけ、安定版へは承認後)。前の管理者の口座は「停止」(set_active)。パスキー・PIN は口座を止めれば使えない。
+
+控え: 変更管理台帳に「いつ・どの店舗・誰から誰へ」。外部サービスの鍵(FAX・メール)は本部の app_secrets にあり店舗側の作業は無い。
+
