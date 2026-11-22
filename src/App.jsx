@@ -13,13 +13,17 @@ import {
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
-import __builtUpdateNotes from '../public/update-notes.json';
+/* global __TSU_APP_VERSION__ */
+// ★ 2026-11-22 trial610(ユーザー「ログインに数秒・更新が長い」): update-notes.json(約850KB・1000件超)を束に焼き込むのをやめ、版の番号だけ焼く(vite.config.js の define)。
+//   端末の定期確認(1分ごと×3か所)も小さな /version.json(版・最低版・表示範囲・更新内容の印)を読む。更新内容の本体(update-notes.json)は印が変わったときだけ読む
+const __builtUpdateNotes = { version: (typeof __TSU_APP_VERSION__ !== 'undefined' ? String(__TSU_APP_VERSION__ || '') : '') };
+const tsuSwallowEvent = (e) => { try { e.stopPropagation(); if (e.cancelable) e.preventDefault(); } catch {} }; // ★ trial610: 読み込み前の控えは見るだけ(押せない)
 // ★ 2026-11-22 trial608(ユーザー「スマホのアプリのように、更新しないと進めない画面を」): update-notes.json の minVersion(最低版)より古い版は、
 //   画面全体を覆って「更新してください」を出し、更新するまで操作できない(同期や記録の決まりが変わる配信のとき、本部が minVersion を上げる)。
 //   版の比べ方: "upd-2026-1122b" → 日付 20261122 と末尾 b。日付が古ければ古い版。同じ日付なら末尾の文字で比べる(trial は同じ日の安定版より新しい扱い)
 const tsuVerParse = (v) => { const m = String(v || '').match(/(\d{4})-(\d{4})(.*)$/); return m ? { d: m[1] + m[2], s: m[3] || '' } : null; };
 const tsuVerBelow = (cur, min) => { const a = tsuVerParse(cur), b = tsuVerParse(min); if (!a || !b) return false; if (a.d !== b.d) return a.d < b.d; if (/trial/.test(a.s)) return false; return a.s < b.s; };
-import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, PAUSE_HEAL_FROM, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
+import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, PAUSE_HEAL_FROM, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames, bootCacheKeepable } from './lib/logic';
 import { PATIENT_TEXT_FL, mergeEmergencyContacts } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL) ★ 2026-11-16 1116d: 緊急連絡先の付き合わせ
 import {
   isSupabaseEnabled,
@@ -16362,7 +16366,7 @@ function FamilyView() {
     let stopped = false;
     const check = async () => {
       try {
-        const res = await fetch('/update-notes.json?_v=' + Date.now(), { cache: 'no-store' });
+        const res = await fetch('/version.json?_v=' + Date.now(), { cache: 'no-store' }); // ★ trial610: 小さな version.json
         if (!res.ok) return;
         const j = await res.json();
         const remote = String(j.version || ''), local = String((__builtUpdateNotes && __builtUpdateNotes.version) || '');
@@ -22460,8 +22464,9 @@ export default function App() {
     applyingRemoteRef.current = false;
     // ローカル編集の時だけ「最終編集時刻」を更新 (pull は編集ではない)
     if (!isRemote) lastLocalEditRef.current = Date.now();
-    if (isRemote && Date.now() - _persistLastRef.current < 10000) {
+    if (appData._bootCache || (isRemote && Date.now() - _persistLastRef.current < 10000)) {
       // pull由来かつ直近10秒以内に保存済み → 端末保存をスキップ(クラウド同期部分は下で継続)
+      // ★ 2026-11-22 trial610: 起動直後に見せている控え(読み込み前・_bootCache)も書かない(店舗の印の無い控えを端末に残さない)
     } else {
     _persistLastRef.current = Date.now();
     // 容量超過モード中: 軽量版へ直行(10分ごとにフル保存を再挑戦)
@@ -22856,10 +22861,7 @@ export default function App() {
       dataLoadedForStoreRef.current = null;
       // ★ 初回 pull を強制実行する flag
       pendingPullForStoreRef.current = newStoreId;
-      try { localStorage.removeItem('daycareAppData_v3'); } catch {}
-      try { localStorage.removeItem('daycarePhotos_v1'); } catch {}
-      // React state も完全クリア
-      setAppData({
+      const _blank = () => ({
         _sbStoreId: null, // ★ 未ロード目印(この状態では push しない)
         patients: [], ticketRecords: [], familyAnnouncements: [],
         familyPersonalAnnouncements: [], familyPhotos: [],
@@ -22870,6 +22872,21 @@ export default function App() {
         storeMembers: [],
         contactBookConfig: { items: [] },
       });
+      // ★ 2026-11-22 trial610(ユーザー「ログインしてから数秒待つ。送迎の車の中ですぐ見たい」): 同じ店舗の控えが端末にあれば、
+      //   クラウドの取り込み(店舗で約2.5MB)が終わるまで、その控えをそのまま見せる(見るだけ・main の押下は tsuSwallowEvent で止める)。
+      //   _sbStoreId は null(読み込み前)のままなので、保存・送信の関所(pushEmptyGuard の not-loaded・dataLoadedForStoreRef)は今までどおり全部止まる。
+      //   最初の取り込みが終わると今までどおりクラウドの内容に置き換わる(prev._sbStoreId が null なので、墓石の和集合・利用者/シフトの持ち越しも今までの初回と同じで行わない)。
+      //   店舗が変わったとき・控えに店舗の印が無いとき・利用者 0 のときは、今までどおり空にする(lib/logic.js bootCacheKeepable)
+      const _cache = appDataRef.current;
+      if (bootCacheKeepable(_cache, newStoreId, isStoreChanged)) {
+        setAppData(prev => (bootCacheKeepable(prev, newStoreId, false) ? { ...prev, _sbStoreId: null, _bootCache: true } : _blank()));
+        try { syncLog('boot-cache', { pats: (_cache.patients || []).length }); } catch {}
+      } else {
+        try { localStorage.removeItem('daycareAppData_v3'); } catch {}
+        try { localStorage.removeItem('daycarePhotos_v1'); } catch {}
+        // React state も完全クリア
+        setAppData(_blank());
+      }
       lastLocalEditRef.current = 0;
     }
     try { localStorage.setItem(lastStoreKey, newStoreId); } catch {}
@@ -24151,7 +24168,7 @@ export default function App() {
       } catch {}
       // ★ 2026-11-22 trial608: 最低版(minVersion)の確認。古ければ更新の帯に加えて全画面の案内を出す(閉じられない)
       try {
-        const r2 = await fetch('/update-notes.json?_v=' + Date.now(), { cache: 'no-store' });
+        const r2 = await fetch('/version.json?_v=' + Date.now(), { cache: 'no-store' }); // ★ trial610: 850KB の update-notes.json ではなく小さな version.json
         if (r2.ok) { const j = await r2.json(); const minV = String((j && j.minVersion) || ''); if (minV && tsuVerBelow(__builtUpdateNotes?.version, minV) && !stopped) { setForceUpdate(true); setUpdateAvailable(true); } }
       } catch {}
     };
@@ -24305,8 +24322,15 @@ export default function App() {
   //   バンドルに焼き込む DEV_ANNOUNCEMENTS と違い、再読み込みしなくてもホーム/更新バナーに反映される。
   useEffect(() => {
     let stopped = false;
+    let _notesSig = ''; // ★ 2026-11-22 trial610: 最後に読んだ更新内容の印(version.json の notesSig)。同じなら本体(約850KB)は読まない
     const load = async () => {
       try {
+        let sig = '';
+        try {
+          const rv = await fetch('/version.json?_v=' + Date.now(), { cache: 'no-store' });
+          if (rv.ok) { const v = await rv.json(); sig = String((v && v.notesSig) || ''); if (!stopped && v && v.prompt !== undefined) setUpdatePromptScope(v.prompt || 'all'); }
+        } catch {}
+        if (sig && sig === _notesSig && _initialNoteIdsRef.current !== null) return; // 変わっていない → 本体は読まない
         const res = await fetch('/update-notes.json?_v=' + Date.now(), { cache: 'no-store' });
         if (!res.ok) return;
         const j = await res.json();
@@ -24314,6 +24338,7 @@ export default function App() {
         const _valid = notes.filter(n => n && n.id && (n.title || n.body));
         // ★ 起動時点の更新内容idを1回だけ記録(以降に増えた分＝今回の再読み込みで更新される分)
         if (_initialNoteIdsRef.current === null) _initialNoteIdsRef.current = new Set(_valid.map(n => n.id));
+        _notesSig = sig;
         if (!stopped) { setDevUpdateNotes(_valid); setUpdatePromptScope(j.prompt || 'all'); }
       } catch {}
     };
@@ -26466,6 +26491,9 @@ export default function App() {
                  currentView === 'settings' ? '各種設定' : 'システム画面'}
               </h1>
             </div>
+            {(!appData._sbStoreId && appData._bootCache) ? (
+              <div data-testid="boot-cache-banner" className="flex items-center gap-1 shrink-0 mr-2 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-full px-2.5 py-1 whitespace-nowrap"><BusySpin/><span>最新の内容を確かめています…</span></div>
+            ) : null}{/* ★ 2026-11-22 trial610: 起動直後は端末の控えを見せている(見るだけ)。クラウドの取り込みが終わると消える */}
             {/* ★ 控えめバナー: 自動同期が止まっている(最新未反映の可能性)ときだけ表示。 タップで再読み込み。 */}
             {syncStale && (
               <div onClick={()=>window.location.reload()} title="自動同期が止まっています。入力の前に再読み込みしてください。"
@@ -26517,7 +26545,8 @@ export default function App() {
             {_tabBarOn && <button type="button" data-testid="hdr-menu-btn" onClick={() => setIsSidebarOpen(v => !v)} aria-label="メニュー" title="メニュー" className="shrink-0 ml-1 w-11 h-11 -mr-2 flex items-center justify-center text-slate-600 rounded-lg active:bg-slate-100"><Menu size={24} /></button>}{/* ★ trial568(ユーザー「変更ログがあった右上に3本線を置き、下のバーのメニューは無くす」): 押すと右のサイドバー */}
           </header>
 
-          <main className="tsu-app-main flex-1 overflow-auto relative min-w-0 flex flex-col" style={{padding:0}}>
+          <main className="tsu-app-main flex-1 overflow-auto relative min-w-0 flex flex-col" style={{padding:0, ...((!appData._sbStoreId && appData._bootCache) ? { cursor: 'wait' } : {})}}
+            {...((!appData._sbStoreId && appData._bootCache) ? { 'data-boot-cache': '1', onClickCapture: tsuSwallowEvent, onMouseDownCapture: tsuSwallowEvent, onTouchEndCapture: tsuSwallowEvent, onKeyDownCapture: tsuSwallowEvent } : {})}>{/* ★ 2026-11-22 trial610: 読み込み前の控えは見るだけ(押下・入力は止める。スクロールと左の並びは使える) */}
             {/* ★ システムお知らせバナー (本部からのメンテナンス通知等) */}
             {visibleNotices.length > 0 && (
               <div className="flex-shrink-0">
@@ -54616,7 +54645,10 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
                         {kLabel} <span className="font-normal text-slate-400">（{cycle}）{rows.length}件</span>
                       </div>
                       <div className="divide-y divide-slate-100">
-                        {rows.map((d,i) => (
+                        {/* ★ 2026-11-22 trial610(ユーザー「要支援と要介護が合わさっているので、同じ画面でよいので分かりやすく区切って」): 通所介護計画書は 要介護(通所介護計画書)／要支援・事業対象者(個別サービス計画書)／介護度が未登録 の順に区切る */}
+                        {(kind === 'tsusho' ? KP_GROUPS.map(([g, lb]) => [g, lb, rows.filter(d => kpCareGroup(d.patient) === g)]).filter(x => x[2].length) : [[null, null, rows]]).map(([g, lb, grows]) => (<React.Fragment key={g || 'all'}>
+                        {g ? <div data-testid={`yotei-group-${g}`} className={`px-4 py-1 text-[11px] font-bold border-b border-slate-100 ${g === 'shien' ? 'text-teal-800 bg-teal-50' : g === 'kaigo' ? 'text-blue-800 bg-blue-50' : 'text-slate-500 bg-slate-50'}`}>{g === 'kaigo' ? `${lb}（通所介護計画書）` : g === 'shien' ? `${lb}（${tkShienTitle(appData.systemSettings)}）` : lb} <span className="font-normal">{grows.length}名</span></div> : null}
+                        {grows.map((d,i) => (
                           <button key={i} onClick={()=>navigateTo(d.view, d.patient.id, (d.kind==='tsusho'||d.kind==='kinou') ? `start_edit|ret:${family === 'tsusho' ? 'keikaku_yotei' : 'kinou_yotei'}` : null)}
                             className={`w-full text-left px-4 py-3 flex items-center gap-3 flex-wrap hover:bg-blue-50 active:bg-blue-100 ${d.overdue?'bg-red-50':''}`}>
                             <span className="font-bold text-slate-800 text-sm" style={{minWidth:110}}>{d.patient.name}</span>
@@ -54631,6 +54663,7 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
                             </span>
                           </button>
                         ))}
+                        </React.Fragment>))}
                       </div>
                     </div>
                   );

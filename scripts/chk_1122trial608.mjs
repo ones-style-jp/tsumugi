@@ -20,7 +20,7 @@ const b = await chromium.launch();
 // ---- A2: minVersion が新しい → 全画面が出て、ボタンが押せる
 {
   const ctx = await b.newContext({ viewport: { width: 1366, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
-  await ctx.route(/\/update-notes\.json/, async (route) => {
+  await ctx.route(/\/(update-notes|version)\.json/, async (route) => { // ★ trial610: 最低版は version.json から読む(どちらも差し替える)
     const res = await route.fetch(); const j = await res.json(); j.minVersion = 'upd-2099-0101a';
     await route.fulfill({ response: res, body: JSON.stringify(j), headers: { ...res.headers(), 'content-type': 'application/json' } });
   });

@@ -478,3 +478,12 @@ export function tsuMonScrub(text, opt) {
   });
   return kept.join('').replace(/\n{3,}/g, '\n\n').trim();
 }
+
+// ★ 2026-11-22 trial610(ユーザー「ログインしてから数秒待つ・送迎の車の中ですぐ見たい」): 起動直後に、端末の控え(前回の状態)を
+//   クラウドの取り込みが終わるまで「読み込み前のまま」見せてよいか。店舗が変わった・控えに店舗の印が無い/違う・利用者 0 のときは見せない(空にする)。
+//   見せるときも _sbStoreId は null にするので、保存の関所(pushEmptyGuard の not-loaded)は今までどおり止まる。
+export function bootCacheKeepable(prev, storeId, isStoreChanged) {
+  if (isStoreChanged || !prev || !storeId) return false;
+  if (String(prev._sbStoreId || '') !== String(storeId)) return false;
+  return Array.isArray(prev.patients) && prev.patients.length > 0;
+}

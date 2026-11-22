@@ -16,6 +16,7 @@ import {
   holidayAmpmOn,
   fullHolidaySet,
   holidayClosesSlots,
+  bootCacheKeepable, pushEmptyGuard,
 } from './logic.js';
 
 describe('invite token', () => {
@@ -532,5 +533,24 @@ describe('職員名簿・特記の家族表示・お知らせ既読の同期(202
   });
   it('お知らせの既読: 職員ごとに和集合', () => {
     expect(mergeNoticeReads({ s1: ['1', '2'] }, { s1: ['2', '3'], s2: ['9'] })).toEqual({ s1: ['2', '3', '1'], s2: ['9'] });
+  });
+});
+
+describe('起動直後の控えを見せてよいか bootCacheKeepable(2026-11-22 trial610)', () => {
+  const ok = { _sbStoreId: 'store_a', patients: [{ id: 1 }] };
+  it('同じ店舗の印があり利用者がいれば見せる', () => { expect(bootCacheKeepable(ok, 'store_a', false)).toBe(true); });
+  it('店舗が変わったときは見せない(空にする)', () => { expect(bootCacheKeepable(ok, 'store_a', true)).toBe(false); });
+  it('控えの店舗の印が無い・違うときは見せない', () => {
+    expect(bootCacheKeepable({ patients: [{ id: 1 }] }, 'store_a', false)).toBe(false);
+    expect(bootCacheKeepable({ _sbStoreId: 'store_b', patients: [{ id: 1 }] }, 'store_a', false)).toBe(false);
+    expect(bootCacheKeepable({ _sbStoreId: null, patients: [{ id: 1 }] }, 'store_a', false)).toBe(false);
+  });
+  it('利用者 0・控えなし・店舗なしは見せない', () => {
+    expect(bootCacheKeepable({ _sbStoreId: 'store_a', patients: [] }, 'store_a', false)).toBe(false);
+    expect(bootCacheKeepable(null, 'store_a', false)).toBe(false);
+    expect(bootCacheKeepable(ok, '', false)).toBe(false);
+  });
+  it('見せるときも関所は止まる(_sbStoreId null → not-loaded)', () => {
+    expect(pushEmptyGuard('store_a', { ...ok, _sbStoreId: null, _bootCache: true }, { patients: [{ id: 1 }, { id: 2 }] })).toEqual({ reason: 'not-loaded', lp: 1, cp: 2 });
   });
 });
