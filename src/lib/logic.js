@@ -345,16 +345,23 @@ export const healInsuranceNo = (patients) => {
 //   ・その日に休止していない(isPausedOn) ・その日が基本利用日/月間の予定日(isScheduledOn)
 //   ・記録の状態を書いてから graceMs 以上たっている(付けたばかりの休止は、他の端末の休止設定がまだ届いていないだけかもしれないので触らない)
 //   の記録を 出席 に戻す(特記が休止の書き込みなら消す)。戻すのは呼び出し側で obsMarkRecEditRec + _savedAt を付けて保存する
+// ★ 2026-11-22 1122b(ユーザー「休止の終了日が16日なら17日は休止にならないように・他店舗でも遠隔で直るように」):
+//   過ぎた日も PAUSE_HEAL_FROM(2026-11-01) 以降なら対象にする(休止の期間外に残った「休止」は、終了日を入れた瞬間と、どの端末が開いたときにも出席に戻る)。
+//   ただしバイタル等の数値が入っている記録(hasData)は触らない(来ているのに休止になっている=人が見て直す)。
+export const PAUSE_HEAL_FROM = '2026-11-01';
+const _recHasData = (r) => !!r && (['temp', 'bpUpSt', 'bpDnSt', 'plSt', 'bpUpEn', 'bpDnEn', 'plEn'].some(k => r[k] || r[`${k}_AM`] || r[`${k}_PM`]) || !!r.massage
+  || (r.exercises && typeof r.exercises === 'object' && Object.values(r.exercises).some(v => v && (typeof v === 'object' ? (v.value || v.done) : v))));
 export const healStalePauseRecords = (records, patients, todayIso, isPausedOn, isScheduledOn, opts) => {
-  const o = { graceMs: 15 * 60 * 1000, maxDays: 62, now: Date.now(), ...(opts || {}) };
+  const o = { graceMs: 15 * 60 * 1000, maxDays: 62, now: Date.now(), minIso: PAUSE_HEAL_FROM, hasData: _recHasData, ...(opts || {}) };
   const fixed = []; if (!Array.isArray(records) || !Array.isArray(patients) || !/^\d{4}-\d{2}-\d{2}$/.test(String(todayIso || ''))) return { records, fixed };
   const byId = new Map(patients.filter(p => p && p.id != null).map(p => [String(p.id), p]));
   const recIso = (r) => { const m = String(r && r.date || '').match(/(\d+)月(\d+)日/); if (!m || !r.year) return ''; return `${r.year}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`; };
   const lim = (() => { const d = new Date(`${todayIso}T00:00:00`); d.setDate(d.getDate() + o.maxDays); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
   const out = records.map(r => {
     if (!r || r.status !== '休止' || r.id == null) return r;
-    const iso = recIso(r); if (!iso || iso < todayIso || iso > lim) return r;
+    const iso = recIso(r); if (!iso || iso < (o.minIso || todayIso) || iso > lim) return r;
     const p = byId.get(String(r.patientId)); if (!p) return r;
+    if (o.hasData && o.hasData(r)) return r;
     const ts = Number((r._fieldTs && r._fieldTs.status) || r._savedAt || 0); if (ts && o.now - ts < o.graceMs) return r;
     if (isPausedOn(p, iso)) return r;
     if (isScheduledOn && !isScheduledOn(p, iso)) return r;

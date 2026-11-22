@@ -2,7 +2,7 @@
 //   ① 分析(個人) 詳細記録: 血圧の上(140以上)と下(90以上)を別の色で(終了時も)
 //   ③ 運動トレンド まとめ: 点が1つのとき日付が2つ出ない
 //   ④ 利用開始日が空で記録のない方は 提供記録入力・計画書の利用者の選択に出ない(開始日を入れると出る)
-//   ⑤a 休止の期間外に残った「休止」の記録: 過ぎた日は出席に戻さない・今日以降は出席に戻す
+//   ⑤a 休止の期間外に残った「休止」の記録: 2026-11-01 以降は過ぎた日も今日以降も出席に戻す(1122b。1121a の時点では過ぎた日は戻さなかった)
 //   ⑤b 支援経過表: 終了日のない休止でも、状態が利用中なら休止扱いにしない(提供記録の休止の行が出る)
 //   ⑨ 休み連絡の文面: 「〇〇のためお休みされました」
 //   実行: node chk/chk_1121pause.mjs [port]
@@ -16,10 +16,10 @@ if (await page.getByText('担当者を選択', { exact: false }).count()) { awai
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const jp = (isoS) => { const d = new Date(isoS + 'T00:00:00'); return `${d.getMonth() + 1}月${d.getDate()}日`; };
 const today = new Date(); const T = iso(today); const past1 = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 9)); const past2 = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 8));
-const pastPause = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 3)); const absDay = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5)); const tomorrow = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1));
+const pastPause = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 3)); const pastPause2 = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 4)); /* ⑤b 用(数値入り=自動修復が触らない) */ const absDay = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5)); const tomorrow = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1));
 const NEWNAME = '試験 新規太郎';
 // 見本データに仕込む(毎回同じ形から)
-const seed = await page.evaluate(({ T, past1, past2, pastPause, absDay, tomorrow, NEWNAME, jp }) => {
+const seed = await page.evaluate(({ T, past1, past2, pastPause, pastPause2, absDay, tomorrow, NEWNAME, jp }) => {
   const jpf = new Function('isoS', jp);
   const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const p = d.patients.find(x => x.status === '利用中' && !x.endDate);
   p.scheduleAmPm = ['AM', 'AM', 'AM', 'AM', 'AM', 'AM', 'AM']; p.scheduleChangeHistory = []; p.startDate = '2025-01-01'; p.endDate = ''; d.holidays = [];
@@ -34,6 +34,7 @@ const seed = await page.evaluate(({ T, past1, past2, pastPause, absDay, tomorrow
   d.ticketRecords.push(base(past1, { bpUpSt: '150', bpDnSt: '95', plSt: '70', bpUpEn: '120', bpDnEn: '92', plEn: '68', exercises: { [exKeys[0]]: '10' } }));
   d.ticketRecords.push(base(past2, { bpUpSt: '120', bpDnSt: '70', plSt: '66' }));
   d.ticketRecords.push(base(pastPause, { status: '休止', temp: '', tokki: '' }));
+  d.ticketRecords.push(base(pastPause2, { status: '休止', temp: '36.4', tokki: '' })); // 1122b: 数値入りは自動修復が触らない(⑤b の支援経過表の行に使う)
   d.ticketRecords.push(base(tomorrow, { status: '休止', temp: '', tokki: '' }));
   d.ticketRecords.push(base(absDay, { status: '欠席', temp: '', tokki: '通院（整形外科）' }));
   // 利用開始日が空で記録のない新しい利用者
@@ -42,7 +43,7 @@ const seed = await page.evaluate(({ T, past1, past2, pastPause, absDay, tomorrow
   d.patientIdSeq = nid;
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0');
   return { pid: p.id, name: p.name, nid, exKey: exKeys[0] || '' };
-}, { T, past1, past2, pastPause, absDay, tomorrow, NEWNAME, jp: `const d = new Date(isoS + 'T00:00:00'); return (d.getMonth() + 1) + '月' + d.getDate() + '日';` });
+}, { T, past1, past2, pastPause, pastPause2, absDay, tomorrow, NEWNAME, jp: `const d = new Date(isoS + 'T00:00:00'); return (d.getMonth() + 1) + '月' + d.getDate() + '日';` });
 const resume = async (view, pid, extra) => { await page.evaluate(({ view, pid, extra }) => { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view, pid, t: Date.now() })); Object.entries(extra || {}).forEach(([k, v]) => sessionStorage.setItem(k, v)); }, { view, pid, extra }); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {}); };
 // 提供記録入力: 名前の行の状態を読む(行=名前を含むいちばん小さい要素のうち、状態の言葉も含むもの)
 const rowStatus = (name) => page.evaluate((name) => {
@@ -57,7 +58,7 @@ const setDate = async (isoS) => { const inp = page.locator('input[type="date"]:v
 // ⑤a・④ 提供記録入力
 await resume('record', seed.pid);
 await setDate(pastPause);
-let st = await rowStatus(seed.name); ok(st === '休止', `⑤a 過ぎた日(${pastPause})の残った休止は休止のまま(出席に戻さない) → ${st || '行なし'}`);
+let st = await rowStatus(seed.name); ok(st === '出席', `⑤a(1122b で変更) 過ぎた日(${pastPause})の残った休止(数値なし・2026-11-01 以降)も出席に戻す → ${st || '行なし'}`);
 await setDate(tomorrow);
 st = await rowStatus(seed.name); ok(st === '出席', `⑤a 今日以降(${tomorrow})の残った休止は出席に戻す → ${st || '行なし'}`);
 // ⑤b 支援経過表: 終了日のない休止 + 状態は利用中 → 休止扱いにしない(提供記録の休止の行が出る・利用再開の行は出ない)
@@ -66,6 +67,6 @@ await resume('master', seed.pid); await page.waitForTimeout(1500);
 let modal = page.locator('[data-testid="personal-file-modal"]'); if (!(await modal.count())) { await page.locator('button', { hasText: /個人ファイル/ }).first().click().catch(() => {}); await page.waitForTimeout(1500); modal = page.locator('[data-testid="personal-file-modal"]'); }
 const tabs = modal.locator('button:visible', { hasText: '支援経過表' }); if (await tabs.count()) { await tabs.last().click(); await page.waitForTimeout(1500); }
 const txt = (await modal.locator('textarea, input, select').evaluateAll(els => els.map(e => e.value || '').join(' | '))).replace(/\s+/g, ' ');
-ok(txt.includes(pastPause) && /休止/.test(txt), `⑤b 支援経過表に提供記録の休止(${pastPause})の行が出る(終了日なし・利用中の休止履歴は期間扱いにしない)`);
+ok(txt.includes(pastPause2) && /休止/.test(txt), `⑤b 支援経過表に提供記録の休止(${pastPause2}・数値入り)の行が出る(終了日なし・利用中の休止履歴は期間扱いにしない)`);
 ok(!/利用再開/.test(txt), '⑤b 「利用再開」の行は出ない(終了日が無い)');
 await b.close(); console.log(fails ? `FAIL ${fails}` : 'ALL PASS'); process.exit(fails ? 1 : 0);

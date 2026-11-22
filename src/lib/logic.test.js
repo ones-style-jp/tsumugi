@@ -341,7 +341,7 @@ describe('休止中に保存された先の日の記録を出席に戻す(healSt
     const recs = [
       rec('a', 1, '2026-11-08', { tokki: '休止（2026/10/10〜）' }), // 対象: 特記も消す
       rec('b', 1, '2026-11-01', { tokki: '家族の都合' }),           // 対象(今日): 特記は休止の書き込みでないので残す
-      rec('c', 1, '2026-10-25'),                                   // 過去 → 触らない
+      rec('c', 1, '2026-10-25'),                                   // 過去(2026-11-01 より前) → 触らない
       rec('d', 2, '2026-11-08'),                                   // 休止中 → 触らない
       rec('e', 1, '2026-11-09'),                                   // 予定なし → 触らない
       rec('f', 1, '2026-11-15', { _savedAt: now - 60 * 1000 }),    // 付けたばかり → 触らない
@@ -356,6 +356,22 @@ describe('休止中に保存された先の日の記録を出席に戻す(healSt
     expect(healStalePauseRecords(r.records, pats, today, paused, sched, { now }).fixed).toEqual([]);
   });
   it('直す物がなければ同じ配列を返す', () => { const recs = [rec('d', 2, '2026-11-08')]; expect(healStalePauseRecords(recs, pats, today, paused, sched, { now }).records).toBe(recs); });
+  // ★ 2026-11-22 1122b: 過ぎた日(2026-11-01 以降)も対象・数値が入っている記録は触らない
+  it('過ぎた日でも 2026-11-01 以降の休止の期間外の休止は出席に戻す(数値入りは触らない・11/1 より前は触らない)', () => {
+    const today2 = '2026-11-22'; const now2 = Date.parse('2026-11-22T09:00:00+09:00'); const old2 = now2 - 3600 * 1000;
+    const pats2 = [{ id: 1, status: '利用中', pauseHistory: [{ reason: '入院', fromDate: '2026-11-01', toDate: '2026-11-10' }] }];
+    const recs = [
+      rec('p1', 1, '2026-11-11', { _savedAt: old2 }),                       // 終了日の翌日 → 出席
+      rec('p2', 1, '2026-11-17', { _savedAt: old2, temp: '36.5' }),         // 数値入り → 触らない
+      rec('p3', 1, '2026-11-05', { _savedAt: old2 }),                       // 休止中 → 触らない
+      rec('p4', 1, '2026-10-31', { _savedAt: old2 }),                       // 11/1 より前 → 触らない
+      rec('p5', 1, '2026-11-18', { _savedAt: old2, bpUpSt_PM: '120' }),     // 午後の血圧入り → 触らない
+    ];
+    const r = healStalePauseRecords(recs, pats2, today2, paused, () => true, { now: now2 });
+    expect(r.fixed.map(f => f.id)).toEqual(['p1']);
+    const by = Object.fromEntries(r.records.map(x => [x.id, x])); expect(by.p1.status).toBe('出席');
+    ['p2', 'p3', 'p4', 'p5'].forEach(k => expect(by[k]).toBe(recs.find(x => x.id === k)));
+  });
 });
 
 import { backfillFaceSheetLevels } from './logic';

@@ -1,5 +1,5 @@
 // 2026-11-22 1122a の検査(休止の状態が画面ごとに食い違う)(見本データ VITE_E2E_DEMO=1 のビルド・:4175 / 安定版 :4173)
-//   A 過ぎた日に「休止」の記録(休止の期間外): 提供記録入力=休止・数値は入れられない(特記だけ) / 利用者マスタの月間スケジュール=休止
+//   A 過ぎた日に「休止」の記録(休止の期間外): 数値なしは自動修復で出席(1122b)・数値入りは休止のまま(数値は入れられない・特記だけ) / 月間スケジュールも同じ
 //   B 休止の期間の日: はっきり付けた「欠席」の記録はそのまま(休止に上書きしない・保存しても欠席のまま)、記録の無い日は休止
 //   C 休み連絡: 理由欄は大分類だけ(「通院・受診（整形外科）」→「通院・受診」)・文は「整形外科のためお休みされました」(trial607: 試験版だけ)
 //   実行: node chk/chk_1122status.mjs [port] [--no-fax]
@@ -15,13 +15,14 @@ const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 const addD = (n) => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate() + n); };
 const weekdayBack = (n) => { let d = addD(n); while (d.getDay() === 0) d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1); return iso(d); };
 const today = iso(new Date());
-const D1 = weekdayBack(-7);            // 過ぎた日・休止の期間外・「休止」の記録
+const D1 = weekdayBack(-7);            // 過ぎた日・休止の期間外・「休止」の記録(数値入り)
+let D1b = weekdayBack(-8); if (D1b === D1) D1b = weekdayBack(-9); // 過ぎた日・休止の期間外・「休止」の記録(数値なし → 自動修復)
 const pauseFrom = iso(addD(-4));       // 休止(終了日なし)の開始
 const D3 = weekdayBack(-1);            // 休止中・はっきり付けた「欠席」の記録
 let D4 = weekdayBack(-2); if (D4 === D3) D4 = weekdayBack(-3); // 休止中・記録なし
 const absDay = weekdayBack(-10);       // 休み連絡(欠席)
 const jpOf = (isoS) => { const d = new Date(isoS + 'T00:00:00'); return `${d.getMonth() + 1}月${d.getDate()}日`; };
-const seed = await page.evaluate(({ D1, pauseFrom, D3, D4, absDay }) => {
+const seed = await page.evaluate(({ D1, D1b, pauseFrom, D3, D4, absDay }) => {
   const jp = (isoS) => { const d = new Date(isoS + 'T00:00:00'); return `${d.getMonth() + 1}月${d.getDate()}日`; };
   const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const p = d.patients.find(x => x.status === '利用中' && !x.endDate);
   p.scheduleAmPm = ['AM', 'AM', 'AM', 'AM', 'AM', 'AM', 'AM']; p.scheduleChangeHistory = []; p.startDate = '2025-01-01'; p.endDate = ''; d.holidays = [];
@@ -30,12 +31,13 @@ const seed = await page.evaluate(({ D1, pauseFrom, D3, D4, absDay }) => {
   d.monthlyShifts = {};
   const Y = new Date().getFullYear(); const T0 = Date.now() - 3600000;
   const base = (dIso, extra) => ({ id: `t_${dIso}`, patientId: p.id, name: p.name, kana: p.kana || '', date: jp(dIso), year: Y, dayOfWeek: '月', status: '出席', temp: '', bpUpSt: '', bpDnSt: '', plSt: '', bpUpEn: '', bpDnEn: '', plEn: '', massage: '', exercises: {}, tokki: '', _savedAt: T0, ...extra });
-  d.ticketRecords.push(base(D1, { status: '休止', tokki: '' }));
+  d.ticketRecords.push(base(D1, { status: '休止', tokki: '', temp: '36.5' }));   // 数値入り → 自動修復は触らない(休止のまま・入力は特記だけ)
+  d.ticketRecords.push(base(D1b, { status: '休止', tokki: '' }));              // 数値なし → 自動修復で出席に戻る(1122b)
   d.ticketRecords.push(base(D3, { status: '欠席', tokki: '体調不良（発熱）', _fieldTs: { status: T0, tokki: T0 } }));
   d.ticketRecords.push(base(absDay, { status: '欠席', tokki: '通院・受診（整形外科）', _fieldTs: { status: T0, tokki: T0 } }));
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0');
   return { pid: p.id, name: p.name };
-}, { D1, pauseFrom, D3, D4, absDay });
+}, { D1, D1b, pauseFrom, D3, D4, absDay });
 const resume = async (view, pid, extra) => { await page.evaluate(({ view, pid, extra }) => { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view, pid, t: Date.now() })); Object.entries(extra || {}).forEach(([k, v]) => sessionStorage.setItem(k, v)); }, { view, pid, extra }); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {}); };
 const rowStatus = (name) => page.evaluate((name) => {
   const els = [...document.querySelectorAll('body *')].filter(e => e.innerText && e.innerText.includes(name) && /出席|欠席|休止|振替|休業/.test(e.innerText));
@@ -46,10 +48,13 @@ const rowStatus = (name) => page.evaluate((name) => {
 const setDate = async (isoS) => { const inp = page.locator('input[type="date"]:visible').first(); await inp.fill(isoS); await page.waitForTimeout(1500); };
 const recOf = (isoS) => page.evaluate(({ pid, jp }) => (JSON.parse(localStorage.getItem('daycareAppData_v3')).ticketRecords || []).find(r => r.patientId === pid && r.date === jp) || null, { pid: seed.pid, jp: jpOf(isoS) });
 
-// ---- A: 過ぎた日の「休止」の記録 → 提供記録入力は休止・数値は入れられない
-await resume('record', seed.pid);
+// ---- A: 過ぎた日の「休止」の記録 → 数値なしは自動修復で出席(1122b)・数値入りは休止のまま・数値は入れられない
+await resume('record', seed.pid); await page.waitForTimeout(2500);
+const r1b = await recOf(D1b); ok(r1b && r1b.status === '出席', `A 自動修復: ${D1b}(休止の期間外・過ぎた日・数値なし)の「休止」は開いたときに出席へ → ${r1b ? r1b.status : '記録なし'}`);
+await setDate(D1b);
+let st = await rowStatus(seed.name); ok(st === '出席', `A 提供記録入力 ${D1b} は出席 → ${st || '行なし'}`);
 await setDate(D1);
-let st = await rowStatus(seed.name); ok(st === '休止', `A 提供記録入力 ${D1}(休止の期間外・過ぎた日)の記録「休止」はそのまま → ${st || '行なし'}`);
+st = await rowStatus(seed.name); ok(st === '休止', `A 提供記録入力 ${D1}(数値入りの休止)は休止のまま → ${st || '行なし'}`);
 // 行を広げて、入れられる欄が特記だけかを見る
 const row = page.locator('button.tsu-rv-row', { hasText: seed.name.split(/[\s　]+/)[0] }).first();
 if (await row.count()) { await row.click().catch(() => {}); await page.waitForTimeout(600); }
@@ -78,6 +83,7 @@ const cellOf = async (isoS) => {
   return (await page.locator(`[data-testid="ms-cell-${d}-AM"]`).first().textContent().catch(() => '')).trim();
 };
 let c = await cellOf(D1); ok(c === '休止', `A 月間スケジュール ${D1} は「休止」(記録の休止を反映) → ${c || '空'}`);
+c = await cellOf(D1b); ok(c === '出席', `A 月間スケジュール ${D1b} は「出席」(自動修復のあと) → ${c || '空'}`);
 c = await cellOf(D3); ok(c === '欠席', `B 月間スケジュール ${D3} は「欠席」(休止中でも記録の欠席が優先) → ${c || '空'}`);
 c = await cellOf(D4); ok(c === '休止', `B 月間スケジュール ${D4} は「休止」 → ${c || '空'}`);
 // ---- C: 休み連絡(trial607)
