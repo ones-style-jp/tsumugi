@@ -14,7 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
+import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, PAUSE_HEAL_FROM, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
 import { PATIENT_TEXT_FL, mergeEmergencyContacts } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL) ★ 2026-11-16 1116d: 緊急連絡先の付き合わせ
 import {
   isSupabaseEnabled,
@@ -24395,13 +24395,14 @@ export default function App() {
         if (on(mA) || on(mP)) return true; if (!base) return false;
         const baseA = base === 'AM' || base === '1日', baseP = base === 'PM' || base === '1日';
         return (baseA && mA !== '空欄') || (baseP && mP !== '空欄'); } catch { return false; } };
-    const h = healStalePauseRecords(recs, pats, tsuTodayIso(), _isPausedOn, _isScheduledOn);
+    // ★ 2026-11-22 1122b: 過ぎた日(PAUSE_HEAL_FROM 以降)も対象・バイタル等が入っている記録は触らない(logic.js の既定 + 画面と同じ判定)
+    const h = healStalePauseRecords(recs, pats, tsuTodayIso(), _isPausedOn, _isScheduledOn, { hasData: ticketHasClinicalData });
     if (!h.fixed.length) return;
     const ids = new Set(h.fixed.map(f => String(f.id)));
     const nowTs = syncNow();
     const next = h.records.map(r => { if (!r || !ids.has(String(r.id))) return r; obsMarkRecEditRec(r, 'status'); if (h.fixed.find(f => String(f.id) === String(r.id))?.tokkiCleared) obsMarkRecEditRec(r, 'tokki'); return { ...r, _savedAt: nowTs }; });
     try { console.warn('[提供記録の修復] 休止の残骸→出席', h.fixed.map(f => `${f.patientId}:${f.iso}`).join(' / ')); } catch {}
-    handleSaveToCloud({ ...appData, ticketRecords: next }, { manual: true, message: `✓ 休止が終わった方の先の記録を出席に戻しました（${h.fixed.length}件）` });
+    handleSaveToCloud({ ...appData, ticketRecords: next }, { manual: true, message: `✓ 休止の期間外に残っていた「休止」の記録を出席に戻しました（${h.fixed.length}件）` });
   } catch (e) { try { console.warn('[提供記録の修復] 失敗', e); } catch {} } }, [appData && appData.ticketRecords, appData && appData.patients, staffSession]);
   const handleSaveToCloud = (newData, options = {}) => {
     // ★ 古い端末のpushで新しいデータが巻き戻る問題への対策:
@@ -27363,7 +27364,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
          //   休止期間から自動で付ける「休止」は、(1) はっきり決めた 欠席/振替/休業 と、バイタル等が入っている記録には被せない、
          //   (2) 「編集した印」は 出席→休止 に変わるときだけ付ける(前は開くたびに付けていたため、休止の終了日がまだ届いていない
          //   端末がこの日を開いただけで新しい時刻の「休止」を保存し、他の端末で付けた欠席を上書きしていた)。
-         const _pauseKeep = !!pauseInfo && (pData.status === '欠席' || pData.status === '振替' || pData.status === '休業' || ticketHasClinicalData(pData));
+         //   (3) 1122b: 記録の状態が、この端末の知っている最新の休止の変更(statusUpdatedAt)より後に決められていれば被せない
+         //       (休止の終了日がまだ届いていない端末が、他の端末で出席/欠席に直した日をまた休止にする往復を止める)
+         const _recStTs = Number((existingRecord && existingRecord._fieldTs && existingRecord._fieldTs.status) || 0);
+         const _pauseKeep = !!pauseInfo && (pData.status === '欠席' || pData.status === '振替' || pData.status === '休業' || ticketHasClinicalData(pData)
+           || (_recStTs > 0 && _recStTs > Number(p.statusUpdatedAt || 0)));
          if (pauseInfo && !_pauseKeep) {
              if (pData.status !== '休止') obsMarkRecEdit(p.id, selectedDate, 'status');
              pData.status = "休止"; // 一時停止中は休止表記。カウント上は欠席扱い
@@ -27376,7 +27381,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
              //   これが無いと、休止の終了日を過ぎても提供記録入力が休止のままになる。
              // ★ 2026-11-21 1121a(ユーザー報告「欠席にしたのに出席に戻る」): 戻すのは今日以降の日だけ。過ぎた日の「休止」は事実(来ていない)なので勝手に出席にしない。
              //   また、この自動の戻しには「編集した印」を付けない(付けると他の端末が付けた欠席より新しい時刻になり、この端末の保存で上書きしてしまう)
-             if (pData.status === '休止' && String(selectedDate).slice(0, 10) >= tsuTodayIso()) { pData.status = '出席'; }
+             // ★ 2026-11-22 1122b: 戻すのは PAUSE_HEAL_FROM(2026-11-01) 以降の日(過ぎた日も)。保存は自動修復(healStalePauseRecords)が同じ条件で行う。数値入りは触らない
+             if (pData.status === '休止' && String(selectedDate).slice(0, 10) >= PAUSE_HEAL_FROM && !ticketHasClinicalData(pData)) { pData.status = '出席'; }
              if (pData.tokki && /（\d{4}\/\d{1,2}\/\d{1,2}〜）\s*$/.test(pData.tokki)) {
                  // ★ 休止期間が終わった(出席等に戻った)のに、過去に焼き付いた休止ラベルが残っている → 消す。
                  obsMarkRecEdit(p.id, selectedDate, 'tokki');
@@ -45965,15 +45971,15 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                               <span className="font-bold text-slate-700 min-w-[8em] flex-1 break-words">{h.reason}</span>
                               <span className="text-slate-400 shrink-0">{fD(h.fromDate)}〜</span>
                               {h.toDate ? (
-                                <span className="text-slate-500 shrink-0 flex items-center gap-1">{fD(h.toDate)}{!isOff && <button onClick={()=>{const newHist=[...localPatient.pauseHistory]; newHist[origIdx]={...newHist[origIdx], toDate:''}; commitLP({pauseHistory: newHist}, '✓ 終了日をクリアしました（保存済み）');}} className="text-slate-300 hover:text-red-400 text-[10px]" title="終了日をクリア">✕</button>}</span>
+                                <span className="text-slate-500 shrink-0 flex items-center gap-1">{fD(h.toDate)}{!isOff && <button onClick={()=>{const newHist=[...localPatient.pauseHistory]; newHist[origIdx]={...newHist[origIdx], toDate:''}; commitLP({pauseHistory: newHist, statusUpdatedAt: Date.now()}, '✓ 終了日をクリアしました（保存済み）');}} className="text-slate-300 hover:text-red-400 text-[10px]" title="終了日をクリア">✕</button>}</span>
                               ) : (
                                 // ★ OS標準の日付入力は年が6桁入ってしまうため、独自入力(年4桁制限)に置換(2026-08-10)
-                                !isOff ? (<span className="shrink-0"><SmartDateInput value="" width={150} onChange={e=>{if(!e.target.value)return; const newHist=[...localPatient.pauseHistory]; newHist[origIdx]={...newHist[origIdx], toDate:e.target.value}; commitLP({pauseHistory: newHist}, '✓ 終了日を設定しました（保存済み）');}} /></span>) : <span className="text-slate-400 shrink-0">現在</span>
+                                !isOff ? (<span className="shrink-0"><SmartDateInput value="" width={150} onChange={e=>{if(!e.target.value)return; const newHist=[...localPatient.pauseHistory]; newHist[origIdx]={...newHist[origIdx], toDate:e.target.value}; commitLP({pauseHistory: newHist, statusUpdatedAt: Date.now()}, '✓ 終了日を設定しました（保存済み）');}} /></span>) : <span className="text-slate-400 shrink-0">現在</span>
                               )}
                               {showCurrent && <span className="text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">現在</span>}
                               {isLatest && planned && !h.toDate && <span className="text-[9px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">予定</span>}
                               {!isOff && <button onClick={()=>setPauseEditModal({origIdx, reason:h.reason||'', fromDate:h.fromDate||'', toDate:h.toDate||''})} className="text-slate-300 hover:text-blue-500 shrink-0" title="この休止履歴を編集"><Edit3 size={13}/></button>}
-                              {!isOff && <button onClick={()=>{ if(!window.confirm('この休止履歴を削除しますか？')) return; const newHist=(localPatient.pauseHistory||[]).filter((_,i)=>i!==origIdx); const _upd={pauseHistory:newHist}; if(isLatest && isCurrentlyOnPause) _upd.status='利用中'; commitLP(_upd, '✓ 休止履歴を削除しました（保存済み）'); }} className="text-slate-300 hover:text-red-500 shrink-0" title="この休止履歴を削除"><Trash2 size={13}/></button>}
+                              {!isOff && <button onClick={()=>{ if(!window.confirm('この休止履歴を削除しますか？')) return; const newHist=(localPatient.pauseHistory||[]).filter((_,i)=>i!==origIdx); const _upd={pauseHistory:newHist, statusUpdatedAt: Date.now()}; if(isLatest && isCurrentlyOnPause) _upd.status='利用中'; commitLP(_upd, '✓ 休止履歴を削除しました（保存済み）'); }} className="text-slate-300 hover:text-red-500 shrink-0" title="この休止履歴を削除"><Trash2 size={13}/></button>}
                             </div>
                           );
                         })}
@@ -46311,7 +46317,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t flex justify-between items-center gap-2 shrink-0">
-              <button onClick={()=>{ if(!window.confirm('この休止履歴を削除しますか？')) return; const newHist=(localPatient.pauseHistory||[]).filter((_,i)=>i!==pauseEditModal.origIdx); updateLPFields({pauseHistory:newHist}); setPauseEditModal(null); }} className="px-4 py-2 rounded-xl font-bold text-red-600 hover:bg-red-50 flex items-center gap-1 text-sm"><Trash2 size={15}/>削除</button>
+              <button onClick={()=>{ if(!window.confirm('この休止履歴を削除しますか？')) return; const newHist=(localPatient.pauseHistory||[]).filter((_,i)=>i!==pauseEditModal.origIdx); updateLPFields({pauseHistory:newHist, statusUpdatedAt: Date.now()}); setPauseEditModal(null); }} className="px-4 py-2 rounded-xl font-bold text-red-600 hover:bg-red-50 flex items-center gap-1 text-sm"><Trash2 size={15}/>削除</button>
               <div className="flex gap-2">
                 <button onClick={()=>setPauseEditModal(null)} className="whitespace-nowrap px-5 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200">キャンセル</button>
                 <button onClick={()=>{
@@ -46319,7 +46325,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   const newHist=[...(localPatient.pauseHistory||[])];
                   newHist[pauseEditModal.origIdx]={ ...newHist[pauseEditModal.origIdx], reason:pauseEditModal.reason.trim(), fromDate:pauseEditModal.fromDate, ...(pauseEditModal.toDate?{toDate:pauseEditModal.toDate}:{toDate:undefined}) };
                   if(!pauseEditModal.toDate) delete newHist[pauseEditModal.origIdx].toDate;
-                  commitLP({pauseHistory:newHist}, '✓ 休止履歴を更新しました（保存済み）');
+                  commitLP({pauseHistory:newHist, statusUpdatedAt: Date.now()}, '✓ 休止履歴を更新しました（保存済み）');
                   setPauseEditModal(null);
                 }} className="px-8 py-2 bg-orange-600 text-white rounded-xl font-bold shadow-lg active:scale-95">保存</button>
               </div>
