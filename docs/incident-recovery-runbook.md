@@ -210,11 +210,13 @@ where a.key = 'store_XXXX';
 
 ## 10. 管理者が急に代わった(前の管理者と連絡が取れない)(R-09・2026-11-22)
 
-前の管理者が設定したものは3つ。どれも本部の管理局で新しくできる(前の管理者の協力は不要)。
+**ふだんの手順(案B・trial608 → 安定版 1122d)**: 店舗の RecorderPickerGate「管理者が代わるとき」→ `adminAuth.handover={status:'pending',newMemberId,oldMemberIds,oldNewRole,by,note}`(supabaseSetStoreAdminAuth・/api/report kind:'admin_handover' で本部へメール)→ 本部は SuperAdminConsole「管理者の交代の申請」→ `decideHandover(approve)`: storeMembers の新しい人を isAdmin、前の管理者を oldNewRole、diarySettings.staff は `_roles` に {until: 前日} を足して役職を変える、adminAuth の passwordHash/resetCode を消して status='approved'。新しい管理者が自分を選ぶと管理者パスワードは mode 'set'。個人のログインが無ければ下の 3、前の管理者の口座を止めるのは下の 4。
+
+申請の画面が無い古い版・承認を待てないときは、下の手順で本部が手で行う。前の管理者が設定したものは3つ。どれも本部の管理局で新しくできる(前の管理者の協力は不要)。
 
 1. **店舗の管理者パスワード**(systemSettings.adminAuth): 管理局 → 店舗一覧 → 「管理者PWリセット」(SuperAdminConsole resetStoreAdminPw。passwordHash/resetCode を消すだけで他の設定は残る)。店舗で次に「管理者」を選ぶと新規設定になる。再設定用メールも新しい管理者のものに入れ直す。
 2. **管理者の役職**(storeMembers.roleLabel): 1 で入った管理者が 各種設定 → スタッフ → 「管理者を譲渡」。前の管理者は名簿から消さず「いつまで」を入れる(消すと過去の日誌・送迎表から名前が消える。2026-11-04 江古田店の事故)。
-3. **個人のログイン**(public.staff): 管理局 → 店舗一覧 → 「この店舗のログイン情報」→ 無ければ「+ 店舗管理者を追加」(action create)、あれば「パスワード再設定」(action change_password。本部は他人の分も可・trial607。2026-11-22 時点は試験版の管理局だけ、安定版へは承認後)。前の管理者の口座は「停止」(set_active)。パスキー・PIN は口座を止めれば使えない。
+3. **個人のログイン**(public.staff): 管理局 → 店舗一覧 → 「この店舗のログイン情報」→ 無ければ「+ 店舗管理者を追加」(action create)、あれば「パスワード再設定」(action change_password。本部は他人の分も可・trial607→安定版 1122d)。前の管理者の口座は「停止」(set_active)。パスキー・PIN は口座を止めれば使えない。
 
 控え: 変更管理台帳に「いつ・どの店舗・誰から誰へ」。外部サービスの鍵(FAX・メール)は本部の app_secrets にあり店舗側の作業は無い。
 
