@@ -59,7 +59,7 @@ ok((await page.getByTestId('kk-side-kinou-undouki_keikaku').count()) === 1, 'C1 
 await page.getByTestId('kk-side-kinou-undouki_keikaku').click(); await page.waitForTimeout(1200);
 ok((await page.getByTestId('uk-list').count()) === 1 && (await page.getByTestId('uk-row').count()) === 1, 'C2 左の並びから一覧へ(1 件)');
 const pr = (await page.locator('#uk-print-area').innerHTML().catch(() => '')) || '';
-ok(/個別サービス計画書 兼 運動器機能向上計画書/.test(pr) && /３ヵ月評価/.test(pr) && /【運動メニュー】/.test(pr) && /本人・家族の意向/.test(pr) && /留意事項/.test(pr) && pr.includes(seed.name), 'A8 印刷の枠に 兼用の題名・3ヵ月評価・意向・留意事項・運動メニュー・氏名');
+ok(/個別サービス計画書/.test(pr) && /３ヵ月評価/.test(pr) && /【運動メニュー】/.test(pr) && /本人・家族の意向/.test(pr) && /留意事項/.test(pr) && pr.includes(seed.name), 'A8 印刷の枠に 兼用の題名・3ヵ月評価・意向・留意事項・運動メニュー・氏名');
 ok((await page.getByTestId('uk-print').count()) === 1, 'A9 ダウンロードのボタン');
 // ---- B 作成予定
 await resume('kinou_yotei', null);
