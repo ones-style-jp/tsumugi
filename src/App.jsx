@@ -10863,6 +10863,9 @@ const tsuPauseEndAt = (p) => { const endIso = p ? dateIsoAny(p.endDate) : ''; co
   let changed = false; const next = hist.map(h => { if (h && h.fromDate && String(h.fromDate) <= endIso && (!h.toDate || String(h.toDate) > endIso)) { changed = true; return { ...h, toDate: endIso }; } return h; });
   return changed ? { p: { ...p, pauseHistory: next, statusUpdatedAt: Date.now() }, changed: true } : { p, changed: false }; };
 const tsuPauseClose = (hist, toIso) => (Array.isArray(hist) ? hist : []).map(h => (h && !h.toDate && h.fromDate) ? { ...h, toDate: (toIso < String(h.fromDate)) ? String(h.fromDate) : toIso } : h);
+// ★ 2026-11-22 1122a: 「休止」の記録を無視してよいのは、休止の期間に入っていない かつ 今日以降 の日だけ(休止中に先の日を開いて保存された残骸)。
+//   過ぎた日の休止は事実(来ていない)として、月間スケジュール・送迎表・提供記録入力がそろって「休止」と読む。
+const tsuPauseRecStale = (p, iso) => { const d = String(iso || '').slice(0, 10); return !getPauseReasonOnDate(p, d) && d >= tsuTodayIso(); };
 const tsuPauseAppend = (hist, entry) => { const f = String(entry && entry.fromDate || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return [...(Array.isArray(hist) ? hist : []), entry];
   const d = new Date(`${f}T00:00:00`); d.setDate(d.getDate() - 1); const prev = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return [...tsuPauseClose(hist, prev), entry]; };
@@ -27356,14 +27359,19 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
              }
          }
          const pauseInfo = getPauseReasonOnDate(p, selectedDate);
-         if (pauseInfo) {
-             obsMarkRecEdit(p.id, selectedDate, 'status');
+         // ★ 2026-11-22 1122a(ユーザー報告「欠席にしたのに出席に戻る」「月間は出席・提供記録入力は休止」の根っこ):
+         //   休止期間から自動で付ける「休止」は、(1) はっきり決めた 欠席/振替/休業 と、バイタル等が入っている記録には被せない、
+         //   (2) 「編集した印」は 出席→休止 に変わるときだけ付ける(前は開くたびに付けていたため、休止の終了日がまだ届いていない
+         //   端末がこの日を開いただけで新しい時刻の「休止」を保存し、他の端末で付けた欠席を上書きしていた)。
+         const _pauseKeep = !!pauseInfo && (pData.status === '欠席' || pData.status === '振替' || pData.status === '休業' || ticketHasClinicalData(pData));
+         if (pauseInfo && !_pauseKeep) {
+             if (pData.status !== '休止') obsMarkRecEdit(p.id, selectedDate, 'status');
              pData.status = "休止"; // 一時停止中は休止表記。カウント上は欠席扱い
              // ★ 休止の理由・期間ラベルは「表示のみ」。 保存はしない(_pauseAuto)。 これで休止が終わって
              //   出席に戻った時に、過去の休止ラベルが特記に焼き付いて残らない。
              pData.tokki = `${pauseInfo.reason}（${pauseInfo.fromDate.replace(/-/g,'/')}〜）`;
              pData._pauseAuto = true;
-         } else {
+         } else if (!pauseInfo) {
              // ★ 休止期間外なのに記録に「休止」が残っている(休止中に自動保存された残骸) → 出席に戻す(2026-08-11)。
              //   これが無いと、休止の終了日を過ぎても提供記録入力が休止のままになる。
              // ★ 2026-11-21 1121a(ユーザー報告「欠席にしたのに出席に戻る」): 戻すのは今日以降の日だけ。過ぎた日の「休止」は事実(来ていない)なので勝手に出席にしない。
@@ -29149,7 +29157,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             const masterData = (appData.patients||[]).find(pt => pt.id === p.patientId || pt.id === p.id || pt.name === p.name) || {};
             const plannedEx = getPlannedExercisesForDate(masterData, selectedDate) || {};
             const isReadOnly = !isEditMode;
-            const isAbsent = p.status === '欠席' || p.status === '休業';
+            const isAbsent = p.status === '欠席' || p.status === '休業' || p.status === '休止'; // ★ 2026-11-22 1122a: 記録が休止なら欠席と同じく数値は入れない(特記だけ)
             // ★ 休止は「休止期間内の日だけ」入力不可にする(期間前・終了後の日は通常どおり入力可)。
             //   旧実装はマスタの現在ステータスだけを見て全日付をロックしていた。
             //   期間情報が無い休止(pauseHistory空)のみ従来どおり常時ロック。
@@ -29363,7 +29371,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     className="shrink-0 w-[4.5rem] h-11 px-1 text-[14px] font-bold border border-slate-300 rounded-lg bg-white text-slate-700 outline-none"/>}
                   {!isReadOnly && !isAbsent && !isPause && !appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-ctokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-11 h-11" size={20}/>}
                   {!!(p.tokki||'').trim() && _famHideBtn(p, { testid: `rv-ctokki-fam-${p.id}` })}
-                  <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="flex-1 min-w-0 h-11 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
+                  <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':((isPause||p.status==='休止')?'休止中の特記...':(isAbsent?'欠席理由...':'特記...'))} className="flex-1 min-w-0 h-11 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
                 </div>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX} c={TOKKI_NL_C}/></div>}
                 {/* ★ trial538: たたむ / 次の方へ(次の人を広げてそこまで送る) */}
                 {recCardMode !== 'all' && <div className="tsu-rv-foot">
@@ -29421,7 +29429,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               const masterData = (appData.patients||[]).find(pt => pt.id === p.patientId || pt.id === p.id || pt.name === p.name) || {};
               const plannedEx = getPlannedExercisesForDate(masterData, selectedDate) || {};
               const isReadOnly = !isEditMode; 
-              const isAbsent = p.status === '欠席' || p.status === '休業';
+              const isAbsent = p.status === '欠席' || p.status === '休業' || p.status === '休止'; // ★ 2026-11-22 1122a: 記録が休止なら欠席と同じく数値は入れない(特記だけ)
               // ★ 休止は「休止期間内の日だけ」入力不可にする(期間前・終了後の日は通常どおり入力可)。
             //   旧実装はマスタの現在ステータスだけを見て全日付をロックしていた。
             //   期間情報が無い休止(pauseHistory空)のみ従来どおり常時ロック。
@@ -29984,7 +29992,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         const plannedEx = getPlannedExercisesForDate(masterData, selectedDate) || {};
         const exItems = effExerciseItems(appData.systemSettings);
         const isReadOnly = !isEditMode;
-        const isAbsent = p.status === '欠席' || p.status === '休業';
+        const isAbsent = p.status === '欠席' || p.status === '休業' || p.status === '休止'; // ★ 2026-11-22 1122a: 記録が休止なら欠席と同じく数値は入れない(特記だけ)
         const isPause = !!getPauseReasonOnDate(masterData, selectedDate) || (getPatientDisplayStatus(masterData) === '休止' && !(masterData.pauseHistory||[]).length);
         const dis = isAbsent || isReadOnly || isPause;
         const tf = (timeFilter==='AM'||timeFilter==='PM') ? timeFilter : 'AM';
@@ -39557,7 +39565,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _recSlot = (r) => { const fa = r.furikaeAmpm; if (fa) return fa === '1日' ? 'AM' : fa; const tk = String(r.tokki || ''); if (/午後/.test(tk)) return 'PM'; if (/午前/.test(tk)) return 'AM'; return 'AM'; };
   // ★ 2026-10-30(柴又店: 休止の終了日(10/26)を過ぎたのに来週の送迎表で休み扱い): 休止中に先の日を開いて保存された記録(状態=休止)が残っていた。
   //   提供記録入力はその日を開くと出席に戻すが、送迎表は記録をそのまま読んでいた → 「休止」の記録は、その日が休止の期間(履歴)に入っているときだけ休みと数える
-  const _recAbsent = (p, iso) => _recsOn(p.id, iso).some(r => r.status === '欠席' || r.status === '休業' || (r.status === '休止' && _isPausedOn(p, iso)));
+  //   ★ 2026-11-22 1122a: 無視するのは「期間外 かつ 今日以降」だけ。過ぎた日の休止は事実として休み(月間スケジュール・提供記録入力と同じ読み方)
+  const _recAbsent = (p, iso) => _recsOn(p.id, iso).some(r => r.status === '欠席' || r.status === '休業' || (r.status === '休止' && (_isPausedOn(p, iso) || !tsuPauseRecStale(p, iso))));
   // その日のスロットに来る予定の利用者(欠席/休業/休止は除外・振替は含む)
   const _attendees = (iso, sl) => {
     const d = new Date(iso); const dow = d.getDay(); const dayNum = d.getDate();
@@ -44957,6 +44966,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     const ry = r.year || currentMonth.getFullYear();
     if (ry !== currentMonth.getFullYear()) return;
     if (r.status === '欠席' || r.status === '休業') _mSchedRecStatus[parseInt(dm[2])] = r.status;
+    // ★ 2026-11-22 1122a(ユーザー「月間スケジュールは出席なのに提供記録入力は休止」): 記録の「休止」も反映(休止の期間外で今日以降の残骸だけ無視)
+    if (r.status === '休止' && !tsuPauseRecStale(localPatient, `${ry}-${String(dm[1]).padStart(2, '0')}-${String(dm[2]).padStart(2, '0')}`)) { _mSchedRecStatus[parseInt(dm[2])] = '休止'; _mSchedRecReason[parseInt(dm[2])] = `休止${absReasonFromTokki(r.tokki) ? `: ${absReasonFromTokki(r.tokki)}` : ''}`; }
     // ★ 2026-09-21: 振替の提供記録があるのに monthlyShifts に「振(m/d)」が無い(保存失敗の残骸)場合も、記録から振替表示を出す
     if (r.status === '振替') {
       const _sm2 = String(r.tokki||'').match(/(\d+)月(\d+)日(?:AM|PM|1日)?分振替/);
@@ -45993,7 +46004,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 {monthlyHl && (<div className="mb-2 px-3 py-2 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">「その日だけ」の変更（振替・欠席・休止など）は、ここで日付を押して行います。</div>)}
                 <div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label>{(() => { try { const o = JSON.parse(sessionStorage.getItem('tsumugiMasterOrigin') || 'null'); if (o && o.from === 'print' && Date.now() - Number(o.at || 0) < 30 * 60 * 1000 && typeof navigateTo === 'function') return <button type="button" data-testid="master-back-print" onClick={() => { try { sessionStorage.removeItem('tsumugiMasterOrigin'); } catch {} navigateTo('print'); }} className="ml-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white whitespace-nowrap">連絡帳に戻る</button>; } catch {} return null; })()}{/* ★ 2026-10-26(ユーザー要望): 連絡帳の日付から来たときは戻るボタン */}<div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
                 {/* ★ 2026-10-08(店舗報告: スマホで月間スケジュールの日付が見切れる): スマホは1日あたり28pxの幅で横にスクロール(CSS tsu-mstrip) */}
-                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const _hapC = holidayAmpmOn(appData.holidays, ds); const hl = _hapC === '1日'; const hlA = hl || _hapC === 'AM', hlP = hl || _hapC === 'PM'; /* ★ 2026-10-28 半日休業はその時間帯だけ休業 */ const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hlA) : (pi ? (bAM ? sSt("休止", cl, hlA) : sSt("空欄", cl, hlA)) : sSt(curSt(_shAM, bAM), cl, hlA)); const cP = _inactive ? sSt("空欄", cl, hlP) : (pi ? (bPM ? sSt("休止", cl, hlP) : sSt("空欄", cl, hlP)) : sSt(curSt(_shPM, bPM), cl, hlP)); const okA = !cl && !hlA && !pi && !isOff && !_inactive, okP = !cl && !hlP && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!okA} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => okA && shiftTog(d, "AM")} data-testid={`ms-cell-${d}-AM`} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${okA ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!okP} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => okP && shiftTog(d, "PM")} data-testid={`ms-cell-${d}-PM`} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${okP ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
+                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const _hapC = holidayAmpmOn(appData.holidays, ds); const hl = _hapC === '1日'; const hlA = hl || _hapC === 'AM', hlP = hl || _hapC === 'PM'; /* ★ 2026-10-28 半日休業はその時間帯だけ休業 */ const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ /* ★ 2026-11-22 1122a: 記録の 欠席/休業/休止 は月間の印(monthlyShifts)より優先する(日誌・送迎表・提供記録入力は記録を読むため、記録を正にしてそろえる)。基本利用日でない枠は印(臨時・振替)があるときだけ */ const _recS = _mSchedRecStatus[d]; const _svA = sh[`${d}_AM`], _svP = sh[`${d}_PM`]; const _shAM = (_recS && (bAM || (_svA !== undefined && _svA !== '空欄'))) ? _recS : (_svA !== undefined ? _svA : (_mSchedRecFuri[d]?.AM || undefined)); const _shPM = (_recS && (bPM || (_svP !== undefined && _svP !== '空欄'))) ? _recS : (_svP !== undefined ? _svP : (_mSchedRecFuri[d]?.PM || undefined)); const _recAbsS = (_recS === '欠席' || _recS === '休業') ? _recS : null; const cA = _inactive ? sSt("空欄", cl, hlA) : (pi ? (bAM ? sSt(_recAbsS || "休止", cl, hlA) : sSt("空欄", cl, hlA)) : sSt(curSt(_shAM, bAM), cl, hlA)); const cP = _inactive ? sSt("空欄", cl, hlP) : (pi ? (bPM ? sSt(_recAbsS || "休止", cl, hlP) : sSt("空欄", cl, hlP)) : sSt(curSt(_shPM, bPM), cl, hlP)); const okA = !cl && !hlA && !pi && !isOff && !_inactive, okP = !cl && !hlP && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!okA} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => okA && shiftTog(d, "AM")} data-testid={`ms-cell-${d}-AM`} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${okA ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!okP} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => okP && shiftTog(d, "PM")} data-testid={`ms-cell-${d}-PM`} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${okP ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
               {/* お迎え時間: 基本利用曜日に設定がある日のみ表示 */}
               {(() => {
