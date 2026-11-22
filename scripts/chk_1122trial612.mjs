@@ -19,6 +19,7 @@ const seed = await page.evaluate(() => {
   if (!(d.fitnessRecords || []).some(r => r.patientId === p.id)) { d.fitnessRecords = d.fitnessRecords || []; d.fitnessRecords.push({ id: 99901, patientId: p.id, date: '2026-11-01', values: { height: '150.0', weight: '48.5', grip_r: '18.0', grip_l: '17.0', standup: '8', tug: '12.3' } }); }
   p.personalFile = p.personalFile || {}; p.personalFile.faceSheet = { ...(p.personalFile.faceSheet || {}), kiou: '変形性膝関節症', chronicDiseases: '高血圧' };
   d.undoukiRecords = (d.undoukiRecords || []).filter(r => r.patientId !== p.id);
+  d.systemSettings = d.systemSettings || {}; d.systemSettings.undoukiSeparate = true; // ★ trial616: 「別に作る」店舗として検査
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0');
   return { pid: p.id, name: p.name, level: p.careLevel };
 });
@@ -59,7 +60,7 @@ ok((await page.getByTestId('kk-side-kinou-undouki_keikaku').count()) === 1, 'C1 
 await page.getByTestId('kk-side-kinou-undouki_keikaku').click(); await page.waitForTimeout(1200);
 ok((await page.getByTestId('uk-list').count()) === 1 && (await page.getByTestId('uk-row').count()) === 1, 'C2 左の並びから一覧へ(1 件)');
 const pr = (await page.locator('#uk-print-area').innerHTML().catch(() => '')) || '';
-ok(/個別サービス計画書/.test(pr) && /３ヵ月評価/.test(pr) && /【運動メニュー】/.test(pr) && /本人・家族の意向/.test(pr) && /留意事項/.test(pr) && pr.includes(seed.name), 'A8 印刷の枠に 兼用の題名・3ヵ月評価・意向・留意事項・運動メニュー・氏名');
+ok(/運動器機能向上計画書/.test(pr) && /３ヵ月評価/.test(pr) && /【運動メニュー】/.test(pr) && !/本人・家族の意向/.test(pr) && pr.includes(seed.name), 'A8 印刷の枠に 題名・3ヵ月評価・運動メニュー・氏名(意向の欄は個別サービス計画書の側なので出ない・trial616)');
 ok((await page.getByTestId('uk-print').count()) === 1, 'A9 ダウンロードのボタン');
 // ---- B 作成予定
 await resume('kinou_yotei', null);

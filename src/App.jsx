@@ -2876,6 +2876,7 @@ const addTombstone = (appData, key, id) => {
   return t;
 };
 
+const tsuUkSeparate = (ss) => !!(ss && ss.undoukiSeparate); // ★ 2026-11-23 trial616(ユーザー「全店舗が必要なわけじゃない。各種設定の計画書で作るかどうか選べるように。作らないなら個別サービス計画書の中に運動の内容、作るなら個別サービス計画書には書かない(重複)」): 運動器機能向上計画書を別の書類で作る店舗か(各種設定→計画書)
 const computePlanDues = (appData, baseDate, opts) => {
   const today = baseDate ? new Date(baseDate) : new Date();
   today.setHours(0,0,0,0);
@@ -2895,9 +2896,9 @@ const computePlanDues = (appData, baseDate, opts) => {
   };
   (appData?.patients || []).filter(p => p && (p.status === '利用中' || p.status === '休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))).forEach(p => {
     // --- 通所介護計画書 ---
-    // ★ 2026-11-22 trial613: 要支援・事業対象者で「個別サービス計画書 兼 運動器機能向上計画書」を作っている方は、通所介護計画書(個別サービス計画書)の予定を別に出さない
-    const _ukUse = kpCareGroup(p) === 'shien' && (appData?.undoukiRecords||[]).some(r => r && r.patientId === p.id);
-    if (!_ukUse) {
+    // ★ 2026-11-23 trial616: 個別サービス計画書(要支援)の予定は店舗の設定に関係なく出す(trial613 の「兼用を作った方は出さない」はやめた)。運動器機能向上計画書は「別に作る」の店舗だけ
+    const _ukSep = tsuUkSeparate(appData?.systemSettings);
+    {
     // ★ 一時保存(draft)対応(2026-09-08 店舗要望): 期日の計算は完成版(draftでない)だけで行い、
     //   最新が一時保存中なら「作成予定」に残して続きから作成できるようにする。
     const _tkDraft = latestBy((appData?.tsushoKeikakuRecords||[]).filter(r=>r&&r.draft), p.id, 'createdDate');
@@ -2923,12 +2924,12 @@ const computePlanDues = (appData, baseDate, opts) => {
       else push(p, 'kinou', '個別機能訓練計画書', addMonths(kk.d, 3), 'kinou_keikaku', '前回作成から3ヶ月');
     }
     // --- 運動器機能向上計画書(要支援・事業対象者・3ヶ月ごと) ★ 2026-11-22 trial612。「未作成」は店舗がこの計画書を使い始めてから(1件でもあれば)出す
-    if (kpCareGroup(p) === 'shien') {
+    if (kpCareGroup(p) === 'shien' && (_ukSep || (appData?.undoukiRecords||[]).some(r => r && r.patientId === p.id))) { // ★ trial616: 別に作る店舗か、すでにこの方の記録があるときだけ
       const _ukAll = (appData?.undoukiRecords||[]);
       const _ukDraft = latestBy(_ukAll.filter(r=>r&&r.draft), p.id, 'createdDate');
       const uk = latestBy(_ukAll.filter(r=>r&&!r.draft), p.id, 'createdDate');
       if (_ukDraft && (!uk || _ukDraft.d >= uk.d)) push(p, 'undouki', '運動器機能向上計画書', today, 'undouki_keikaku', '一時保存中(続きから作成)');
-      else if (!uk) { if (_ukAll.length > 0 && addons.kinou_keikaku) push(p, 'undouki', '運動器機能向上計画書', today, 'undouki_keikaku', '未作成'); }
+      else if (!uk) { if (_ukSep) push(p, 'undouki', '運動器機能向上計画書', today, 'undouki_keikaku', '未作成'); }
       else push(p, 'undouki', '運動器機能向上計画書', addMonths(uk.d, 3), 'undouki_keikaku', '前回作成から3ヶ月');
     }
     // --- 加算: ADL評価(Barthel)を起点に再評価時期を出す ---
@@ -50047,12 +50048,15 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
 
           {/* 気分の理由 (カスタマイズ) */}
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
-          {activeTab === 'keikaku' && (
+          {activeTab === 'keikaku' && (<>
             <SectionCard title="要支援の計画書の名前">
               {/* ★ 2026-10-27(ユーザー「江東区では個別サービス計画書。地域によって名前が違うかも」): 国の様式は無く、名前・様式は市区町村ごと。店舗ごとに変えられる */}
               <TsuShienTitleSetting ss={ss} saveSS={saveSS}/>
             </SectionCard>
-          )}
+            <SectionCard title="運動器機能向上計画書">{/* ★ trial616 */}
+              <TsuUkSeparateSetting ss={ss} saveSS={saveSS}/>
+            </SectionCard>
+          </>)}
           {/* ★ 2026-11-05 trial521(ユーザー「各種設定にいらない」): 計画書の定型文の欄は外した。定型文は本部が管理局で全店共通に管理する(店舗は見るだけだった) */}
           {activeTab === 'kibun' && (
             <SectionCard title="体調の理由（カスタマイズ）">
@@ -54346,7 +54350,7 @@ function KeikakuSideNav({ reg, appData, navigateTo, dueCounts, onRefam }) {
       <span className="flex-1 min-w-0">{lbl(label)}</span>{badge(n)}
     </button>); };
   const subs = [
-    ...(_shienP ? [['undouki_keikaku', '運動器機能向上計画書']] : [['kinou_keikaku', '個別機能訓練計画書（3-3）']]), // ★ trial612
+    ...(_shienP ? (tsuUkSeparate(appData.systemSettings) ? [['undouki_keikaku', '運動器機能向上計画書']] : []) : [['kinou_keikaku', '個別機能訓練計画書（3-3）']]), // ★ trial612 ★ trial616: 別に作る店舗だけ
     ['seikatsu_kinou', '生活機能チェック（3-2）'], ['kyomi_kanshin', '興味・関心チェック（3-1）'],
     ...(hasLife ? [['life_hub', 'ADL評価・科学的介護']] : []),
   ];
@@ -54464,7 +54468,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
   const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData)))); // ★ trial612: 要支援・事業対象者の方も出す(運動器機能向上計画書を作るため・アドオンに関係なく)
   const [pid, setPid] = React.useState((targetPatientId!=null && patients.some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const patient = patients.find(p => p.id === pid);
-  const _shienP = kpCareGroup(patient) === 'shien';
+  const _shienP = kpCareGroup(patient) === 'shien'; const _ukOn = tsuUkSeparate(appData.systemSettings); // ★ trial616: 運動器機能向上計画書を別に作る店舗か
   const dues = React.useMemo(() => computePlanDues(appData, null, { includeFuture: true }).filter(d => d.patient && d.patient.id === pid && d.kind !== 'tsusho').sort((a,b) => a.due - b.due), [appData, pid]);
   const _hist = (arr, key) => (arr||[]).filter(r => r && r.patientId === pid).map(r => ({ r, d: parseJpDate(r[key]) })).filter(x => x.d).sort((a,b) => b.d - a.d);
   const _ymd = (d) => d ? `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}` : '';
@@ -54474,7 +54478,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
   React.useEffect(() => { if (!dl) return; const t = setTimeout(() => setDl(null), 8000); return () => clearTimeout(t); }, [dl]); // 念のため(書類が見つからない等)
   const docs = [
     ...(_shienP ? [] : [{ view:'kinou_keikaku', title:'個別機能訓練計画書', sub:'様式3-3・3か月ごとに見直し', list:_hist(appData.kinouKeikakuRecords, 'createdDate'), edit:(r) => navigateTo('kinou_keikaku', pid, `edit:${r.id}|ret:kinou_patient`) }]),
-    ...(_shienP ? [{ view:'undouki_keikaku', title:'運動器機能向上計画書', sub:'要支援・事業対象者／3か月ごとに見直し', list:_hist(appData.undoukiRecords, 'createdDate'), edit:(r) => navigateTo('undouki_keikaku', pid, `edit:${r.id}|ret:kinou_patient`) }] : []), // ★ 2026-11-22 trial612
+    ...((_shienP && (_ukOn || (appData.undoukiRecords||[]).some(r => r && r.patientId === pid))) ? [{ view:'undouki_keikaku', title:'運動器機能向上計画書', sub:'要支援・事業対象者／3か月ごとに見直し', list:_hist(appData.undoukiRecords, 'createdDate'), edit:(r) => navigateTo('undouki_keikaku', pid, `edit:${r.id}|ret:kinou_patient`) }] : []), // ★ 2026-11-22 trial612
     { view:'seikatsu_kinou', title:'生活機能チェック', sub:'様式3-2', list:_hist(appData.seikatsuKinouRecords, 'recordDate'), edit:(r) => navigateTo('seikatsu_kinou', pid, `edit:${r.id}|ret:kinou_patient`) },
     { view:'kyomi_kanshin', title:'興味・関心チェック', sub:'様式3-1', list:_hist(appData.kyomiKanshinRecords, 'recordDate'), edit:(r) => navigateTo('kyomi_kanshin', pid, `edit:${r.id}|ret:kinou_patient`) },
     ...(hasLife ? [{ view:'life_hub', title:'ADL評価・科学的介護', sub:'LIFE提出のもとになる評価', list:_hist(appData.adlRecords, 'evalDate'), edit:(r) => navigateTo('life_hub', pid, `batch:${r.evalDate}|ret:kinou_patient`) }] : []),
@@ -54518,12 +54522,12 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
               <div className="text-xs opacity-90 mt-0.5">ADL・科学的介護・生活機能チェック（3-2）・興味関心（3-1）・計画書の見直し（3-3）を、上から順に1つの流れで入力します。3か月ごとの評価はここから。</div>
             </button>
           ) : (
-            <button type="button" data-testid="kk-start" onClick={() => navigateTo(_shienP ? 'undouki_keikaku' : 'kinou_keikaku', pid, 'start_edit|ret:kinou_patient')} className="w-full text-left bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-5 py-4 shadow active:scale-[0.99]">
+            <button type="button" data-testid="kk-start" onClick={() => navigateTo(_shienP ? (_ukOn ? 'undouki_keikaku' : 'tsusho_keikaku') : 'kinou_keikaku', pid, 'start_edit|ret:kinou_patient')} className="w-full text-left bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-5 py-4 shadow active:scale-[0.99]">
               <div className="text-lg font-bold">計画書を作る</div>
-              <div className="text-xs opacity-90 mt-0.5">{_shienP ? '運動器機能向上計画書を新しく作ります（前回があれば写して更新）。' : '個別機能訓練計画書（様式3-3）を新しく作ります。'}</div>
+              <div className="text-xs opacity-90 mt-0.5">{_shienP ? (_ukOn ? '運動器機能向上計画書を新しく作ります（前回があれば写して更新）。' : '個別サービス計画書（運動の内容を含む）を新しく作ります。') : '個別機能訓練計画書（様式3-3）を新しく作ります。'}</div>
             </button>
           )}
-          {hasLife && _shienP && (
+          {hasLife && _shienP && _ukOn && (
             <button type="button" data-testid="uk-start" onClick={() => navigateTo('undouki_keikaku', pid, 'start_edit|ret:kinou_patient')} className="w-full text-left bg-teal-600 hover:bg-teal-700 text-white rounded-2xl px-5 py-4 shadow active:scale-[0.99]">
               <div className="text-lg font-bold">運動器機能向上計画書を作る</div>
               <div className="text-xs opacity-90 mt-0.5">要支援・事業対象者の計画書（体力測定・既往歴は自動）。前回があれば写して更新します。</div>
@@ -54826,8 +54830,8 @@ function LifeDiseaseSearch({ onPick }) {
 const UK_MENU_DEFAULT = ['心肺機能・下肢筋力全体（エアロバイク）','大腿部～臀筋強化（レッグプレス）','腕・胸筋・肩甲骨周りの筋強化（チェストプレス）','大腿中外部・排尿筋強化（ヒップアブダクション）','大腿前後部筋肉の筋強化（レッグエクステンション）','肩可動域訓練（滑車）','片足立ちバランス運動（平行棒）','ステッパー','室内歩行（平行棒）','屋外歩行','足温浴（血行促進）','可動域訓練・抵抗運動（片麻痺）','段差昇降訓練','ストレッチ','マッサージ'];
 const UK_CIRCLED = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫','⑬','⑭','⑮','⑯','⑰','⑱','⑲','⑳'];
 // ★ 2026-11-22 trial613(ユーザー「1枚にまとめて、必要なところだけ入力できるように」): 題名は店舗ごとに選べる。既定は 個別サービス計画書 兼 運動器機能向上計画書(総合事業の個別サービス計画と運動器の計画を 1 枚で)
-const UK_TITLE_DEFAULT = '個別サービス計画書'; // ★ trial615(11/22 ユーザー「個別サービス計画書でいいんじゃないかな」): 既定は短い題名・中身は運動器機能向上の計画を含む
-const UK_TITLES = [UK_TITLE_DEFAULT, '個別サービス計画書 兼 運動器機能向上計画書', '運動器機能向上計画書'];
+const UK_TITLE_DEFAULT = '運動器機能向上計画書'; // ★ trial616: この画面は「別に作る」店舗の運動器機能向上計画書。個別サービス計画書は通所介護計画書の画面(様式3-4)
+const UK_TITLES = [UK_TITLE_DEFAULT, '個別サービス計画書 兼 運動器機能向上計画書', '個別サービス計画書'];
 const ukLevelOf = (p) => { const cl = String(p?.careLevel || ''); if (/要支援\s*2|要支援２/.test(cl)) return '要支援2'; if (/要支援\s*1|要支援１/.test(cl)) return '要支援1'; if (/事業対象/.test(cl)) return '事業対象者'; return ''; };
 // 体力測定の項目を名前で見つける(店舗ごとに項目名が違うため)。戻り値は { height, weight, gripR, gripL, standup, standupLabel, oneLegR, oneLegL, walk5m, date }
 const ukFitAuto = (appData, pid) => {
@@ -54964,9 +54968,9 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
 </table>
 <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:-1px">
 <tr><td style="${th}width:17%">既往歴<br>リスク</td><td style="${pre}height:10mm">${esc(rec.history)}</td></tr>
-<tr><td style="${th}">本人・家族の意向<br><span style="font-size:7px;font-weight:normal">介護予防プランの概要</span></td><td style="${pre}height:8mm">${esc(rec.ikou || '')}</td></tr>
+${/個別サービス計画書/.test(String(rec.title || UK_TITLE_DEFAULT)) ? `<tr><td style="${th}">本人・家族の意向<br><span style="font-size:7px;font-weight:normal">介護予防プランの概要</span></td><td style="${pre}height:8mm">${esc(rec.ikou || '')}</td></tr>` : ''}
 <tr><td style="${th}">長期目標</td><td style="${pre}height:10mm">${esc(rec.longGoal)}</td></tr>
-<tr><td style="${th}">留意事項</td><td style="${pre}height:8mm">${esc(rec.ryui || '')}</td></tr>
+${/個別サービス計画書/.test(String(rec.title || UK_TITLE_DEFAULT)) ? `<tr><td style="${th}">留意事項</td><td style="${pre}height:8mm">${esc(rec.ryui || '')}</td></tr>` : ''}
 </table>
 <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:-1px">
 <tr><td rowspan="7" style="${th}width:8%;font-size:13px;letter-spacing:4px;writing-mode:vertical-rl">３ヵ月評価</td><td style="${th}width:9%">実施月</td>${months.map(m => `<td style="${th}">${esc(m.month)}</td>`).join('')}</tr>
@@ -55010,6 +55014,7 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
         {printRec && <button data-testid="uk-print" onClick={()=>onShowPrintPreview((printRec && printRec.title) || UK_TITLE_DEFAULT,'A4','uk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
       </div>
       <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
+        {!tsuUkSeparate(appData.systemSettings) && !editing && <div data-testid="uk-off-note" className="mb-3 px-4 py-3 rounded-xl border border-orange-200 bg-orange-50 text-sm text-slate-700">この店舗は「運動器機能向上計画書を別に作る」が<b>作らない</b>です。要支援・事業対象者の方の運動の内容は個別サービス計画書（通所介護計画書の画面）に書きます。別の書類が必要な店舗は 各種設定 → 計画書 で「作る」にしてください。</div>}{/* ★ trial616 */}
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">要支援・事業対象者の方がいません</div> : editing ? (
           <div className="max-w-4xl mx-auto space-y-4" data-testid="uk-form">
             <div className="tsu-hint-row"><TsuHint>書くのは「目標・3ヵ月の計画・運動器の状況・同意」だけです。体力測定・既往歴・利用回数・要支援度・職員名・運動メニューは利用者マスタ・体力測定・職員名簿から自動で入っています（下の「自動で入った内容を見る・直す」で直せます）。印刷は店舗の紙の様式と同じ A4 1 枚です。</TsuHint></div>
@@ -55089,8 +55094,10 @@ function UndoukiKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintP
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
               <KKField label="既往歴・リスク（フェイスシートから自動）" value={editing.history || ''} onChange={v => upd({ history: v })} rows={2} max={120}/>
+              {/個別サービス計画書/.test(editing.title || UK_TITLE_DEFAULT) && <>{/* ★ trial616: 個別サービス計画の欄は題名に「個別サービス計画書」を含むときだけ(別の書類の店舗では個別サービス計画書の側に書く) */}
               <KKField label="本人・家族の意向／介護予防プランの概要" value={editing.ikou || ''} onChange={v => upd({ ikou: v })} rows={2} max={100} presets={_kkP.ukIkou}/>
               <KKField label="留意事項（チェックで複数選択）" value={editing.ryui || ''} onChange={v => upd({ ryui: v })} rows={2} max={100} presets={_kkP.ryui} presetMode="check"/>
+              </>}
               <KKField label="運動器の状況の詳細" value={editing.detail || ''} onChange={v => upd({ detail: v })} rows={1} max={60}/>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -56158,6 +56165,18 @@ function TsuShienTitleSetting({ ss, saveSS }) {
     </div>
   );
 }
+// ★ 2026-11-23 trial616: 運動器機能向上計画書を別の書類で作るか(店舗ごと)。既定は「作らない」= 個別サービス計画書(様式3-4)の中に運動の内容を書く
+function TsuUkSeparateSetting({ ss, saveSS }) {
+  const on = tsuUkSeparate(ss);
+  return (
+    <div className="space-y-2" data-testid="tk-uk-separate-setting">
+      <div className="tsu-hint-row"><TsuHint>市区町村から「運動器機能向上計画書」を別の書類で求められている店舗だけ「作る」にします。<b>作らない（既定）</b>: 要支援・事業対象者の方は個別サービス計画書の中に運動の内容を書きます（国の通知では、計画書に運動の計画を書けば運動器機能向上計画に代えられます）。<b>作る</b>: 運動器機能向上計画書を別に作り、個別サービス計画書には運動の欄を出しません（同じことを二度書かないため）。</TsuHint></div>
+      <div className="flex gap-2 flex-wrap">{[[false, '作らない（個別サービス計画書に運動の内容を書く）'], [true, '作る（別の書類にする）']].map(([v, l]) => (
+        <button key={String(v)} type="button" data-testid={`tk-uk-separate-${v ? 'on' : 'off'}`} onClick={() => saveSS({ undoukiSeparate: v }, v ? '✓ 運動器機能向上計画書を別に作ります' : '✓ 運動の内容は個別サービス計画書に書きます')}
+          className={`px-3 py-2 rounded-lg border text-sm font-bold ${on === v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{l}</button>))}</div>
+    </div>
+  );
+}
 function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
@@ -56665,7 +56684,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                 ))}
               </div>
             </div>
-            {_shien && (
+            {_shien && tsuUkSeparate(appData.systemSettings) && <div data-testid="tk-ex-sep" className="tsu-hint-row"><TsuHint>この店舗は「運動器機能向上計画書を別に作る」が<b>作る</b>です。運動の内容は運動器機能向上計画書に書くので、この計画書には運動の欄を出しません（各種設定 → 計画書で切り替え）。</TsuHint></div>}{/* ★ trial616 */}
+            {_shien && !tsuUkSeparate(appData.systemSettings) && (
               <div className="bg-white rounded-xl border-2 border-teal-200 p-4" data-testid="tk-ex-card">
                 <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
                   <div className="text-sm font-bold text-teal-700">Ⅳ　個別の運動（機能訓練）の実施内容</div>
@@ -56778,7 +56798,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
         const rec = _migrate(rec0);
         // ★ 要支援・事業対象者は総合事業の個別サービス計画書として表題・種別を自動切替(2026-08-19)
         // ★ 2026-10-27: 計画書ごとの種類で切り替える(要支援=総合事業の計画書・江東区の様式の欄＋個別の運動)
-        const _yoshien = tkPlanTypeOf(rec0, patient) === 'shien';
+        const _yoshien = tkPlanTypeOf(rec0, patient) === 'shien'; const _ukSepP = _yoshien && tsuUkSeparate(appData.systemSettings); // ★ trial616: 別に作る店舗は運動の表を出さない(残りの欄が広がる)
         const _nSvc = _yoshien ? 4 : 5;
         const esc=(s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         const B='1px solid #000';
@@ -56939,7 +56959,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
             +`<div style="flex:34 1 0;min-height:0;">${goalTbl}</div>`
             +`<div style="flex:74 1 0;min-height:0;margin-top:1.2mm;">${svcTbl}</div>`
             +`<div style="flex:0 0 auto;font-size:9.5px;font-weight:bold;margin:1.6mm 0 0.6mm;border-bottom:1px solid #000;">Ⅳ　個別の運動（機能訓練）</div>`
-            +`<div style="flex:70 1 0;min-height:0;">${exTbl}</div>` /* ★ 2026-10-28: 8行の運動が入るように(サービス提供内容 104→74・運動 40→70) */
+            +(_ukSepP ? '' : `<div style="flex:70 1 0;min-height:0;">${exTbl}</div>`) /* ★ 2026-10-28: 8行の運動が入るように(サービス提供内容 104→74・運動 40→70) */
             +`<div style="flex:52 1 0;min-height:0;margin-top:1.2mm;">${bottomS}</div>`
             +footer
             +`</div>`;
