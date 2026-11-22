@@ -197,6 +197,9 @@ try:
     try:
         st2, body2 = fetch(f'{PROD}/version.json?_t=1'); vj = json.loads(body2)
         check('T-OPS-04', '本番 version.json(版が update-notes と一致)', st2 == 200 and vj.get('version') == pj.get('version') and 'minVersion' in vj and bool(vj.get('notesSig')), f"version.json={vj.get('version')} min={vj.get('minVersion')!r} sig={vj.get('notesSig')}")
+    except urllib.error.HTTPError as e2:
+        # 安定版に trial610(version.json)が入るまでは 404 が正常(端末は 404 なら従来どおり update-notes.json を読む)
+        check('T-OPS-04', '本番 version.json(未配信は404で可)', e2.code == 404, f'status={e2.code}')
     except Exception as e2:
         check('T-OPS-04', '本番 version.json', False, str(e2))
     deployed = None

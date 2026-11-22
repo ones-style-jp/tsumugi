@@ -22459,12 +22459,16 @@ export default function App() {
   //   長時間開きっぱなしの端末でメモリクラッシュを誘発する。 ローカル編集は従来どおり即保存し、
   //   pull由来の保存だけ10秒に1回へ間引く(クラウドが正のため端末控えの鮮度低下は無害)。
   const _persistLastRef = React.useRef(0);
+  const _persistSbRef = React.useRef(null); // ★ 2026-11-22 trial611: 最後に端末へ書いた店舗の印。読み込み直後(印が付いた瞬間)は間引かずに必ず一度書く
   useEffect(()=>{
     const isRemote = applyingRemoteRef.current;
     applyingRemoteRef.current = false;
     // ローカル編集の時だけ「最終編集時刻」を更新 (pull は編集ではない)
     if (!isRemote) lastLocalEditRef.current = Date.now();
-    if (appData._bootCache || (isRemote && Date.now() - _persistLastRef.current < 10000)) {
+    // ★ 2026-11-22 trial611(テスト店舗の実機確認): 読み込み直後の控えは 10 秒の間引きに当たって書かれず、見るだけの端末は次回の起動で控えが無かった → 印が付いた瞬間は必ず書く
+    const _justLoaded = !!appData._sbStoreId && _persistSbRef.current !== appData._sbStoreId;
+    if (_justLoaded) _persistSbRef.current = appData._sbStoreId;
+    if (!_justLoaded && (appData._bootCache || (isRemote && Date.now() - _persistLastRef.current < 10000))) {
       // pull由来かつ直近10秒以内に保存済み → 端末保存をスキップ(クラウド同期部分は下で継続)
       // ★ 2026-11-22 trial610: 起動直後に見せている控え(読み込み前・_bootCache)も書かない(店舗の印の無い控えを端末に残さない)
     } else {
