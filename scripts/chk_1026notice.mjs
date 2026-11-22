@@ -13,22 +13,23 @@ async function start(view, prep, route) {
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {});
   return { page, ids }; }
 // ① ② お知らせの左右送り(update-notes.json を差し替えて 3件・1件は items つき)
+// ★ 2026-11-22: trial600 から更新内容は日付ごとに 1 件にまとまる(行の id は upd-day-<日付>・題名は「○月○日の更新」)
 { const notes = { version: 'upd-test', updatedAt: '2026-10-26', prompt: 'all', notes: [
     { id: 'n3', type: 'update', title: '三つ目（最新）', date: '2026-10-26', body: '要点だけ', items: [ { kind: 'bug', where: '日誌', cause: '過去の日誌にも自動反映が働いた', change: '10/26以降の日誌だけにした' }, { kind: 'feat', where: '送迎表', change: '運行表を出した後の変更に赤枠' } ] },
     { id: 'n2', type: 'update', title: '二つ目', date: '2026-10-25', body: '本文2' },
     { id: 'n1', type: 'info', title: '一つ目（古い）', date: '2026-10-24', body: '本文1' } ] };
   const { page } = await start('dashboard', "", async (page) => { await page.route('**/update-notes.json*', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(notes) })); });
   await page.waitForTimeout(800); await page.locator('button', { hasText: /つむぎ運営からのお知らせ/ }).first().click().catch(() => {}); await page.waitForTimeout(400);
-  const row = page.getByTestId('home-dev-row-n3'); if (!(await row.count())) { await page.locator('button', { hasText: /つむぎ運営からのお知らせ/ }).first().click().catch(() => {}); await page.waitForTimeout(400); }
-  await page.getByTestId('home-dev-row-n3').click(); await page.waitForTimeout(400);
-  const det = page.getByTestId('notice-detail'); r.navShown = (await page.getByTestId('notice-nav').count()) === 1 && /三つ目/.test(await det.innerText());
+  const row = page.getByTestId('home-dev-row-upd-day-2026-10-26'); if (!(await row.count())) { await page.locator('button', { hasText: /つむぎ運営からのお知らせ/ }).first().click().catch(() => {}); await page.waitForTimeout(400); }
+  await page.getByTestId('home-dev-row-upd-day-2026-10-26').click(); await page.waitForTimeout(400);
+  const det = page.getByTestId('notice-detail'); r.navShown = (await page.getByTestId('notice-nav').count()) === 1 && /10月26日/.test(await det.innerText());
   r.itemsShown = (await page.getByTestId('notice-items').count()) === 1 && /変更点 2件/.test(await det.innerText()) && /原因/.test(await det.innerText()) && /不具合の修正 1件/.test(await det.innerText()) && /新機能 1件/.test(await det.innerText());
-  await page.getByTestId('notice-next').click(); await page.waitForTimeout(300); r.nextWorks = /二つ目/.test(await det.innerText()) && /2 \/ /.test(await det.innerText());
-  await page.keyboard.press('ArrowRight'); await page.waitForTimeout(300); r.keyWorks = /一つ目/.test(await det.innerText());
-  await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(300); r.prevWorks = /二つ目/.test(await det.innerText());
+  await page.getByTestId('notice-next').click(); await page.waitForTimeout(300); r.nextWorks = /10月25日/.test(await det.innerText()) && /2 \/ /.test(await det.innerText());
+  await page.keyboard.press('ArrowRight'); await page.waitForTimeout(300); r.keyWorks = /10月24日/.test(await det.innerText());
+  await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(300); r.prevWorks = /10月25日/.test(await det.innerText());
   r.lastDisabled = await page.getByTestId('notice-prev').isEnabled() && !(await page.getByTestId('notice-next').isEnabled()) === false; // 中央なので両方押せる
   /* trial424: 開いている間は背面ロック・上寄せ(スマホで上が見切れない) */
-  r.backLock = await page.evaluate(() => document.documentElement.classList.contains('tsu-back-lock')); r.inBody = await page.evaluate(() => { const o = document.querySelector('[data-testid="notice-overlay"]'); return !!o && o.parentElement === document.body; }); /* trial425: スクロール枠の外(body 直下) */ r.topAligned = (await page.getByTestId('notice-overlay').evaluate(e => getComputedStyle(e).alignItems)) === 'flex-start';
+  r.backLock = await page.evaluate(() => document.documentElement.classList.contains('tsu-back-lock')); r.inBody = await page.evaluate(() => { const o = document.querySelector('[data-testid="notice-overlay"]'); return !!o && o.parentElement === document.body; }); /* trial425: スクロール枠の外(body 直下) */ r.topAligned = await (async () => { const bb = await page.getByTestId('notice-detail').boundingBox(); return !!bb && bb.y >= 0 && bb.y < 200; })(); /* 11/22: 見たいのは「題名が上に見える」こと(配置の値ではなく位置で見る) */
   await page.keyboard.press('Escape'); await page.getByTestId('notice-overlay').click({ position: { x: 3, y: 3 } }).catch(() => {}); await page.waitForTimeout(300); r.unlocked = !(await page.evaluate(() => document.documentElement.classList.contains('tsu-back-lock')));
   if (!r.navShown || !r.itemsShown) console.log('DET', (await det.innerText()).slice(0, 300));
   await page.context().close(); }
@@ -40,8 +41,8 @@ async function start(view, prep, route) {
   if (await page.getByText('担当者を選択', { exact: false }).count()) { await page.locator('button', { hasText: /見本|例示|架空/ }).first().click().catch(() => {}); await page.waitForTimeout(700); }
   await page.evaluate(() => { localStorage.setItem('tsumugiSidebarOpen', '0'); sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'dashboard', pid: null, t: Date.now() })); });
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {});
-  if (!(await page.getByTestId('home-dev-row-nl').count())) { await page.locator('button', { hasText: /つむぎ運営からのお知らせ/ }).first().click().catch(() => {}); await page.waitForTimeout(400); }
-  await page.getByTestId('home-dev-row-nl').click(); await page.waitForTimeout(500);
+  if (!(await page.getByTestId('home-dev-row-upd-day-2026-10-26').count())) { await page.locator('button', { hasText: /つむぎ運営からのお知らせ/ }).first().click().catch(() => {}); await page.waitForTimeout(400); }
+  await page.getByTestId('home-dev-row-upd-day-2026-10-26').click(); await page.waitForTimeout(500);
   const det = page.getByTestId('notice-detail'); const bb = await det.boundingBox(); r.phoneTopVisible = !!bb && bb.y >= 0 && bb.y + bb.height <= 844 + 1; if (!r.phoneTopVisible) console.log('BB', JSON.stringify(bb));
   await ctx.close(); }
 // ④ カレンダー: 予定の削除の確認は1回
