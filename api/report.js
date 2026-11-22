@@ -23,6 +23,8 @@ export default async function handler(req, res) {
   body = body || {};
   const description = String(body.description || '').slice(0, 4000);
   const ctx = body.context || {};
+  // ★ 2026-11-22 1122c(不具合修正): trial502(11/2)のメール共通化で宛先の変数(toEmail)が消え、不具合レポートが 500 で送れなくなっていた。宛先は環境変数 → 管理局の設定 → 既定
+  const toEmail = (await getSecret('REPORT_TO_EMAIL', 'REPORT_TO_EMAIL')) || 'support@ones-style.co.jp';
 
   { const cfg = await mailConfig(); if (!cfg.gmail && !cfg.brevo) return res.status(500).json({ error: 'サーバー設定エラー: メール送信の設定がありません' }); } // ★ 2026-11-02
 

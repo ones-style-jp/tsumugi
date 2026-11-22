@@ -2151,22 +2151,10 @@ export async function supabaseStaffLogin({ username, password, code, noMail }) {
     if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp); // ★ 2026-10-17: Supabase の証(発行されたときだけ)
     return { ...(j.staff || {}), _token: j.token || '' };
   } catch (e) {
-    if (!_isNoServer(e)) throw e;
+    // ★ 2026-11-22 P0-2(データ保護の仕上げ): ブラウザから staff 表を直接読む予備経路は削除。サーバーに届かなければ通信エラーにする
+    if (_isNoServer(e)) throw new Error('サーバーに接続できません。しばらくしてからやり直してください');
+    throw e;
   }
-  // フォールバック(サーバー無し・開発用)
-  const { data, error } = await supabase
-    .from('staff')
-    .select('*, stores(id, name, short_name)')
-    .eq('username', username.trim())
-    .eq('password_hash', password_hash)
-    .eq('is_active', true)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) throw new Error('IDまたはパスワードが違います');
-  await supabase.from('staff').update({ last_login: new Date().toISOString() }).eq('id', data.id);
-  const { password_hash: _ph, ...rest } = data;
-  return rest;
 }
 
 // ★ 2026-10-23 本部のパスキー(Touch ID・Face ID)。登録は管理局から、ログインはログイン画面の「パスキーで入る」
@@ -2220,10 +2208,7 @@ export async function supabaseStaffChangePassword(staffId, newPassword) {
   if (!supabase) throw new Error('Supabase 未接続');
   const password_hash = await hashPassword(newPassword);
   try { await staffApi({ action: 'change_password', token: _staffToken(), staff_id: staffId, password_hash }); return true; }
-  catch (e) { if (!_isNoServer(e)) throw e; }
-  const { error } = await supabase.from('staff').update({ password_hash }).eq('id', staffId);
-  if (error) throw error;
-  return true;
+  catch (e) { if (_isNoServer(e)) throw new Error('サーバーに接続できません。しばらくしてからやり直してください'); throw e; } // ★ 2026-11-22 P0-2: staff 表への直接 update は削除
 }
 
 // =========================================================
@@ -2386,7 +2371,7 @@ export async function supabaseDeleteStore(storeId) {
   await supabase.from('family_accounts').delete().eq('store_id', storeId);
   // 関連スタッフ削除(サーバー経由・本部のみ)
   try { await staffApi({ action: 'delete_store_staff', token: _staffToken(), store_id: storeId }); }
-  catch (e) { if (!_isNoServer(e)) throw e; await supabase.from('staff').delete().eq('store_id', storeId); }
+  catch (e) { if (_isNoServer(e)) throw new Error('サーバーに接続できません。しばらくしてからやり直してください'); throw e; } // ★ 2026-11-22 P0-2: staff 表への直接 delete は削除
   // app_state 削除
   await supabase.from('app_state').delete().eq('key', storeId);
   // 店舗削除
@@ -2399,29 +2384,13 @@ export async function supabaseCreateStaff({ store_id, username, password, role, 
   if (!supabase) throw new Error('Supabase 未接続');
   const password_hash = await hashPassword(password);
   try { const j = await staffApi({ action: 'create', token: _staffToken(), store_id, username, password_hash, role, last_name, first_name, email, phone }); return j.staff; }
-  catch (e) { if (!_isNoServer(e)) throw e; }
-  // 重複チェック
-  const { data: exists } = await supabase.from('staff').select('id').eq('username', username).maybeSingle();
-  if (exists) throw new Error('このログインIDは既に使用されています');
-  const { data, error } = await supabase
-    .from('staff')
-    .insert({ store_id, username, password_hash, role, last_name, first_name, email, phone })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  catch (e) { if (_isNoServer(e)) throw new Error('サーバーに接続できません。しばらくしてからやり直してください'); throw e; } // ★ 2026-11-22 P0-2: staff 表への直接 insert は削除
 }
 
 export async function supabaseListStaff(storeId = null) {
   if (!supabase) return [];
   try { const j = await staffApi({ action: 'list', token: _staffToken(), store_id: storeId || '' }); return j.staff || []; }
-  catch (e) { if (!_isNoServer(e)) { console.warn('[staff-auth] list failed', e && e.message); return []; } }
-  try {
-    let q = supabase.from('staff').select('id,store_id,username,role,last_name,first_name,display_name,email,phone,is_active,last_login,created_at').is('deleted_at', null).order('created_at');
-    if (storeId) q = q.eq('store_id', storeId);
-    const { data } = await q;
-    return data || [];
-  } catch { return []; }
+  catch (e) { console.warn('[staff-auth] list failed', e && e.message); return []; } // ★ 2026-11-22 P0-2: staff 表への直接 select は削除
 }
 
 // =========================================================
