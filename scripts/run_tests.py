@@ -193,6 +193,15 @@ try:
     st, body = fetch(f'{PROD}/update-notes.json?_t=1')
     pj = json.loads(body)
     check('T-OPS-04', '本番 update-notes.json 応答', st == 200 and bool(pj.get('version')), f"version={pj.get('version')}")
+    # ★ 2026-11-22 trial610: 端末の定期確認は小さな /version.json を読む → 本体と版が一致していること
+    try:
+        st2, body2 = fetch(f'{PROD}/version.json?_t=1'); vj = json.loads(body2)
+        check('T-OPS-04', '本番 version.json(版が update-notes と一致)', st2 == 200 and vj.get('version') == pj.get('version') and 'minVersion' in vj and bool(vj.get('notesSig')), f"version.json={vj.get('version')} min={vj.get('minVersion')!r} sig={vj.get('notesSig')}")
+    except urllib.error.HTTPError as e2:
+        # 安定版に trial610(version.json)が入るまでは 404 が正常(端末は 404 なら従来どおり update-notes.json を読む)
+        check('T-OPS-04', '本番 version.json(未配信は404で可)', e2.code == 404, f'status={e2.code}')
+    except Exception as e2:
+        check('T-OPS-04', '本番 version.json', False, str(e2))
     deployed = None
     for i, a in enumerate(sys.argv):
         if a == '--deployed' and i+1 < len(sys.argv): deployed = sys.argv[i+1]
@@ -221,6 +230,11 @@ try:
     st, body = fetch(f'{TRIAL}/update-notes.json?_t=1')
     tj = json.loads(body)
     check('T-OPS-06', '試験版 update-notes.json 応答', st == 200 and bool(tj.get('version')), f"version={tj.get('version')}")
+    try:
+        st2, body2 = fetch(f'{TRIAL}/version.json?_t=1'); vj = json.loads(body2)
+        check('T-OPS-06', '試験版 version.json(版が update-notes と一致)', st2 == 200 and vj.get('version') == tj.get('version') and 'minVersion' in vj, f"version.json={vj.get('version')} min={vj.get('minVersion')!r}")
+    except Exception as e2:
+        check('T-OPS-06', '試験版 version.json', False, str(e2))
 except Exception as e:
     check('T-OPS-06', '試験版 update-notes.json 応答', False, str(e))
 try:

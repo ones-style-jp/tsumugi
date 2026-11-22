@@ -13,14 +13,14 @@ await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' }); awai
 if (await page.getByText('担当者を選択', { exact: false }).count()) { await page.locator('button', { hasText: /見本|例示|架空/ }).first().click().catch(() => {}); await page.waitForTimeout(800); }
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const addD = (n) => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate() + n); };
-const weekdayBack = (n) => { let d = addD(n); while (d.getDay() === 0) d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1); return iso(d); };
+const weekdayBack = (n) => { let d = addD(n); while (d.getDay() === 0 || d.getDay() === 6) d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1); return iso(d); }; // ★ 11/22: 見本は土曜も休み(土日を避ける)
 const today = iso(new Date());
 const D1 = weekdayBack(-7);            // 過ぎた日・休止の期間外・「休止」の記録(数値入り)
-let D1b = weekdayBack(-8); if (D1b === D1) D1b = weekdayBack(-9); // 過ぎた日・休止の期間外・「休止」の記録(数値なし → 自動修復)
+let D1b = weekdayBack(-8); for (let k = 9; D1b === D1 && k < 15; k++) D1b = weekdayBack(-k); // 過ぎた日・休止の期間外・「休止」の記録(数値なし → 自動修復)
 const pauseFrom = iso(addD(-4));       // 休止(終了日なし)の開始
 const D3 = weekdayBack(-1);            // 休止中・はっきり付けた「欠席」の記録
-let D4 = weekdayBack(-2); if (D4 === D3) D4 = weekdayBack(-3); // 休止中・記録なし
-const absDay = weekdayBack(-10);       // 休み連絡(欠席)
+let D4 = weekdayBack(-2); for (let k = 3; D4 === D3 && k < 6; k++) D4 = weekdayBack(-k); // 休止中・記録なし
+let absDay = weekdayBack(-10); for (let k = 11; (absDay === D1 || absDay === D1b) && k < 20; k++) absDay = weekdayBack(-k); // 休み連絡(欠席)・自動修復の日と重ねない
 const jpOf = (isoS) => { const d = new Date(isoS + 'T00:00:00'); return `${d.getMonth() + 1}月${d.getDate()}日`; };
 const seed = await page.evaluate(({ D1, D1b, pauseFrom, D3, D4, absDay }) => {
   const jp = (isoS) => { const d = new Date(isoS + 'T00:00:00'); return `${d.getMonth() + 1}月${d.getDate()}日`; };
@@ -38,7 +38,7 @@ const seed = await page.evaluate(({ D1, D1b, pauseFrom, D3, D4, absDay }) => {
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0');
   return { pid: p.id, name: p.name };
 }, { D1, D1b, pauseFrom, D3, D4, absDay });
-const resume = async (view, pid, extra) => { await page.evaluate(({ view, pid, extra }) => { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view, pid, t: Date.now() })); Object.entries(extra || {}).forEach(([k, v]) => sessionStorage.setItem(k, v)); }, { view, pid, extra }); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {}); };
+const resume = async (view, pid, extra) => { await page.evaluate(({ view, pid, extra }) => { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view, pid, ampm: 'AM', t: Date.now() }) /* ★ 11/22: 午後に走らせても午前の一覧を見る(時刻で午後に切り替わるため) */); Object.entries(extra || {}).forEach(([k, v]) => sessionStorage.setItem(k, v)); }, { view, pid, extra }); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {}); };
 const rowStatus = (name) => page.evaluate((name) => {
   const els = [...document.querySelectorAll('body *')].filter(e => e.innerText && e.innerText.includes(name) && /出席|欠席|休止|振替|休業/.test(e.innerText));
   if (!els.length) return '';

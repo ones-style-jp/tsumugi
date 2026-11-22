@@ -10,3 +10,6 @@ restore/
 
 playwright-report/
 test-results/
+
+# ★ 2026-11-22 trial610: vite.config.js が組み立てのたびに作る(版・最低版・更新内容の印)
+public/version.json

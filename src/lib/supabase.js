@@ -185,13 +185,16 @@ export const deviceIdentityReady = (async () => {
 })();
 const DIAG_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 // (name, ver) で呼ぶ。鍵は端末ID。古い版が書いた「端末名|版」の鍵は同じ端末名なら消す(同じ端末が2行に見えないように)
+let _diagLastSig = '', _diagLastAt = 0; // ★ 2026-11-22 trial608(P1-4): 前回送った内容。変化が無ければ 15 分に 1 回だけ書く(生存の更新)
 export async function supabaseUploadSyncDiag(storeId, name, ver, use) { // ★ 2026-10-23: use=画面を開いた回数(月ごと・任意)
   if (!supabase || !storeId) return false;
   try {
-    const logs = getSyncLog().slice(-60); // ★ 2026-10-17: 記録が無くても送る(端末の生存確認と証の有無を管理局で見るため)
+    const logs = getSyncLog().slice(-20); // ★ 2026-10-17: 記録が無くても送る(端末の生存確認と証の有無を管理局で見るため) ★ 2026-11-22 P1-4: 60件→20件
     const nm = String(name || '名称未設定の端末').slice(0, 60), vr = String(ver || '-').slice(0, 40);
     const sb = !!(_sbJwt && _sbJwtExp > Date.now()); // ★ 2026-10-17 データ保護(段階2): この端末が Supabase の証を持っているか
     const id = getDeviceId();
+    const _sig = JSON.stringify([nm, vr, sb, logs.length ? logs[logs.length - 1] : null, logs.length, use || null]);
+    if (_sig === _diagLastSig && Date.now() - _diagLastAt < 15 * 60 * 1000) return true; // 変化なし → 書かない(15分に1回は生存のため書く)
     const r = await supabaseCasUpdate(`diag_${storeId}`, (cur) => {
       const d = (cur && typeof cur === 'object') ? { ...cur } : {};
       const now = Date.now();
@@ -205,6 +208,7 @@ export async function supabaseUploadSyncDiag(storeId, name, ver, use) { // ★ 2
       d[id] = { at: now, logs, sb, name: nm, ver: vr, ...((use && typeof use === 'object' && Object.keys(use).length) ? { use } : {}) };
       return d;
     }, { maxRetries: 1 });
+    if (r && r.ok) { _diagLastSig = _sig; _diagLastAt = Date.now(); }
     return !!(r && r.ok);
   } catch { return false; }
 }

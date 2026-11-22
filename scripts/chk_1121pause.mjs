@@ -44,7 +44,7 @@ const seed = await page.evaluate(({ T, past1, past2, pastPause, pastPause2, absD
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0');
   return { pid: p.id, name: p.name, nid, exKey: exKeys[0] || '' };
 }, { T, past1, past2, pastPause, pastPause2, absDay, tomorrow, NEWNAME, jp: `const d = new Date(isoS + 'T00:00:00'); return (d.getMonth() + 1) + '月' + d.getDate() + '日';` });
-const resume = async (view, pid, extra) => { await page.evaluate(({ view, pid, extra }) => { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view, pid, t: Date.now() })); Object.entries(extra || {}).forEach(([k, v]) => sessionStorage.setItem(k, v)); }, { view, pid, extra }); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {}); };
+const resume = async (view, pid, extra) => { await page.evaluate(({ view, pid, extra }) => { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view, pid, ampm: 'AM', t: Date.now() }) /* ★ 11/22: 午後に走らせても午前の一覧を見る(時刻で午後に切り替わるため) */); Object.entries(extra || {}).forEach(([k, v]) => sessionStorage.setItem(k, v)); }, { view, pid, extra }); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {}); };
 // 提供記録入力: 名前の行の状態を読む(行=名前を含むいちばん小さい要素のうち、状態の言葉も含むもの)
 const rowStatus = (name) => page.evaluate((name) => {
   const els = [...document.querySelectorAll('body *')].filter(e => e.innerText && e.innerText.includes(name) && /出席|欠席|休止|振替|休業/.test(e.innerText)); // 行は button.tsu-rv-row

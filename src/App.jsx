@@ -13,8 +13,17 @@ import {
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
-import __builtUpdateNotes from '../public/update-notes.json';
-import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, PAUSE_HEAL_FROM, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames } from './lib/logic';
+/* global __TSU_APP_VERSION__ */
+// ★ 2026-11-22 trial610(ユーザー「ログインに数秒・更新が長い」): update-notes.json(約850KB・1000件超)を束に焼き込むのをやめ、版の番号だけ焼く(vite.config.js の define)。
+//   端末の定期確認(1分ごと×3か所)も小さな /version.json(版・最低版・表示範囲・更新内容の印)を読む。更新内容の本体(update-notes.json)は印が変わったときだけ読む
+const __builtUpdateNotes = { version: (typeof __TSU_APP_VERSION__ !== 'undefined' ? String(__TSU_APP_VERSION__ || '') : '') };
+const tsuSwallowEvent = (e) => { try { e.stopPropagation(); if (e.cancelable) e.preventDefault(); } catch {} }; // ★ trial610: 読み込み前の控えは見るだけ(押せない)
+// ★ 2026-11-22 trial608(ユーザー「スマホのアプリのように、更新しないと進めない画面を」): update-notes.json の minVersion(最低版)より古い版は、
+//   画面全体を覆って「更新してください」を出し、更新するまで操作できない(同期や記録の決まりが変わる配信のとき、本部が minVersion を上げる)。
+//   版の比べ方: "upd-2026-1122b" → 日付 20261122 と末尾 b。日付が古ければ古い版。同じ日付なら末尾の文字で比べる(trial は同じ日の安定版より新しい扱い)
+const tsuVerParse = (v) => { const m = String(v || '').match(/(\d{4})-(\d{4})(.*)$/); return m ? { d: m[1] + m[2], s: m[3] || '' } : null; };
+const tsuVerBelow = (cur, min) => { const a = tsuVerParse(cur), b = tsuVerParse(min); if (!a || !b) return false; if (a.d !== b.d) return a.d < b.d; if (/trial/.test(a.s)) return false; return a.s < b.s; };
+import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, PAUSE_HEAL_FROM, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames, bootCacheKeepable } from './lib/logic';
 import { PATIENT_TEXT_FL, mergeEmergencyContacts } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL) ★ 2026-11-16 1116d: 緊急連絡先の付き合わせ
 import {
   isSupabaseEnabled,
@@ -2385,6 +2394,9 @@ function setGlobalPolicyCache(p) { _globalPolicyCache = (p && typeof p === 'obje
 function getGlobalPolicyCache() { return _globalPolicyCache; }
 // 有効ポリシー: ①全店共通(管理局) → ②事業所の上書き(systemSettings.policies[kind]) → ③既定
 //   notify = { announce:改定時にお知らせ公開 / login:ログイン時に再同意を求める } (未設定は両方ON=従来動作)。
+// ★ 2026-11-22 trial609(ユーザー決定「1か月の猶予のあとは自動で PIN だけに」): 一人ずつのログイン(PIN)の期限。全店共通(管理局)→店舗の上書き(security.pinDeadline)の順。空なら期限なし
+const tsuPinDeadline = (sec) => { const g = getGlobalPolicyCache(); const d = String((sec && sec.pinDeadline) || (g && g.pinDeadline) || ''); return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : ''; };
+const tsuPinForced = (sec) => { const d = tsuPinDeadline(sec); return !!d && tsuTodayIso() >= d; };
 function getEffectivePolicy(kind, systemSettings) {
   const _defNotify = { announce: true, login: true };
   const gv = _globalPolicyCache && _globalPolicyCache[kind];
@@ -2881,7 +2893,7 @@ const computePlanDues = (appData, baseDate, opts) => {
     if (!_includeFuture && daysLeft > PLAN_DUE_LEAD_DAYS) return; // まだ先 → 出さない(月別ブラウズ時は返す)
     out.push({ patient, kind, label, due, view, note, daysLeft, overdue: daysLeft < 0, ym: ymKey(due) });
   };
-  (appData?.patients || []).filter(p => p && (p.status === '利用中' || p.status === '休止') && isPatientListable(p)).forEach(p => {
+  (appData?.patients || []).filter(p => p && (p.status === '利用中' || p.status === '休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))).forEach(p => {
     // --- 通所介護計画書 ---
     // ★ 一時保存(draft)対応(2026-09-08 店舗要望): 期日の計算は完成版(draftでない)だけで行い、
     //   最新が一時保存中なら「作成予定」に残して続きから作成できるようにする。
@@ -11064,6 +11076,12 @@ const isPatientResigned = (p) => {
 // ★ 2026-09-28(ユーザー指摘): 退所済み(利用終了日を過ぎた／status が退所・終了)は、利用者マスタの「退所済み」タブ以外の
 //   一覧(モニタリング・LIFE・記録系・ご家族プレビュー等)に出さない。休止は各画面の判定に任せる。
 const isPatientListable = (p) => !!p && !isPatientResigned(p) && !/退所|終了/.test(String(p.status || ''));
+// ★ 2026-11-21 trial606(ユーザー要望「利用者マスタで利用開始日が未設定の新規利用者は、提供記録や書類に出さない」):
+//   利用開始日が空で、提供記録が1件も無い方=「まだ利用が始まっていない方」。開始日を入れるか最初の記録ができるまで、提供記録入力と書類の利用者の選択に出さない。
+//   (古いデータで開始日が空でも、記録のある方はこれまでどおり出す。利用者マスタ・送迎表・月間表はこれまでどおり)
+const _tsuUsedPidsCache = new WeakMap();
+const tsuUsedPids = (appData) => { const arr = appData && appData.ticketRecords; if (!Array.isArray(arr)) return new Set(); let s = _tsuUsedPidsCache.get(arr); if (!s) { s = new Set(arr.map(r => r && String(r.patientId))); _tsuUsedPidsCache.set(arr, s); } return s; };
+const tsuNotStarted = (p, appData) => !!p && !String(p.startDate || '').trim() && !tsuUsedPids(appData).has(String(p && p.id));
 // ★ 2026-10-28(ユーザー「月の途中で退所してもモニタリングは送る」): その月(y年m月)のモニタリングの対象か。
 //   退所していない方は従来どおり(isPatientListable)。利用終了日がその月の初日以降の方は、退所済み(状態が退所・終了)でもその月は対象に残す
 //   (終了日の当日も利用中=isPatientActiveOnDate と同じ)。利用開始日がその月より後の方は対象外
@@ -16348,7 +16366,7 @@ function FamilyView() {
     let stopped = false;
     const check = async () => {
       try {
-        const res = await fetch('/update-notes.json?_v=' + Date.now(), { cache: 'no-store' });
+        const res = await fetch('/version.json?_v=' + Date.now(), { cache: 'no-store' }); // ★ trial610: 小さな version.json
         if (!res.ok) return;
         const j = await res.json();
         const remote = String(j.version || ''), local = String((__builtUpdateNotes && __builtUpdateNotes.version) || '');
@@ -20003,7 +20021,7 @@ function TsuPinPrompt({ member, onVerify, onCancel }) {
     </div>
   );
 }
-function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, loading, roleChoices, pinMembers, onVerifyPin, pinRequired, onPinLogin }) {
+function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, pinDeadline, loading, roleChoices, pinMembers, onVerifyPin, pinRequired, onPinLogin }) {
   // ★ 2026-10-19(ユーザー要望「ステップを減らす」): PIN を持つ職員がいる店舗では、名前をタップせずに PIN を入れるだけで本人として入れる
   const [quickPin, setQuickPin] = React.useState(''); const [quickErr, setQuickErr] = React.useState(''); const [quickBusy, setQuickBusy] = React.useState(false);
   const quickPress = async (d) => {
@@ -20011,6 +20029,28 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
     if (n.length === 4 && onPinLogin) { setQuickBusy(true); try { const m = await onPinLogin(n); if (m) { setQuickPin(''); setQuickBusy(false); afterPin(m); return; } setQuickErr('PIN が違います'); } catch (e) { setQuickErr(e?.message || 'PIN が違います'); } setQuickPin(''); setQuickBusy(false); }
   };
   const [pendingAdmin, setPendingAdmin] = React.useState(null); // 管理者選択 → 認証待ち
+  // ★ 2026-11-22 trial608 案B(ユーザー決定「管理者が急に代わったとき、店舗だけで進められて本部は承認1回」):
+  //   店舗はここから「管理者の交代」を申請(新しい管理者・前の管理者の新しい役職・申請者)。申請は adminAuth.handover に控え、本部へメール。
+  //   本部が管理局で承認すると 役職の入れ替え＋管理者パスワードの消去が全端末に届き、新しい管理者は自分を選んで(自分の PIN)そのまま使える。
+  const [hoOpen, setHoOpen] = React.useState(false);
+  const [hoForm, setHoForm] = React.useState({ newId: '', oldRole: '介護職員', by: '', note: '', busy: false, err: '' });
+  const _ho = adminAuth && adminAuth.handover && typeof adminAuth.handover === 'object' ? adminAuth.handover : null;
+  const _pinReq = !!pinRequired || (!!pinDeadline && /^\d{4}-\d{2}-\d{2}$/.test(String(pinDeadline)) && tsuTodayIso() >= String(pinDeadline)); // ★ 2026-11-22 trial609: 期限を過ぎたら PIN 必須(この画面の中で判定)
+  const _hoAdmins = (members || []).filter(m => m && (m.isAdmin || m.roleLabel === '管理者') && m.id !== 'hq_viewer');
+  const _hoCands = (members || []).filter(m => m && !(m.isAdmin || m.roleLabel === '管理者') && m.id !== 'hq_viewer');
+  const submitHandover = async () => {
+    const nm = _hoCands.find(m => String(m.id) === String(hoForm.newId));
+    if (!nm) { setHoForm(f => ({ ...f, err: '新しい管理者を選んでください' })); return; }
+    if (!String(hoForm.by || '').trim()) { setHoForm(f => ({ ...f, err: '申請する方のお名前を入れてください' })); return; }
+    if (!window.confirm(`管理者の交代を本部に申請します。\n\n新しい管理者: ${nm.name}\n前の管理者: ${_hoAdmins.map(a => a.name).join('・') || '（なし）'} → ${hoForm.oldRole}\n\n本部が承認すると切り替わります。よろしいですか？`)) return;
+    setHoForm(f => ({ ...f, busy: true, err: '' }));
+    const ho = { status: 'pending', newMemberId: nm.id, newMemberName: nm.name, oldMemberIds: _hoAdmins.map(a => a.id), oldMemberNames: _hoAdmins.map(a => a.name), oldNewRole: hoForm.oldRole, by: String(hoForm.by).trim(), note: String(hoForm.note || '').trim().slice(0, 300), requestedAt: Date.now() };
+    try { await onSetAdminAuth({ handover: ho }); } catch {}
+    try {
+      await fetch('/api/report', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'admin_handover', description: `新しい管理者: ${ho.newMemberName}\n前の管理者: ${ho.oldMemberNames.join('・') || '（なし）'} → ${ho.oldNewRole}\n申請者: ${ho.by}\nメモ: ${ho.note || '（なし）'}\n\n管理局の「管理者の交代の申請」で承認してください。`, context: { facility: storeName, storeId, recorder: ho.by, view: '管理者の交代の申請', when: new Date().toLocaleString('ja-JP'), url: (typeof location !== 'undefined' ? location.href : ''), appVersion: (__builtUpdateNotes && __builtUpdateNotes.version) || '' } }) });
+    } catch {}
+    setHoForm({ newId: '', oldRole: '介護職員', by: '', note: '', busy: false, err: '' }); setHoOpen(false);
+  };
   const [pendingPin, setPendingPin] = React.useState(null); // ★ 2026-10-19 段階4: 本人アカウント＋PIN のある職員 → PIN 待ち
   // ★ 2026-10-26(ユーザー要望「同じ人で役職が複数ある人は、PIN のあとにどちらにするか選べるように」): 同じ名前の行が複数あれば役職を選んでから入る
   const [roleChoice, setRoleChoice] = React.useState(null);
@@ -20020,7 +20060,7 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
   const selectMember = (m) => {
     tsumugiMaybeAutoFullscreen(); // ★ 端末設定ONなら、このクリックで全画面に
     if (!isSuperAdmin && pinMembers && pinMembers.has(String(m.id)) && onVerifyPin) { setPendingPin(m); return; } // ★ 段階4: PIN で本人確認(管理者パスワードの代わり)
-    if (!isSuperAdmin && pinRequired && m.id !== 'hq_viewer') { alert(`${m.name} さんはまだ本人登録（PIN）が済んでいません。管理者から招待を受けて本人登録をしてから選んでください。`); return; } // ★ 段階4: PIN 必須の店舗
+    if (!isSuperAdmin && _pinReq && m.id !== 'hq_viewer') { alert(`${m.name} さんはまだ本人登録（PIN）が済んでいません。管理者から招待を受けて本人登録をしてから選んでください。`); return; } // ★ 段階4: PIN 必須の店舗
     const isAdminMember = m.isAdmin || m.roleLabel === '管理者';
     if (isAdminMember && !isSuperAdmin) { setPendingAdmin(m); return; }
     onSelect(m);
@@ -20056,7 +20096,7 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
         {!isSuperAdmin && onPinLogin && pinMembers && pinMembers.size > 0 && (
           <div data-testid="quick-pin" style={{background:'white',borderRadius:20,padding:'16px 20px',boxShadow:'0 8px 28px rgba(0,0,0,0.08)',marginBottom:14}}>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
-              <div><div style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>PIN で入る</div><div style={{fontSize:12,color:'#64748b'}}>4桁を入れるだけで、あなたとして記録を始めます{pinRequired ? '' : '（PIN が無い方は下の名前から）'}</div></div>
+              <div><div style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>PIN で入る</div><div style={{fontSize:12,color:'#64748b'}}>4桁を入れるだけで、あなたとして記録を始めます{_pinReq ? '' : '（PIN が無い方は下の名前から）'}</div></div>
               <div style={{display:'flex',gap:10}}>{[0,1,2,3].map(i => <div key={i} style={{width:14,height:14,borderRadius:7,background: quickPin.length > i ? '#3d5021' : '#e2e8f0'}}/>)}</div>
             </div>
             {quickErr && <div style={{color:'#b91c1c',fontSize:13,fontWeight:'bold',marginTop:6}}>{quickErr}</div>}
@@ -20161,6 +20201,72 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
                 <button type="submit" style={{whiteSpace:'nowrap',flex:1,padding:'10px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>追加</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ★ 2026-11-22 trial609: 一人ずつのログイン(PIN)の期限の案内。期限までは PIN でも名前の選択でも入れる・過ぎると本人登録が済んだ人だけ */}
+      {!isSuperAdmin && pinDeadline && /^\d{4}-\d{2}-\d{2}$/.test(String(pinDeadline)) && (() => {
+        const d = new Date(`${pinDeadline}T00:00:00`); const t = new Date(`${tsuTodayIso()}T00:00:00`); const days = Math.ceil((d - t) / 86400000); const lbl = `${d.getMonth() + 1}月${d.getDate()}日`;
+        return (
+          <div data-testid="pin-deadline-banner" style={{maxWidth:720,margin:'10px auto 0',padding:'10px 14px',borderRadius:12,fontSize:13,lineHeight:1.7,background: days > 0 ? '#fff8ea' : '#fef2f2',border:`1px solid ${days > 0 ? '#f0c66b' : '#fca5a5'}`,color: days > 0 ? '#7a4b00' : '#991b1b'}}>
+            {days > 0
+              ? <><b>{lbl}から、本人登録（PIN）が済んでいない方は選べなくなります（あと {days} 日）。</b>それまでは PIN でも名前の選択でも入れます。管理者から招待を受けて本人登録をお願いします。</>
+              : <><b>{lbl}から、本人登録（PIN）が済んだ方だけ選べます。</b>まだの方は管理者から招待を受けて本人登録をしてください。</>}
+          </div>
+        );
+      })()}
+      {/* ★ 2026-11-22 trial608 案B: 管理者の交代(申請中/承認済みの表示と申請の入口) */}
+      {!isSuperAdmin && !loading && (
+        <div data-testid="handover-box" style={{maxWidth:720,margin:'10px auto 0',padding:'0 12px'}}>
+          {_ho && _ho.status === 'pending' && (
+            <div style={{background:'#fff8ea',border:'1px solid #f0c66b',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#7a4b00',lineHeight:1.7}}>
+              <b>管理者の交代を本部に申請中</b>（新しい管理者: {_ho.newMemberName}・申請: {_ho.by}）。本部の承認をお待ちください。
+              <button type="button" onClick={async()=>{ if(!window.confirm('申請を取り下げますか？')) return; try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #d9b25a',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#7a4b00',cursor:'pointer'}}>取り下げる</button>
+            </div>
+          )}
+          {_ho && _ho.status === 'approved' && (
+            <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#166534',lineHeight:1.7}}>
+              <b>本部が管理者の交代を承認しました。</b>{_ho.newMemberName} さんが管理者です。{_ho.newMemberName} さんを選ぶと、管理者パスワードを新しく設定できます。
+              <button type="button" onClick={async()=>{ try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #86efac',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#166534',cursor:'pointer'}}>確認しました</button>
+            </div>
+          )}
+          {_ho && _ho.status === 'rejected' && (
+            <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#991b1b',lineHeight:1.7}}>
+              <b>管理者の交代の申請は承認されませんでした。</b>{_ho.reason ? `理由: ${_ho.reason}` : ''} 本部にご確認ください。
+              <button type="button" onClick={async()=>{ try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #fca5a5',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#991b1b',cursor:'pointer'}}>閉じる</button>
+            </div>
+          )}
+          {!_ho && _hoCands.length > 0 && (
+            <div style={{textAlign:'right',marginTop:4}}>
+              <button type="button" data-testid="handover-open" onClick={()=>setHoOpen(true)} style={{background:'transparent',border:'none',color:'#64748b',fontSize:12,textDecoration:'underline',cursor:'pointer',padding:'6px 4px'}}>管理者が代わるとき（管理者の交代を本部に申請）</button>
+            </div>
+          )}
+        </div>
+      )}
+      {hoOpen && (
+        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.6)',zIndex:100000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{ if(!hoForm.busy) setHoOpen(false); }}>
+          <div data-testid="handover-modal" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:18,padding:22,width:'100%',maxWidth:440,boxShadow:'0 12px 40px rgba(0,0,0,0.3)'}}>
+            <div style={{fontSize:17,fontWeight:'bold',color:'#1e293b',marginBottom:6}}>管理者の交代を申請</div>
+            <div style={{fontSize:12,color:'#64748b',marginBottom:14,lineHeight:1.7}}>前の管理者と連絡が取れなくても申請できます。本部が承認すると、新しい管理者に切り替わり、前の管理者パスワードは消えます（新しい管理者が設定し直します）。</div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>新しい管理者</label>
+            <select data-testid="handover-new" value={hoForm.newId} onChange={e=>setHoForm(f=>({...f,newId:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box',background:'white'}}>
+              <option value="">選んでください</option>
+              {_hoCands.map(m => <option key={m.id} value={m.id}>{m.name}（{m.roleLabel || ''}）</option>)}
+            </select>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>前の管理者（{_hoAdmins.map(a=>a.name).join('・') || 'なし'}）の新しい役職</label>
+            <select data-testid="handover-oldrole" value={hoForm.oldRole} onChange={e=>setHoForm(f=>({...f,oldRole:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box',background:'white'}}>
+              {(roleChoices || ['介護職員']).filter(r => r && r !== '管理者').map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <div style={{fontSize:11,color:'#94a3b8',marginBottom:10,lineHeight:1.6}}>退職された場合も名簿からは消さないでください（過去の日誌・送迎表から名前が消えます）。役職を変えたあと、各種設定のスタッフで「いつまで」を入れます。</div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>申請する方のお名前</label>
+            <input data-testid="handover-by" value={hoForm.by} onChange={e=>setHoForm(f=>({...f,by:e.target.value}))} placeholder="例: 新しい管理者ご本人" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box'}}/>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>本部へのメモ（任意）</label>
+            <input value={hoForm.note} onChange={e=>setHoForm(f=>({...f,note:e.target.value}))} placeholder="例: 前任者は11月末で退職" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box'}}/>
+            {hoForm.err && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:10}}>{hoForm.err}</div>}
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button type="button" disabled={hoForm.busy} onClick={()=>setHoOpen(false)} style={{padding:'9px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>やめる</button>
+              <button type="button" data-testid="handover-submit" disabled={hoForm.busy} onClick={submitHandover} style={{padding:'9px 20px',background:'#5e8030',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',opacity:hoForm.busy?0.6:1}}>{hoForm.busy ? '送信中…' : '本部に申請する'}</button>
+            </div>
           </div>
         </div>
       )}
@@ -20363,6 +20469,33 @@ function DiseaseMasterPanel() {
 // ★ J: 全店共通の同意ポリシー編集(つむぎ管理局専用)。 予約レコードに1つだけ保存し、各店が読む。
 //   版(バージョン)を上げると、全店の管理局お知らせ(system_notices)に改定通知を自動掲載(I5)。
 // ★ 2026-10-26(ユーザー決定「計画書の定型文は本部で管理」): 全店共通の定型文(app_state の予約キー policies.kkPresets)。各店は読むだけ
+// ★ 2026-11-22 trial609: 管理局 → 一人ずつのログイン(PIN)の期限(全店共通)。この日から本人登録(PIN)が済んでいない職員は担当者として選べない
+function GlobalPinDeadlinePanel() {
+  const [val, setVal] = React.useState(''); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
+  React.useEffect(() => { let alive = true; (async () => { try { const gp = await supabaseLoadGlobalPolicies(); if (alive) setVal(String((gp && gp.pinDeadline) || '')); } catch {} })(); return () => { alive = false; }; }, []);
+  const save = async (v) => {
+    if (v && !window.confirm(`${v} から、全店で本人登録（PIN）が済んでいない職員は担当者として選べなくなります。よろしいですか？`)) return;
+    setBusy(true); setMsg('');
+    try { const cur = (await supabaseLoadGlobalPolicies()) || {}; const policies = { ...cur, pinDeadline: v || '' }; const ok = await supabaseSaveGlobalPolicies(policies); if (!ok) { alert('保存に失敗しました(通信エラー)'); setBusy(false); return; }
+      setGlobalPolicyCache(policies); setVal(v || ''); setMsg(v ? `✓ 保存しました（${v} から全店で PIN が必要になります）` : '✓ 期限を外しました（PIN でも名前の選択でも入れます）'); }
+    catch (e) { alert('保存に失敗: ' + ((e && e.message) || '')); }
+    setBusy(false);
+  };
+  const plus30 = () => { const d = new Date(); d.setDate(d.getDate() + 30); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  return (
+    <div data-testid="hq-pin-deadline" style={{background:'white',border:'1px solid #94c456',borderRadius:14,padding:'14px 16px',marginTop:14}}>
+      <div style={{fontSize:15,fontWeight:'bold',color:'#3d5021',marginBottom:6}}>一人ずつのログイン（PIN）の期限</div>
+      <div style={{fontSize:12,color:'#64748b',lineHeight:1.7,marginBottom:10}}>この日から、全店で本人登録（PIN）が済んでいない職員は担当者として選べなくなります。それまでは PIN でも名前の選択でも入れます（担当者を選ぶ画面に残り日数が出ます）。空のままなら期限なしです。</div>
+      <div style={{display:'flex',flexWrap:'wrap',gap:8,alignItems:'center'}}>
+        <input type="date" value={val} onChange={e=>setVal(e.target.value)} style={{padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14}}/>
+        <button disabled={busy} onClick={()=>setVal(plus30())} style={{padding:'8px 12px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>1か月後にする</button>
+        <button disabled={busy || !val} onClick={()=>save(val)} style={{padding:'8px 16px',background:'#5e8030',color:'white',border:'none',borderRadius:8,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{busy ? '保存中…' : '保存'}</button>
+        <button disabled={busy} onClick={()=>save('')} style={{padding:'8px 12px',background:'white',color:'#b45309',border:'1px solid #f59e0b',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>期限を外す</button>
+        {msg && <span style={{fontSize:12,color:'#166534',fontWeight:'bold'}}>{msg}</span>}
+      </div>
+    </div>
+  );
+}
 function GlobalKkPresetsPanel() {
   const [open, setOpen] = React.useState(false); const [vals, setVals] = React.useState(null); const [msg, setMsg] = React.useState(''); const [busy, setBusy] = React.useState(false);
   React.useEffect(() => { let alive = true; (async () => { try { const gp = await supabaseLoadGlobalPolicies(); if (!alive) return; const g = (gp && gp.kkPresets && typeof gp.kkPresets === 'object') ? gp.kkPresets : {}; const v = {}; KK_PRESET_LABELS.forEach(([k]) => { v[k] = (Array.isArray(g[k]) && g[k].length ? g[k] : KK_PRESETS_DEFAULT[k]).join('\n'); }); setVals(v); } catch { const v = {}; KK_PRESET_LABELS.forEach(([k]) => { v[k] = KK_PRESETS_DEFAULT[k].join('\n'); }); setVals(v); } })(); return () => { alive = false; }; }, []);
@@ -21033,15 +21166,18 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
   const [loading, setLoading] = useState(true);
   // ★ アドオン (店舗ごとの ON/OFF を本部がここで管理)
   const [storeAddons, setStoreAddons] = useState({}); // {storeId: {kinou_keikaku:true,...}}
+  const [storeHandover, setStoreHandover] = useState({}); // ★ 2026-11-22 trial608 案B: {storeId: adminAuth.handover}(申請中のもの)
+  const [hoBusy, setHoBusy] = useState(null);
   const [addonModal, setAddonModal] = useState(null); // {storeId, storeName}
   const [addonBusy, setAddonBusy] = useState(null);   // 保存中の storeId
   const loadStoreAddons = async (list) => {
     try {
       const entries = await Promise.all((list||[]).map(async s => {
-        try { const row = await supabaseLoadStateForStore(s.id); return [s.id, row?.data?.systemSettings?.addons || {}]; }
-        catch { return [s.id, {}]; }
+        try { const row = await supabaseLoadStateForStore(s.id); return [s.id, row?.data?.systemSettings?.addons || {}, row?.data?.systemSettings?.adminAuth?.handover || null]; }
+        catch { return [s.id, {}, null]; }
       }));
-      setStoreAddons(Object.fromEntries(entries));
+      setStoreAddons(Object.fromEntries(entries.map(e => [e[0], e[1]])));
+      setStoreHandover(Object.fromEntries(entries.filter(e => e[2] && e[2].status === 'pending').map(e => [e[0], e[2]]))); // ★ 2026-11-22 trial608
     } catch (e) { console.warn('[addons] load failed', e); }
   };
   const toggleStoreAddon = async (storeId, key) => {
@@ -21059,6 +21195,49 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
     } catch (e) { alert('アドオンの更新に失敗しました: ' + (e?.message||'')); }
     setAddonBusy(null);
   };
+  // ★ 2026-11-22 trial608 案B: 店舗からの「管理者の交代」の申請を承認/却下する。承認=役職の入れ替え(storeMembers と日誌の担当職員の役職は履歴つき)＋管理者パスワードの消去＋一時譲渡の解除。
+  //   書き込みは管理者PWリセットと同じ道(読む→直す→merge して保存)。storeMembers は id ごとに _savedAt の新しい方が勝つので、変えた人に今の時刻を付ける
+  const decideHandover = async (storeId, storeName, approve) => {
+    const ho0 = storeHandover[storeId]; if (!ho0) return;
+    let reason = '';
+    if (!approve) { reason = window.prompt(`「${storeName}」の申請を承認しない理由（店舗に表示されます）:`, ''); if (reason === null) return; }
+    else if (!window.confirm(`「${storeName}」の管理者を「${ho0.newMemberName}」に交代します。\n前の管理者（${(ho0.oldMemberNames||[]).join('・') || 'なし'}）は「${ho0.oldNewRole}」になります。\n店舗の管理者パスワードは消え、新しい管理者が設定し直します。\nよろしいですか？`)) return;
+    setHoBusy(storeId);
+    try {
+      const row = await supabaseLoadStateForStore(storeId); const data = row?.data || {}; const ss = data.systemSettings || {};
+      const ho = ss.adminAuth && ss.adminAuth.handover; if (!ho || ho.status !== 'pending') { alert('申請が見つかりません（取り下げ済みか、処理済みです）'); setStoreHandover(prev => { const n = { ...prev }; delete n[storeId]; return n; }); setHoBusy(null); return; }
+      const now = Date.now(); const today = tsuTodayIso(); const _y = new Date(); _y.setDate(_y.getDate() - 1); const yIso = `${_y.getFullYear()}-${String(_y.getMonth() + 1).padStart(2, '0')}-${String(_y.getDate()).padStart(2, '0')}`;
+      const nextAuth = { ...(ss.adminAuth || {}) };
+      if (approve) {
+        const _nn = normalizeName(ho.newMemberName || '').trim();
+        let found = false;
+        let members = (data.storeMembers || []).map(m => {
+          if (!m) return m;
+          if (String(m.id) === String(ho.newMemberId) || (_nn && normalizeName(m.name || '').trim() === _nn)) { found = true; return { ...m, roleLabel: '管理者', isAdmin: true, _savedAt: now }; }
+          if (m.isAdmin || m.roleLabel === '管理者') return { ...m, roleLabel: ho.oldNewRole || '介護職員', isAdmin: false, _savedAt: now };
+          return m;
+        });
+        if (!found) members = [...members, { id: now, name: ho.newMemberName, roleLabel: '管理者', isAdmin: true, _savedAt: now }];
+        // 日誌の担当職員の役職も、前の日までの役職を履歴に残して変える(trial519 の _roles)
+        const ds = data.diarySettings || {}; const _oldN = new Set((ho.oldMemberNames || []).map(x => normalizeName(x || '').trim()));
+        const staff = (ds.staff || []).map(st => {
+          if (!st || !st.name) return st; const n = normalizeName(st.name).trim(); let role = null;
+          if (_nn && n === _nn) role = '管理者'; else if (_oldN.has(n) && (st.role === '管理者')) role = ho.oldNewRole || '介護職員';
+          if (!role || role === st.role) return st;
+          return { ...st, role, _roles: [...(Array.isArray(st._roles) ? st._roles : []), { until: yIso, role: st.role || '', role2: st.role2 || '' }] };
+        });
+        delete nextAuth.passwordHash; delete nextAuth.resetCodeHash; delete nextAuth.resetCodeExp;
+        nextAuth.handover = { ...ho, status: 'approved', approvedAt: now }; nextAuth.setAt = now;
+        await supabaseMergeAndSyncStateForStore(storeId, { ...data, storeMembers: members, diarySettings: { ...ds, staff }, systemSettings: { ...ss, adminAuth: nextAuth, adminDelegate: null } });
+        alert(`「${storeName}」の管理者を「${ho.newMemberName}」に交代しました。\n店舗側には「承認しました」と表示され、新しい管理者がご自身を選ぶと管理者パスワードを設定できます。\n変更管理台帳に「いつ・どの店舗・誰から誰へ」を記録してください。`);
+      } else {
+        nextAuth.handover = { ...ho, status: 'rejected', reason: String(reason || '').slice(0, 200), decidedAt: now }; nextAuth.setAt = now;
+        await supabaseMergeAndSyncStateForStore(storeId, { ...data, systemSettings: { ...ss, adminAuth: nextAuth } });
+      }
+      setStoreHandover(prev => { const n = { ...prev }; delete n[storeId]; return n; });
+    } catch (e) { alert('処理に失敗しました: ' + (e?.message || '')); }
+    setHoBusy(null);
+  };
   // ★ 本部から店舗の管理者パスワードをリセット (忘れた時の最終手段)。 次に管理者を選んだ時に新規設定になる
   const resetStoreAdminPw = async (storeId, storeName) => {
     if(!window.confirm(`「${storeName}」の管理者パスワードをリセットします。\nリセット後、店舗で次に「管理者」を選んだ時に新しいパスワードを設定し直す形になります。\nよろしいですか？`)) return;
@@ -21071,6 +21250,19 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
       await supabaseMergeAndSyncStateForStore(storeId, { ...data, systemSettings: { ...(data.systemSettings||{}), adminAuth: newAuth } });
       alert(`「${storeName}」の管理者パスワードをリセットしました。\n店舗側で次に「管理者」を選ぶと、新しいパスワードの設定画面が出ます。`);
     } catch(e){ alert('リセットに失敗しました: ' + (e?.message||'')); }
+    setAddonBusy(null);
+  };
+  // ★ 2026-11-22 trial607: 店舗のログイン(個人の口座)のパスワードを本部が発行し直す(前の管理者と連絡が取れないときの緊急用)
+  const resetStoreLoginPw = async (st, storeName, storeId) => {
+    const _gen = () => { const c='abcdefghjkmnpqrstuvwxyz23456789'; let s=''; for(let i=0;i<4;i++) s+=c[Math.floor(Math.random()*c.length)]; return s + String(Math.floor(1000+Math.random()*9000)); };
+    const inp = window.prompt(`「${storeName}」のログインID ${st.username} の新しいパスワードを設定します（英字と数字を含む6文字以上）。\n自動生成のままでもOKです:`, _gen());
+    if (inp === null) return;
+    const pw = inp.trim();
+    if (pw.length < 6 || !/[a-zA-Z]/.test(pw) || !/[0-9]/.test(pw)) { alert('パスワードは英字と数字を含む6文字以上にしてください'); return; }
+    if (!window.confirm(`パスワードを再設定します。よろしいですか？\n\nログインID: ${st.username}\n新しいパスワード: ${pw}\n\n※ 旧パスワードは使えなくなります。ご本人に新しいパスワードを伝えてください`)) return;
+    setAddonBusy(storeId);
+    try { await supabaseStaffChangePassword(st.id, pw); alert(`パスワードを再設定しました。\n\nログインID: ${st.username}\n新しいパスワード: ${pw}\n\n口頭か書面でご本人に伝えてください(この画面を閉じると表示されません)。`); }
+    catch (e) { alert('パスワードの再設定に失敗しました: ' + (e?.message || '不明')); }
     setAddonBusy(null);
   };
   const [showAddStore, setShowAddStore] = useState(false);
@@ -21244,6 +21436,23 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         <div ref={_secNotices} style={{scrollMarginTop:56}}>
         <SystemNoticesPanel stores={stores} staffSession={staffSession}/>
         </div>
+        {/* ★ 2026-11-22 trial608 案B: 店舗からの「管理者の交代」の申請 */}
+        {Object.keys(storeHandover).length > 0 && (
+          <div data-testid="hq-handover-panel" style={{background:'#fff8ea',border:'2px solid #f0c66b',borderRadius:14,padding:'12px 16px',marginBottom:14}}>
+            <div style={{fontSize:15,fontWeight:'bold',color:'#7a4b00',marginBottom:8}}>管理者の交代の申請（{Object.keys(storeHandover).length}件）</div>
+            {Object.entries(storeHandover).map(([sid, ho]) => { const st = stores.find(s => String(s.id) === String(sid)); const nm = st ? st.name : sid; return (
+              <div key={sid} style={{display:'flex',flexWrap:'wrap',alignItems:'center',gap:'6px 12px',padding:'8px 10px',background:'white',border:'1px solid #f0c66b',borderRadius:10,marginBottom:6,fontSize:13,color:'#1e293b'}}>
+                <div style={{flex:'1 1 320px',lineHeight:1.7}}>
+                  <b>{nm}</b>　新しい管理者: <b>{ho.newMemberName}</b>　前の管理者: {(ho.oldMemberNames||[]).join('・') || 'なし'} → {ho.oldNewRole}<br/>
+                  <span style={{fontSize:12,color:'#64748b'}}>申請: {ho.by}　{ho.requestedAt ? new Date(ho.requestedAt).toLocaleString('ja-JP') : ''}{ho.note ? `　メモ: ${ho.note}` : ''}</span>
+                </div>
+                <div style={{display:'flex',gap:8}}>
+                  <button data-testid={`hq-handover-ok-${sid}`} disabled={hoBusy===sid} onClick={()=>decideHandover(sid, nm, true)} style={{padding:'8px 16px',background:'#5e8030',color:'white',border:'none',borderRadius:8,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{hoBusy===sid ? '処理中…' : '承認する'}</button>
+                  <button disabled={hoBusy===sid} onClick={()=>decideHandover(sid, nm, false)} style={{padding:'8px 12px',background:'white',color:'#b45309',border:'1px solid #f59e0b',borderRadius:8,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>承認しない</button>
+                </div>
+              </div>); })}
+          </div>
+        )}
         {/* 店舗一覧 */}
         <div ref={_secStores} style={{background:'white',borderRadius:16,padding:24,marginBottom:16,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',scrollMarginTop:56}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,gap:10,flexWrap:'wrap'}}>
@@ -21321,12 +21530,14 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
                                 <span style={{color:'#64748b',marginLeft:6}}>({st.role === 'manager' ? '店舗管理者' : st.role})</span>
                                 {st.email && <span style={{color:'#5e8030',marginLeft:6,fontSize:10}}>{st.email}</span>}
                               </div>
+                              {/* ★ 2026-11-22 trial607(ユーザー「管理者が急に代わり前の管理者と連絡が取れない」): 本部が店舗のログインのパスワードを発行し直せる(サーバーの change_password は本部なら他人も可) */}
+                              <button data-testid={`hq-login-pw-${st.id}`} disabled={addonBusy===s.id} onClick={()=>resetStoreLoginPw(st, s.name, s.id)} style={{padding:'3px 8px',background:'white',color:'#b45309',border:'1px solid #f59e0b',borderRadius:4,fontSize:10,fontWeight:'bold',cursor:'pointer'}}>パスワード再設定</button>
                               <button onClick={()=>{navigator.clipboard?.writeText(st.username); alert(`ログインID「${st.username}」をコピーしました`);}} style={{padding:'3px 8px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:4,fontSize:10,fontWeight:'bold',cursor:'pointer'}}>ID コピー</button>
                             </div>
                           ))}
                           <div style={{fontSize:10,color:'#64748b',marginTop:4,padding:'6px 10px',background:'#fffbeb',border:'1px dashed #fcd34d',borderRadius:6}}>
-                            ⚠ パスワードは Supabase で暗号化されているため表示できません。<br/>
-                            お忘れの場合は「+ 店舗管理者を追加」から同じ ID で新規発行 (= 上書き) してください。
+                            パスワードは暗号化されているため表示できません。<br/>
+                            分からなくなったときは各行の「パスワード再設定」で新しいパスワードを発行し、本部からご本人に伝えてください(同じIDの作り直しはできません)。
                           </div>
                         </div>
                       )}
@@ -21356,6 +21567,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         <div ref={_secPolicy} style={{scrollMarginTop:56}}>
         <GlobalPolicyPanel staffSession={staffSession}/>
         <GlobalKkPresetsPanel/>
+        <GlobalPinDeadlinePanel/>
         </div>
         {/* LIFE傷病名マスタのCSV取込(全店共通・置き換え式) */}
         <div ref={_secMaster} style={{scrollMarginTop:56}}>
@@ -22247,13 +22459,18 @@ export default function App() {
   //   長時間開きっぱなしの端末でメモリクラッシュを誘発する。 ローカル編集は従来どおり即保存し、
   //   pull由来の保存だけ10秒に1回へ間引く(クラウドが正のため端末控えの鮮度低下は無害)。
   const _persistLastRef = React.useRef(0);
+  const _persistSbRef = React.useRef(null); // ★ 2026-11-22 trial611: 最後に端末へ書いた店舗の印。読み込み直後(印が付いた瞬間)は間引かずに必ず一度書く
   useEffect(()=>{
     const isRemote = applyingRemoteRef.current;
     applyingRemoteRef.current = false;
     // ローカル編集の時だけ「最終編集時刻」を更新 (pull は編集ではない)
     if (!isRemote) lastLocalEditRef.current = Date.now();
-    if (isRemote && Date.now() - _persistLastRef.current < 10000) {
+    // ★ 2026-11-22 trial611(テスト店舗の実機確認): 読み込み直後の控えは 10 秒の間引きに当たって書かれず、見るだけの端末は次回の起動で控えが無かった → 印が付いた瞬間は必ず書く
+    const _justLoaded = !!appData._sbStoreId && _persistSbRef.current !== appData._sbStoreId;
+    if (_justLoaded) _persistSbRef.current = appData._sbStoreId;
+    if (!_justLoaded && (appData._bootCache || (isRemote && Date.now() - _persistLastRef.current < 10000))) {
       // pull由来かつ直近10秒以内に保存済み → 端末保存をスキップ(クラウド同期部分は下で継続)
+      // ★ 2026-11-22 trial610: 起動直後に見せている控え(読み込み前・_bootCache)も書かない(店舗の印の無い控えを端末に残さない)
     } else {
     _persistLastRef.current = Date.now();
     // 容量超過モード中: 軽量版へ直行(10分ごとにフル保存を再挑戦)
@@ -22648,10 +22865,7 @@ export default function App() {
       dataLoadedForStoreRef.current = null;
       // ★ 初回 pull を強制実行する flag
       pendingPullForStoreRef.current = newStoreId;
-      try { localStorage.removeItem('daycareAppData_v3'); } catch {}
-      try { localStorage.removeItem('daycarePhotos_v1'); } catch {}
-      // React state も完全クリア
-      setAppData({
+      const _blank = () => ({
         _sbStoreId: null, // ★ 未ロード目印(この状態では push しない)
         patients: [], ticketRecords: [], familyAnnouncements: [],
         familyPersonalAnnouncements: [], familyPhotos: [],
@@ -22662,6 +22876,21 @@ export default function App() {
         storeMembers: [],
         contactBookConfig: { items: [] },
       });
+      // ★ 2026-11-22 trial610(ユーザー「ログインしてから数秒待つ。送迎の車の中ですぐ見たい」): 同じ店舗の控えが端末にあれば、
+      //   クラウドの取り込み(店舗で約2.5MB)が終わるまで、その控えをそのまま見せる(見るだけ・main の押下は tsuSwallowEvent で止める)。
+      //   _sbStoreId は null(読み込み前)のままなので、保存・送信の関所(pushEmptyGuard の not-loaded・dataLoadedForStoreRef)は今までどおり全部止まる。
+      //   最初の取り込みが終わると今までどおりクラウドの内容に置き換わる(prev._sbStoreId が null なので、墓石の和集合・利用者/シフトの持ち越しも今までの初回と同じで行わない)。
+      //   店舗が変わったとき・控えに店舗の印が無いとき・利用者 0 のときは、今までどおり空にする(lib/logic.js bootCacheKeepable)
+      const _cache = appDataRef.current;
+      if (bootCacheKeepable(_cache, newStoreId, isStoreChanged)) {
+        setAppData(prev => (bootCacheKeepable(prev, newStoreId, false) ? { ...prev, _sbStoreId: null, _bootCache: true } : _blank()));
+        try { syncLog('boot-cache', { pats: (_cache.patients || []).length }); } catch {}
+      } else {
+        try { localStorage.removeItem('daycareAppData_v3'); } catch {}
+        try { localStorage.removeItem('daycarePhotos_v1'); } catch {}
+        // React state も完全クリア
+        setAppData(_blank());
+      }
       lastLocalEditRef.current = 0;
     }
     try { localStorage.setItem(lastStoreKey, newStoreId); } catch {}
@@ -23184,7 +23413,9 @@ export default function App() {
     };
     _pullNowRef.current = checkAndPull; // ★ trial545: 保存の前の「まず取り込む」で使う
     checkAndPull(); // 即時1回
-    const timer = setInterval(checkAndPull, 4000); // ★ 4秒ごと (Realtime未有効時の保険。反映を速く)
+    // ★ 2026-11-22 trial608(計画書 P1-4・ユーザー承認「早めに」): 定期の確認は 4秒→20秒。画面が隠れている間は確認しない(戻った瞬間に onWakePull が取り込む)。
+    //   ふだんの反映は Realtime(即時)で届くので速さは変わらない。Realtime が切れているときだけ最長 20 秒。保存の前の「まず取り込む」(60秒以上空いたら)はそのまま
+    const timer = setInterval(() => { try { if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return; } catch {} checkAndPull(); }, 20000);
     // ★ 生存確認: これが途切れていたら「ブラウザがタブを休止させている/画面が固まっている」と判別できる
     const heartbeat = setInterval(() => {
       syncLog('alive', { vis: document.visibilityState, online: navigator.onLine });
@@ -23213,7 +23444,7 @@ export default function App() {
     if (!isSupabaseEnabled || !staffSession?.storeId) return;
     const send = () => { try { supabaseUploadSyncDiag(staffSession.storeId, _effDevRef.current || '名称未設定の端末', __builtUpdateNotes?.version || '-', tsuUseRead()); } catch {} }; // ★ 2026-10-17: 最新の端末名(自動付与・管理局)で送る
     const t0 = setTimeout(send, 10000);
-    const t = setInterval(send, 60000);
+    const t = setInterval(send, 5 * 60 * 1000); // ★ 2026-11-22 trial608(P1-4): 60秒→5分。変化が無ければ supabaseUploadSyncDiag が15分に1回だけ書く
     return () => { clearTimeout(t0); clearInterval(t); };
   }, [staffSession?.storeId]); // eslint-disable-line
 
@@ -23910,6 +24141,7 @@ export default function App() {
   // ★ 新バージョン検知 → 通知バナー＋安全時の自動リロード。 デプロイ後に各端末を手動リロードしなくても更新される。
   //   仕組み: index.html(no-cache)を定期取得し、参照する /assets/*.js が起動時と変わっていたら「更新あり」。
   const [updateAvailable, setUpdateAvailable] = React.useState(false);
+  const [forceUpdate, setForceUpdate] = React.useState(false); // ★ 2026-11-22 trial608: minVersion より古い → 全画面で更新を促す
   // ★ 更新バナーの表示範囲(2026-09-01 店舗要望・V1/V2運用): update-notes.json の "prompt" で制御。
   //   'all'(既定)=全店に表示 / 'silent'=どこにも表示しない(背景化時の自動更新のみで静かに配信) /
   //   ["storeId",...]=指定店舗のみ表示(扇橋だけのV2先行デプロイで他店にバナーを出さない)
@@ -23937,6 +24169,11 @@ export default function App() {
         const html = await res.text();
         const latest = (html.match(/\/assets\/[^"'()\s]+\.js/g) || []).sort().join('|');
         if (latest && latest !== _selfAssetsRef.current && !stopped) setUpdateAvailable(true);
+      } catch {}
+      // ★ 2026-11-22 trial608: 最低版(minVersion)の確認。古ければ更新の帯に加えて全画面の案内を出す(閉じられない)
+      try {
+        const r2 = await fetch('/version.json?_v=' + Date.now(), { cache: 'no-store' }); // ★ trial610: 850KB の update-notes.json ではなく小さな version.json
+        if (r2.ok) { const j = await r2.json(); const minV = String((j && j.minVersion) || ''); if (minV && tsuVerBelow(__builtUpdateNotes?.version, minV) && !stopped) { setForceUpdate(true); setUpdateAvailable(true); } }
       } catch {}
     };
     const t = setInterval(check, 60 * 1000); // ★ 1分ごと (端末間で更新バナーの出るタイミングを揃える)
@@ -24089,8 +24326,15 @@ export default function App() {
   //   バンドルに焼き込む DEV_ANNOUNCEMENTS と違い、再読み込みしなくてもホーム/更新バナーに反映される。
   useEffect(() => {
     let stopped = false;
+    let _notesSig = ''; // ★ 2026-11-22 trial610: 最後に読んだ更新内容の印(version.json の notesSig)。同じなら本体(約850KB)は読まない
     const load = async () => {
       try {
+        let sig = '';
+        try {
+          const rv = await fetch('/version.json?_v=' + Date.now(), { cache: 'no-store' });
+          if (rv.ok) { const v = await rv.json(); sig = String((v && v.notesSig) || ''); if (!stopped && v && v.prompt !== undefined) setUpdatePromptScope(v.prompt || 'all'); }
+        } catch {}
+        if (sig && sig === _notesSig && _initialNoteIdsRef.current !== null) return; // 変わっていない → 本体は読まない
         const res = await fetch('/update-notes.json?_v=' + Date.now(), { cache: 'no-store' });
         if (!res.ok) return;
         const j = await res.json();
@@ -24098,6 +24342,7 @@ export default function App() {
         const _valid = notes.filter(n => n && n.id && (n.title || n.body));
         // ★ 起動時点の更新内容idを1回だけ記録(以降に増えた分＝今回の再読み込みで更新される分)
         if (_initialNoteIdsRef.current === null) _initialNoteIdsRef.current = new Set(_valid.map(n => n.id));
+        _notesSig = sig;
         if (!stopped) { setDevUpdateNotes(_valid); setUpdatePromptScope(j.prompt || 'all'); }
       } catch {}
     };
@@ -25168,7 +25413,7 @@ export default function App() {
   }
   // ★ ログイン済み + 店舗確定 + 記録者未選択 → RecorderPicker
   if (isSupabaseEnabled && staffSession?.storeId && !activeRecorder) {
-    return <RecorderPickerGate roleChoices={staffRoleChoices(appData)} pinMembers={_pinMembers} onVerifyPin={_verifyPin} pinRequired={!!_sec.pinRequired} onPinLogin={_pinLogin}
+    return <RecorderPickerGate roleChoices={staffRoleChoices(appData)} pinMembers={_pinMembers} onVerifyPin={_verifyPin} pinRequired={!!_sec.pinRequired || tsuPinForced(_sec)} pinDeadline={tsuPinDeadline(_sec)} onPinLogin={_pinLogin} /* ★ 2026-11-22 trial609: 期限を過ぎたら PIN 必須 */
       storeName={staffSession.storeName || staffSession.storeShortName}
       storeId={staffSession.storeId}
       loading={isSupabaseEnabled && (!appData._sbStoreId || appData._sbStoreId !== staffSession.storeId)}
@@ -25278,7 +25523,7 @@ export default function App() {
   }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#picker') { // ★ 段階4 の自動テスト: PIN 先行の「どなたですか」(本番では空)
     const _ms = [{ id: 'm1', name: '見本 花子', roleLabel: '介護職員' }, { id: 'm2', name: '見本 次郎', roleLabel: '生活相談員' }, ...((window.__tsumugiE2E && window.__tsumugiE2E.multiRole) ? [{ id: 'm3', name: '見本 花子', roleLabel: '生活相談員' }] : [])]; // ★ 2026-10-26: 同じ名前で役職が複数(役職の選択の自動テスト)
-    return <RecorderPickerGate storeName="テスト店" storeId="s1" members={_ms} canManage={false} isSuperAdmin={false} roleChoices={['介護職員']} pinMembers={new Set(['m1'])} pinRequired={!!(window.__tsumugiE2E && window.__tsumugiE2E.pinRequired)}
+    return <RecorderPickerGate storeName="テスト店" storeId="s1" members={_ms} canManage={false} isSuperAdmin={false} roleChoices={['介護職員']} pinMembers={new Set(['m1'])} pinRequired={!!(window.__tsumugiE2E && window.__tsumugiE2E.pinRequired)} pinDeadline={(window.__tsumugiE2E && window.__tsumugiE2E.pinDeadline) || ''}
       onPinLogin={async (pin) => { if (pin === '1234') return _ms[0]; throw new Error('PIN が違います'); }} onVerifyPin={async (m, pin) => { if (pin !== '1234') throw new Error('PIN が違います'); }}
       onSelect={(m) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), picked: m.id }; }} onLogout={() => {}} />;
   }
@@ -25821,7 +26066,16 @@ export default function App() {
       <SyncDebugPanel />
       {/* ★ 新バージョン通知バナー (安全時は自動更新するが、すぐ更新したい場合の手動ボタンも出す)。
           update-notes.json の "prompt" が silent または他店限定のときは出さない(背景化時の自動更新のみ) */}
-      {updateAvailable && (() => { const sc = updatePromptScope; if (sc === 'silent') return false; if (Array.isArray(sc)) return sc.map(String).includes(String(staffSession?.storeId||'')); return true; })() && ReactDOM.createPortal(
+      {forceUpdate && ReactDOM.createPortal(
+        <div data-testid="force-update-overlay" style={{position:'fixed',inset:0,zIndex:1999999,background:'rgba(15,23,42,0.92)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <div style={{background:'white',borderRadius:18,padding:'26px 22px',maxWidth:460,width:'100%',textAlign:'center',boxShadow:'0 12px 40px rgba(0,0,0,0.35)'}}>
+            <div style={{fontSize:20,fontWeight:'bold',color:'#1e293b',marginBottom:10}}>更新が必要です</div>
+            <div style={{fontSize:14,color:'#475569',lineHeight:1.8,marginBottom:18}}>この端末のつむぎは古い版です。同期や記録の決まりが変わっているため、更新するまで操作できません。<br/>下の「更新する」を押してください（入力中のものは先に保存されます）。</div>
+            <button type="button" data-testid="force-update-go" disabled={appUpdating} onClick={()=>{ try { document.querySelector('[data-testid="update-banner-go"]')?.click(); } catch {} }} style={{padding:'14px 28px',background:'#5e8030',color:'white',border:'none',borderRadius:12,fontSize:16,fontWeight:'bold',cursor:'pointer',minWidth:200}}>{appUpdating ? '更新中…' : '更新する'}</button>
+            <div style={{fontSize:11,color:'#94a3b8',marginTop:12}}>今の版 {String(__builtUpdateNotes?.version || '')}</div>
+          </div>
+        </div>, document.body)}
+      {updateAvailable && (() => { if (forceUpdate) return true; const sc = updatePromptScope; if (sc === 'silent') return false; if (Array.isArray(sc)) return sc.map(String).includes(String(staffSession?.storeId||'')); return true; })() && ReactDOM.createPortal(
         // ★ 2026-10-09(ユーザー指摘: スマホで文が1文字ずつ縦に並ぶ): left:50% で置くと使える幅が画面の半分になり、ボタンの幅に押されて文が細くなっていた。
         //   画面の左右いっぱいの枠の中で中央に置き、狭い画面では文を上・ボタンを下の2段に折り返す
         <div data-testid="update-banner-wrap" style={{position:'fixed',left:0,right:0,bottom:'calc(20px + env(safe-area-inset-bottom, 0px))',zIndex:2000000,display:'flex',justifyContent:'center',padding:'0 12px',pointerEvents:'none'}}>
@@ -25833,7 +26087,7 @@ export default function App() {
           {/* ★ 単なる reload だとブラウザのキャッシュから古いプログラムが読み直されることがあり、
               「押しても更新されない/しばらく経ってから反映」という症状になる。
               キャッシュとService Workerを消してから、URLに印を付けて確実に取り直す。 */}
-          <button disabled={appUpdating} onClick={async ()=>{
+          <button data-testid="update-banner-go" disabled={appUpdating} onClick={async ()=>{
             // ★ 更新中表示(2026-08-28): 保存→キャッシュ削除→再読込に数秒かかるため、押した直後から「更新中…」を出す
             if (appUpdating) return;
             setAppUpdating(true);
@@ -26241,6 +26495,9 @@ export default function App() {
                  currentView === 'settings' ? '各種設定' : 'システム画面'}
               </h1>
             </div>
+            {(!appData._sbStoreId && appData._bootCache) ? (
+              <div data-testid="boot-cache-banner" className="flex items-center gap-1 shrink-0 mr-2 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-full px-2.5 py-1 whitespace-nowrap"><BusySpin/><span>最新の内容を確かめています…</span></div>
+            ) : null}{/* ★ 2026-11-22 trial610: 起動直後は端末の控えを見せている(見るだけ)。クラウドの取り込みが終わると消える */}
             {/* ★ 控えめバナー: 自動同期が止まっている(最新未反映の可能性)ときだけ表示。 タップで再読み込み。 */}
             {syncStale && (
               <div onClick={()=>window.location.reload()} title="自動同期が止まっています。入力の前に再読み込みしてください。"
@@ -26292,7 +26549,8 @@ export default function App() {
             {_tabBarOn && <button type="button" data-testid="hdr-menu-btn" onClick={() => setIsSidebarOpen(v => !v)} aria-label="メニュー" title="メニュー" className="shrink-0 ml-1 w-11 h-11 -mr-2 flex items-center justify-center text-slate-600 rounded-lg active:bg-slate-100"><Menu size={24} /></button>}{/* ★ trial568(ユーザー「変更ログがあった右上に3本線を置き、下のバーのメニューは無くす」): 押すと右のサイドバー */}
           </header>
 
-          <main className="tsu-app-main flex-1 overflow-auto relative min-w-0 flex flex-col" style={{padding:0}}>
+          <main className="tsu-app-main flex-1 overflow-auto relative min-w-0 flex flex-col" style={{padding:0, ...((!appData._sbStoreId && appData._bootCache) ? { cursor: 'wait' } : {})}}
+            {...((!appData._sbStoreId && appData._bootCache) ? { 'data-boot-cache': '1', onClickCapture: tsuSwallowEvent, onMouseDownCapture: tsuSwallowEvent, onTouchEndCapture: tsuSwallowEvent, onKeyDownCapture: tsuSwallowEvent } : {})}>{/* ★ 2026-11-22 trial610: 読み込み前の控えは見るだけ(押下・入力は止める。スクロールと左の並びは使える) */}
             {/* ★ システムお知らせバナー (本部からのメンテナンス通知等) */}
             {visibleNotices.length > 0 && (
               <div className="flex-shrink-0">
@@ -27221,6 +27479,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     
     const filtered = appData.patients.filter(p => {
           if (!isPatientActiveOnDate(p, selectedDate)) return false;
+          if (tsuNotStarted(p, appData)) return false; // ★ 2026-11-21 trial606: 利用開始日が未設定で記録のない方(まだ始まっていない)は出さない
           let shiftAM = appData.monthlyShifts?.[monthKey]?.[p.id]?.[`${dayNum}_AM`];
           let shiftPM = appData.monthlyShifts?.[monthKey]?.[p.id]?.[`${dayNum}_PM`];
           // ★ その日付時点の基本利用曜日 (後から増回した曜日を過去に出さない)
@@ -32901,7 +33160,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               const line = (pts, isTog, unitL, all) => { if (!pts.length) return <span style={{color:'#cbd5e1',fontSize:11}}>記録なし</span>; const vs = pts.map(p => p.v); const mx = Math.max(...vs, isTog ? 100 : 0.001), mn = Math.min(...vs, 0); const x = (i) => P + (pts.length > 1 ? i * (W - 2 * P) / (pts.length - 1) : (W / 2 - P)); const y = (v) => H - 14 - ((v - mn) / ((mx - mn) || 1)) * (H - 28); const d = pts.map((pt, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(pt.v).toFixed(1)}`).join(' '); const fmt = (v) => isTog ? `${Math.round(v)}%` : `${Math.round(v * 10) / 10}${unitL}`; const last = pts[pts.length - 1]; const imax = vs.indexOf(Math.max(...vs)); return (
                 <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{display:'block'}}><path d={d} fill="none" stroke="#6366f1" strokeWidth="2"/>{pts.map((pt, i) => <circle key={i} cx={x(i)} cy={y(pt.v)} r={pts.length > 40 ? 1.5 : 2.5} fill="#6366f1"/>)}
                   {pts.map((pt, i) => { const tip = (e) => { const t = e.touches ? e.touches[0] : e; setExSumTip({ px: t.clientX, py: t.clientY, t: `${pt.d}　${fmt(pt.v)}` }); }; return <circle key={`h${i}`} data-testid="ex-sum-dot" cx={x(i)} cy={y(pt.v)} r={pts.length > 40 ? 5 : 9} fill="transparent" style={{cursor:'pointer'}} onMouseEnter={tip} onMouseMove={tip} onMouseLeave={() => setExSumTip(null)} onTouchStart={tip}/>; })}
-                  <text x={x(0)} y={H - 3} fontSize="9" fill="#64748b">{pts[0].d}</text><text x={x(pts.length - 1)} y={H - 3} textAnchor="end" fontSize="9" fill="#64748b">{last.d}</text>
+                  <text x={x(0)} y={H - 3} fontSize="9" fill="#64748b">{pts[0].d}</text>{pts.length > 1 && last.d !== pts[0].d && <text x={x(pts.length - 1)} y={H - 3} textAnchor="end" fontSize="9" fill="#64748b">{last.d}</text>}{/* ★ 2026-11-21 trial606(ユーザー報告「日付が2つ出る」): 点が1つのときは右端の同じ日付を出さない */}
                   {all ? pts.map((pt, i) => <text key={`l${i}`} x={Math.min(W - 2, Math.max(14, x(i)))} y={Math.max(9, y(pt.v) - 5)} textAnchor="middle" fontSize="9" fill="#1e293b" fontWeight="bold">{fmt(pt.v)}</text>) : (<>
                   <text x={Math.min(W - 2, Math.max(28, x(imax)))} y={Math.max(9, y(vs[imax]) - 5)} textAnchor="middle" fontSize="9" fill="#1e293b" fontWeight="bold">{fmt(vs[imax])}</text>
                   {imax !== pts.length - 1 && <text x={x(pts.length - 1)} y={Math.min(H - 16, y(last.v) + 12)} textAnchor="end" fontSize="9" fill="#4338ca" fontWeight="bold">{fmt(last.v)}</text>}</>)}</svg>); };
@@ -33533,6 +33792,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                   const tempN=r.temp?Number(r.temp):null;
                   const bpN=r.bpUpSt?Number(r.bpUpSt):null;
                   const tempW=tempN&&tempN>=37.1; const bpW=bpN&&bpN>=140;
+                  // ★ 2026-11-21 trial606(ユーザー要望「詳細記録の血圧を上/下で色分け(終了時も)」): 上は140以上、下は90以上をそれぞれ別の色で。脈はそのまま
+                  const _bpCell=(up,dn,pl)=>{ if(!up) return '-'; const u=Number(up), d=(dn!==''&&dn!=null)?Number(dn):null; const uw=u>=140, dw=d!=null&&d>=90; return <><span data-bp="up" style={{color:uw?'#dc2626':'#475569'}}>{up}</span><span style={{color:'#94a3b8'}}>/</span><span data-bp="dn" style={{color:dw?'#ea580c':'#475569'}}>{dn}</span>{pl&&<span style={{color:'#334155',marginLeft:3,fontSize:14}}>({pl})</span>}{(uw||dw)&&<span title={uw&&dw?'上も下も高め':uw?'上が高め':'下が高め'}>⚠</span>}</>; };
                   return (
                     <tr key={r.id} style={{borderBottom:'1px solid #eef2f6',backgroundColor:ri%2===0?'white':'#eef2f6'}}>
                       {/* ★ データセルも中央配置で項目名と揃える */}
@@ -33553,11 +33814,11 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       <td style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:tempW?'#dc2626':'#475569',whiteSpace:'nowrap'}}>
                         {r.temp?`${r.temp}℃`:'-'}{tempW&&'⚠'}
                       </td>
-                      <td style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:bpW?'#dc2626':'#475569',whiteSpace:'nowrap'}}>
-                        {r.bpUpSt?`${r.bpUpSt}/${r.bpDnSt}`:'-'}{r.plSt&&<span style={{color:'#334155',marginLeft:3,fontSize:14}}>({r.plSt})</span>}{bpW&&'⚠'}
+                      <td data-testid="det-bp-st" style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}>
+                        {_bpCell(r.bpUpSt,r.bpDnSt,r.plSt)}
                       </td>
-                      {_showEn2 && <td style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}>
-                        {r.bpUpEn?`${r.bpUpEn}/${r.bpDnEn}`:'-'}{r.plEn&&<span style={{color:'#334155',marginLeft:3,fontSize:14}}>({r.plEn})</span>}
+                      {_showEn2 && <td data-testid="det-bp-en" style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}>
+                        {_bpCell(r.bpUpEn,r.bpDnEn,r.plEn)}
                       </td>}
                       {(effExerciseItems(appData.systemSettings)).map(ex=>{
                         let rawV = r.exercises?.[ex.id];
@@ -33999,7 +34260,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   const order = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const lv = (p) => { const i = order.indexOf(String(p.careLevel || '')); return i < 0 ? 99 : i; };
   const short = (c) => String(c || '').replace('要支援', '支援').replace('要介護', '介護').replace('事業対象者', '事業');
-  const pats = (appData.patients || []).filter(p => isPatientListable(p) && (p.status || '利用中') !== '退所');
+  const pats = (appData.patients || []).filter(p => (isPatientListable(p) && !tsuNotStarted(p, appData)) && (p.status || '利用中') !== '退所');
   const isPaused = (p) => { try { return !!getPauseReasonOnDate(p, todayIso) || (p.status === '休止' && !(p.pauseHistory || []).length); } catch { return false; } };
   const ss = appData.systemSettings || {};
   const wait = ss.classRosterWait || {};
@@ -54172,7 +54433,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
   // ★ 2026-10-28: 個別機能訓練計画書は要介護だけ。LIFE(科学的介護推進体制加算)は要支援も対象なので、LIFE のある店舗だけ要支援の方も出す(個別機能訓練計画書は出さない)
   //   (個別機能訓練加算Ⅱ・ADL維持等加算は要介護だけなので、要支援の方を出すのは 科学的介護推進体制加算 のある店舗だけ)
   const _kagakuOn = !!((appData.systemSettings || {}).addons || {}).kasan_kagaku;
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p) && (_kagakuOn || kpCareGroup(p) !== 'shien')));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData)) && (_kagakuOn || kpCareGroup(p) !== 'shien')));
   const [pid, setPid] = React.useState((targetPatientId!=null && patients.some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const patient = patients.find(p => p.id === pid);
   const _shienP = kpCareGroup(patient) === 'shien';
@@ -54265,7 +54526,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
 const PLAN_KIND_COLOR = { tsusho:'#0891b2', kinou:'#7c3aed', kagaku:'#059669', adl:'#d97706' };
 function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
   // ★ 2026-10-14(ユーザー要望): 「未作成の方も表示」のチェックはやめ、未作成の方も常に表示する(初回も作る必要があるため)
-  const _yPatients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const _yPatients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))));
   // ★ 月別ブラウズ(2026-09-08 店舗要望): null=直近(従来の「期限1ヶ月前から」) / 1〜12=その月が期日の人を表示
   const [duesMonth, setDuesMonth] = React.useState(null);
   const _allDues = React.useMemo(() => computePlanDues(appData, null, { includeFuture: true }), [appData]);
@@ -54388,7 +54649,10 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
                         {kLabel} <span className="font-normal text-slate-400">（{cycle}）{rows.length}件</span>
                       </div>
                       <div className="divide-y divide-slate-100">
-                        {rows.map((d,i) => (
+                        {/* ★ 2026-11-22 trial610(ユーザー「要支援と要介護が合わさっているので、同じ画面でよいので分かりやすく区切って」): 通所介護計画書は 要介護(通所介護計画書)／要支援・事業対象者(個別サービス計画書)／介護度が未登録 の順に区切る */}
+                        {(kind === 'tsusho' ? KP_GROUPS.map(([g, lb]) => [g, lb, rows.filter(d => kpCareGroup(d.patient) === g)]).filter(x => x[2].length) : [[null, null, rows]]).map(([g, lb, grows]) => (<React.Fragment key={g || 'all'}>
+                        {g ? <div data-testid={`yotei-group-${g}`} className={`px-4 py-1 text-[11px] font-bold border-b border-slate-100 ${g === 'shien' ? 'text-teal-800 bg-teal-50' : g === 'kaigo' ? 'text-blue-800 bg-blue-50' : 'text-slate-500 bg-slate-50'}`}>{g === 'kaigo' ? `${lb}（通所介護計画書）` : g === 'shien' ? `${lb}（${tkShienTitle(appData.systemSettings)}）` : lb} <span className="font-normal">{grows.length}名</span></div> : null}
+                        {grows.map((d,i) => (
                           <button key={i} onClick={()=>navigateTo(d.view, d.patient.id, (d.kind==='tsusho'||d.kind==='kinou') ? `start_edit|ret:${family === 'tsusho' ? 'keikaku_yotei' : 'kinou_yotei'}` : null)}
                             className={`w-full text-left px-4 py-3 flex items-center gap-3 flex-wrap hover:bg-blue-50 active:bg-blue-100 ${d.overdue?'bg-red-50':''}`}>
                             <span className="font-bold text-slate-800 text-sm" style={{minWidth:110}}>{d.patient.name}</span>
@@ -54403,6 +54667,7 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
                             </span>
                           </button>
                         ))}
+                        </React.Fragment>))}
                       </div>
                     </div>
                   );
@@ -54519,7 +54784,7 @@ function LifeDiseaseSearch({ onPick }) {
 // === 個別機能訓練計画書 (アドオン: kinou_keikaku) ===
 function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p) && kpCareGroup(p) !== 'shien') /* ★ 2026-10-28: 要介護だけ */);
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData)) && kpCareGroup(p) !== 'shien') /* ★ 2026-10-28: 要介護だけ */);
   const [pid, setPid] = React.useState((targetPatientId!=null && patients.some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null)); // ★ 2026-10-28: 要支援の方を渡されたら先頭の方
   const [editing, setEditing] = React.useState(null); // 編集中レコード or null
   const patient = (appData.patients||[]).find(p => p.id === pid);
@@ -55219,7 +55484,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
 function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null);
   const patient = (appData.patients||[]).find(p => p.id === pid);
@@ -55365,7 +55630,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
 function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null);
   const [newItem, setNewItem] = React.useState('');
@@ -55555,7 +55820,7 @@ function TsuShienTitleSetting({ ss, saveSS }) {
 function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null);
   const patient = (appData.patients||[]).find(p => p.id === pid);
@@ -56946,7 +57211,7 @@ function AdlGainEstimate({ appData, navigateTo }) {
       if (!used.has(k)) used.set(k, new Set()); used.get(k).add(ym);
     });
     const complete = (it) => BARTHEL_ITEMS.every(b => it && it[b.key] != null && it[b.key] !== '');
-    return sortPatientsByKana((appData.patients || []).filter(p => p && isPatientListable(p) && kpCareGroup(p) === 'kaigo')).map(p => {
+    return sortPatientsByKana((appData.patients || []).filter(p => p && (isPatientListable(p) && !tsuNotStarted(p, appData)) && kpCareGroup(p) === 'kaigo')).map(p => {
       const all = [...(used.get(String(p.id)) || [])].sort();
       const inPeriod = all.filter(ym => ym >= startYm && ym <= endYm);
       if (!inPeriod.length) return null;
@@ -57038,7 +57303,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const _isSubmit = mode === 'submit'; // ★ 2026-10-14: LIFE提出(月1回の提出・CSV・取込)と、利用者ごとのADL評価・科学的介護を別の画面に
   const _kkPL = kkPresetsOf(appData.systemSettings); const _kkStaffL = tsuStaffList(appData); // ★ 2026-10-14: 評価・計画(一括評価)にも定型文・職員
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && (isPatientListable(p) && !tsuNotStarted(p, appData))));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const patient = (appData.patients||[]).find(p => p.id === pid);
   const addons = appData.systemSettings?.addons || {};
@@ -58466,7 +58731,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   //   対象月ごとに使用回数を記録するので、月を越しても「その月の上限の残り」は変わらない
   //   (上限に達していない月は、いつ開いてもAIを使える)。
   const _aiMonthKey = `${tY}-${String(tM).padStart(2,'0')}`;
-  const _aiActiveCount = (appData.patients||[]).filter(p => p.status === '利用中' && isPatientListable(p)).length;
+  const _aiActiveCount = (appData.patients||[]).filter(p => p.status === '利用中' && (isPatientListable(p) && !tsuNotStarted(p, appData))).length;
   const _aiLimit = _aiActiveCount * 2;
   const _aiUsed = (appData.systemSettings?.aiUsage?.[_aiMonthKey]) || 0;
   const _aiRemaining = Math.max(0, _aiLimit - _aiUsed);
@@ -58487,7 +58752,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 2026-09-30 追加(ユーザー指示: 茂木さんのように休止中で今月来ていない方も「通所なし」に表示): 休止中の方は通所の有無にかかわらず対象
   const _monPaused = (p) => getPatientDisplayStatus(p) === '休止'; // ★ 2026-10-14: 休止予定(開始日が未来)は含めない
   // ★ 2026-10-28(ユーザー「月の途中で退所してもモニタリングは送る」): 選んだ月の途中で退所した方も、その月に通所していれば対象に残す
-  const allActive = (appData.patients||[]).filter(p => tsuMonListable(p, tY, tM) && isPatientStartedByToday(p) && (isPatientListable(p) ? (p.status === '利用中' || _monPaused(p) || hasAttendance(p)) : hasAttendance(p)));
+  const allActive = (appData.patients||[]).filter(p => tsuMonListable(p, tY, tM) && isPatientStartedByToday(p) && ((isPatientListable(p) && !tsuNotStarted(p, appData)) ? (p.status === '利用中' || _monPaused(p) || hasAttendance(p)) : hasAttendance(p)));
   const careLevelOrd = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const dowStr = ['日','月','火','水','木','金','土'];
   // ★ 利用曜日は月曜起点で統一(表示・並び替えとも月→日の順)
@@ -60421,14 +60686,20 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
     // ★ 2026-09-04: 振替のときの理由欄は「9月4日へ振替」等ではなく休み理由(通院/体調不良など)を出す。
     //   振替の案内は下の連絡事項に自動で入るため、理由が未記入なら空欄(記入してもらう)。
-    const defaultReason = fax.reason !== undefined ? fax.reason : (parsed.isFurikae ? (parsed.reason || '') : (parsed.reason || rawTokki));
+    const _reasonFull = parsed.isFurikae ? (parsed.reason || '') : (parsed.reason || rawTokki);
+    // ★ 2026-11-22 trial607(ユーザー「理由の括弧の中は下の連絡事項に書かれるので、理由欄は大まかな理由だけ。長いと見切れる」):
+    //   理由欄の初期値は大分類だけ(「通院・受診（整形外科）」→「通院・受診」)。大分類の形でない自由文はそのまま。文(連絡事項)は括弧の中の詳しい理由を使う
+    const defaultReason = fax.reason !== undefined ? fax.reason : (parseAbsReason(_reasonFull).cat || _reasonFull);
     // ★ 連絡事項のデフォルト文面: 欠席日の通所開始(既定 午前9時)を過ぎていれば過去形、前なら未来形。 振替がある場合は下段に振替日を未来/過去形で追記。 いずれも編集可能(編集後は fax.memo が優先)。
     const _defaultMemoTemplate = (() => {
       const now = new Date();
       const absD = new Date(date + 'T00:00:00');
       const sessionStart = new Date(absD.getFullYear(), absD.getMonth(), absD.getDate(), 9, 0, 0);
       const pastOrDuring = now >= sessionStart; // 通所開始を過ぎている(=通所中/後)
-      const lines = ['いつもお世話になっております。', `上記理由でお休みされ${pastOrDuring ? 'ました' : 'ます'}。`];
+      // ★ 2026-11-21 trial606(ユーザー要望「大まかな理由の下に『いつもお世話になっております。〇〇のためお休みです』と詳しい理由を自然につなげる」):
+      //   理由の詳しい方(「通院（整形外科）」なら 整形外科)を文に入れる。詳しい方が無ければ大まかな理由、それも無ければ従来の「上記理由で」
+      const _rsn = (() => { const s = String(fax.reason !== undefined ? fax.reason : _reasonFull || '').trim(); const m = s.match(/^(.+?)[（(]([\s\S]+)[）)]$/); let t = (m ? (m[2] || m[1]) : s).trim(); t = t.replace(/(のため|ため|ので)$/, ''); return t; })();
+      const lines = ['いつもお世話になっております。', `${_rsn ? `${_rsn}のため` : '上記理由で'}お休みされ${pastOrDuring ? 'ました' : 'ます'}。`];
       if (parsed.isFurikae && parsed.furikaeNote) {
         const fm = parsed.furikaeNote.match(/(\d+)月(\d+)日\s*(AM|PM|午前|午後)?/);
         if (fm) {
