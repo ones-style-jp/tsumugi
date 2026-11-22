@@ -20036,21 +20036,11 @@ function TsuPinPrompt({ member, onVerify, onCancel }) {
     </div>
   );
 }
-function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, pinDeadline, loading, roleChoices, pinMembers, onVerifyPin, pinRequired, onPinLogin }) {
-  // ★ 2026-10-19(ユーザー要望「ステップを減らす」): PIN を持つ職員がいる店舗では、名前をタップせずに PIN を入れるだけで本人として入れる
-  const [quickPin, setQuickPin] = React.useState(''); const [quickErr, setQuickErr] = React.useState(''); const [quickBusy, setQuickBusy] = React.useState(false);
-  const quickPress = async (d) => {
-    if (quickBusy) return; const n = (quickPin + d).slice(0, 4); setQuickPin(n); setQuickErr('');
-    if (n.length === 4 && onPinLogin) { setQuickBusy(true); try { const m = await onPinLogin(n); if (m) { setQuickPin(''); setQuickBusy(false); afterPin(m); return; } setQuickErr('PIN が違います'); } catch (e) { setQuickErr(e?.message || 'PIN が違います'); } setQuickPin(''); setQuickBusy(false); }
-  };
-  const [pendingAdmin, setPendingAdmin] = React.useState(null); // 管理者選択 → 認証待ち
-  // ★ 2026-11-22 trial608 案B(ユーザー決定「管理者が急に代わったとき、店舗だけで進められて本部は承認1回」):
-  //   店舗はここから「管理者の交代」を申請(新しい管理者・前の管理者の新しい役職・申請者)。申請は adminAuth.handover に控え、本部へメール。
-  //   本部が管理局で承認すると 役職の入れ替え＋管理者パスワードの消去が全端末に届き、新しい管理者は自分を選んで(自分の PIN)そのまま使える。
+// ★ 2026-11-23 trial617(ユーザー「各種設定からも申請できるようにしてほしい」): 管理者の交代(案B)の申請・取り下げ・状態の表示を部品にして、担当者を選ぶ画面と 各種設定→ログイン・管理者 の両方から使う
+function TsuAdminHandover({ members, adminAuth, onSetAdminAuth, roleChoices, inSettings, storeName, storeId }) {
   const [hoOpen, setHoOpen] = React.useState(false);
   const [hoForm, setHoForm] = React.useState({ newId: '', oldRole: '介護職員', by: '', note: '', busy: false, err: '' });
   const _ho = adminAuth && adminAuth.handover && typeof adminAuth.handover === 'object' ? adminAuth.handover : null;
-  const _pinReq = !!pinRequired || (!!pinDeadline && /^\d{4}-\d{2}-\d{2}$/.test(String(pinDeadline)) && tsuTodayIso() >= String(pinDeadline)); // ★ 2026-11-22 trial609: 期限を過ぎたら PIN 必須(この画面の中で判定)
   const _hoAdmins = (members || []).filter(m => m && (m.isAdmin || m.roleLabel === '管理者') && m.id !== 'hq_viewer');
   const _hoCands = (members || []).filter(m => m && !(m.isAdmin || m.roleLabel === '管理者') && m.id !== 'hq_viewer');
   const submitHandover = async () => {
@@ -20066,6 +20056,77 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
     } catch {}
     setHoForm({ newId: '', oldRole: '介護職員', by: '', note: '', busy: false, err: '' }); setHoOpen(false);
   };
+  return (<>
+      {/* ★ 2026-11-22 trial608 案B: 管理者の交代(申請中/承認済みの表示と申請の入口) */}
+      {(
+        <div data-testid="handover-box" style={inSettings ? {} : {maxWidth:720,margin:'10px auto 0',padding:'0 12px'}}>
+          {_ho && _ho.status === 'pending' && (
+            <div style={{background:'#fff8ea',border:'1px solid #f0c66b',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#7a4b00',lineHeight:1.7}}>
+              <b>管理者の交代を本部に申請中</b>（新しい管理者: {_ho.newMemberName}・申請: {_ho.by}）。本部の承認をお待ちください。
+              <button type="button" onClick={async()=>{ if(!window.confirm('申請を取り下げますか？')) return; try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #d9b25a',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#7a4b00',cursor:'pointer'}}>取り下げる</button>
+            </div>
+          )}
+          {_ho && _ho.status === 'approved' && (
+            <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#166534',lineHeight:1.7}}>
+              <b>本部が管理者の交代を承認しました。</b>{_ho.newMemberName} さんが管理者です。{_ho.newMemberName} さんを選ぶと、管理者パスワードを新しく設定できます。
+              <button type="button" onClick={async()=>{ try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #86efac',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#166534',cursor:'pointer'}}>確認しました</button>
+            </div>
+          )}
+          {_ho && _ho.status === 'rejected' && (
+            <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#991b1b',lineHeight:1.7}}>
+              <b>管理者の交代の申請は承認されませんでした。</b>{_ho.reason ? `理由: ${_ho.reason}` : ''} 本部にご確認ください。
+              <button type="button" onClick={async()=>{ try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #fca5a5',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#991b1b',cursor:'pointer'}}>閉じる</button>
+            </div>
+          )}
+          {!_ho && _hoCands.length > 0 && (
+            <div style={inSettings ? {} : {textAlign:'right',marginTop:4}}>
+              <button type="button" data-testid="handover-open" onClick={()=>setHoOpen(true)} style={inSettings ? {padding:'9px 16px',background:'#5e8030',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'} : {background:'transparent',border:'none',color:'#64748b',fontSize:12,textDecoration:'underline',cursor:'pointer',padding:'6px 4px'}}>{inSettings ? '管理者の交代を本部に申請する' : '管理者が代わるとき（管理者の交代を本部に申請）'}</button>
+            </div>
+          )}
+          {!_ho && _hoCands.length === 0 && inSettings && <div style={{fontSize:13,color:'#64748b'}}>申請できる方（管理者以外の職員）が名簿にいません。先に 各種設定 → スタッフ で職員を登録してください。</div>}
+        </div>
+      )}
+      {hoOpen && (
+        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.6)',zIndex:100000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{ if(!hoForm.busy) setHoOpen(false); }}>
+          <div data-testid="handover-modal" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:18,padding:22,width:'100%',maxWidth:440,boxShadow:'0 12px 40px rgba(0,0,0,0.3)'}}>
+            <div style={{fontSize:17,fontWeight:'bold',color:'#1e293b',marginBottom:6}}>管理者の交代を申請</div>
+            <div style={{fontSize:12,color:'#64748b',marginBottom:14,lineHeight:1.7}}>前の管理者と連絡が取れなくても申請できます。本部が承認すると、新しい管理者に切り替わり、前の管理者パスワードは消えます（新しい管理者が設定し直します）。</div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>新しい管理者</label>
+            <select data-testid="handover-new" value={hoForm.newId} onChange={e=>setHoForm(f=>({...f,newId:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box',background:'white'}}>
+              <option value="">選んでください</option>
+              {_hoCands.map(m => <option key={m.id} value={m.id}>{m.name}（{m.roleLabel || ''}）</option>)}
+            </select>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>前の管理者（{_hoAdmins.map(a=>a.name).join('・') || 'なし'}）の新しい役職</label>
+            <select data-testid="handover-oldrole" value={hoForm.oldRole} onChange={e=>setHoForm(f=>({...f,oldRole:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box',background:'white'}}>
+              {(roleChoices || ['介護職員']).filter(r => r && r !== '管理者').map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <div style={{fontSize:11,color:'#94a3b8',marginBottom:10,lineHeight:1.6}}>退職された場合も名簿からは消さないでください（過去の日誌・送迎表から名前が消えます）。役職を変えたあと、各種設定のスタッフで「いつまで」を入れます。</div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>申請する方のお名前</label>
+            <input data-testid="handover-by" value={hoForm.by} onChange={e=>setHoForm(f=>({...f,by:e.target.value}))} placeholder="例: 新しい管理者ご本人" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box'}}/>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>本部へのメモ（任意）</label>
+            <input value={hoForm.note} onChange={e=>setHoForm(f=>({...f,note:e.target.value}))} placeholder="例: 前任者は11月末で退職" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box'}}/>
+            {hoForm.err && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:10}}>{hoForm.err}</div>}
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button type="button" disabled={hoForm.busy} onClick={()=>setHoOpen(false)} style={{padding:'9px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>やめる</button>
+              <button type="button" data-testid="handover-submit" disabled={hoForm.busy} onClick={submitHandover} style={{padding:'9px 20px',background:'#5e8030',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',opacity:hoForm.busy?0.6:1}}>{hoForm.busy ? '送信中…' : '本部に申請する'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+  </>);
+}
+function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, pinDeadline, loading, roleChoices, pinMembers, onVerifyPin, pinRequired, onPinLogin }) {
+  // ★ 2026-10-19(ユーザー要望「ステップを減らす」): PIN を持つ職員がいる店舗では、名前をタップせずに PIN を入れるだけで本人として入れる
+  const [quickPin, setQuickPin] = React.useState(''); const [quickErr, setQuickErr] = React.useState(''); const [quickBusy, setQuickBusy] = React.useState(false);
+  const quickPress = async (d) => {
+    if (quickBusy) return; const n = (quickPin + d).slice(0, 4); setQuickPin(n); setQuickErr('');
+    if (n.length === 4 && onPinLogin) { setQuickBusy(true); try { const m = await onPinLogin(n); if (m) { setQuickPin(''); setQuickBusy(false); afterPin(m); return; } setQuickErr('PIN が違います'); } catch (e) { setQuickErr(e?.message || 'PIN が違います'); } setQuickPin(''); setQuickBusy(false); }
+  };
+  const [pendingAdmin, setPendingAdmin] = React.useState(null); // 管理者選択 → 認証待ち
+  // ★ 2026-11-22 trial608 案B(ユーザー決定「管理者が急に代わったとき、店舗だけで進められて本部は承認1回」):
+  //   店舗はここから「管理者の交代」を申請(新しい管理者・前の管理者の新しい役職・申請者)。申請は adminAuth.handover に控え、本部へメール。
+  //   本部が管理局で承認すると 役職の入れ替え＋管理者パスワードの消去が全端末に届き、新しい管理者は自分を選んで(自分の PIN)そのまま使える。
+  const _pinReq = !!pinRequired || (!!pinDeadline && /^\d{4}-\d{2}-\d{2}$/.test(String(pinDeadline)) && tsuTodayIso() >= String(pinDeadline)); // ★ 2026-11-22 trial609: 期限を過ぎたら PIN 必須(この画面の中で判定)
   const [pendingPin, setPendingPin] = React.useState(null); // ★ 2026-10-19 段階4: 本人アカウント＋PIN のある職員 → PIN 待ち
   // ★ 2026-10-26(ユーザー要望「同じ人で役職が複数ある人は、PIN のあとにどちらにするか選べるように」): 同じ名前の行が複数あれば役職を選んでから入る
   const [roleChoice, setRoleChoice] = React.useState(null);
@@ -20230,61 +20291,7 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
           </div>
         );
       })()}
-      {/* ★ 2026-11-22 trial608 案B: 管理者の交代(申請中/承認済みの表示と申請の入口) */}
-      {!isSuperAdmin && !loading && (
-        <div data-testid="handover-box" style={{maxWidth:720,margin:'10px auto 0',padding:'0 12px'}}>
-          {_ho && _ho.status === 'pending' && (
-            <div style={{background:'#fff8ea',border:'1px solid #f0c66b',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#7a4b00',lineHeight:1.7}}>
-              <b>管理者の交代を本部に申請中</b>（新しい管理者: {_ho.newMemberName}・申請: {_ho.by}）。本部の承認をお待ちください。
-              <button type="button" onClick={async()=>{ if(!window.confirm('申請を取り下げますか？')) return; try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #d9b25a',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#7a4b00',cursor:'pointer'}}>取り下げる</button>
-            </div>
-          )}
-          {_ho && _ho.status === 'approved' && (
-            <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#166534',lineHeight:1.7}}>
-              <b>本部が管理者の交代を承認しました。</b>{_ho.newMemberName} さんが管理者です。{_ho.newMemberName} さんを選ぶと、管理者パスワードを新しく設定できます。
-              <button type="button" onClick={async()=>{ try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #86efac',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#166534',cursor:'pointer'}}>確認しました</button>
-            </div>
-          )}
-          {_ho && _ho.status === 'rejected' && (
-            <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#991b1b',lineHeight:1.7}}>
-              <b>管理者の交代の申請は承認されませんでした。</b>{_ho.reason ? `理由: ${_ho.reason}` : ''} 本部にご確認ください。
-              <button type="button" onClick={async()=>{ try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #fca5a5',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#991b1b',cursor:'pointer'}}>閉じる</button>
-            </div>
-          )}
-          {!_ho && _hoCands.length > 0 && (
-            <div style={{textAlign:'right',marginTop:4}}>
-              <button type="button" data-testid="handover-open" onClick={()=>setHoOpen(true)} style={{background:'transparent',border:'none',color:'#64748b',fontSize:12,textDecoration:'underline',cursor:'pointer',padding:'6px 4px'}}>管理者が代わるとき（管理者の交代を本部に申請）</button>
-            </div>
-          )}
-        </div>
-      )}
-      {hoOpen && (
-        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.6)',zIndex:100000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{ if(!hoForm.busy) setHoOpen(false); }}>
-          <div data-testid="handover-modal" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:18,padding:22,width:'100%',maxWidth:440,boxShadow:'0 12px 40px rgba(0,0,0,0.3)'}}>
-            <div style={{fontSize:17,fontWeight:'bold',color:'#1e293b',marginBottom:6}}>管理者の交代を申請</div>
-            <div style={{fontSize:12,color:'#64748b',marginBottom:14,lineHeight:1.7}}>前の管理者と連絡が取れなくても申請できます。本部が承認すると、新しい管理者に切り替わり、前の管理者パスワードは消えます（新しい管理者が設定し直します）。</div>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>新しい管理者</label>
-            <select data-testid="handover-new" value={hoForm.newId} onChange={e=>setHoForm(f=>({...f,newId:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box',background:'white'}}>
-              <option value="">選んでください</option>
-              {_hoCands.map(m => <option key={m.id} value={m.id}>{m.name}（{m.roleLabel || ''}）</option>)}
-            </select>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>前の管理者（{_hoAdmins.map(a=>a.name).join('・') || 'なし'}）の新しい役職</label>
-            <select data-testid="handover-oldrole" value={hoForm.oldRole} onChange={e=>setHoForm(f=>({...f,oldRole:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box',background:'white'}}>
-              {(roleChoices || ['介護職員']).filter(r => r && r !== '管理者').map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-            <div style={{fontSize:11,color:'#94a3b8',marginBottom:10,lineHeight:1.6}}>退職された場合も名簿からは消さないでください（過去の日誌・送迎表から名前が消えます）。役職を変えたあと、各種設定のスタッフで「いつまで」を入れます。</div>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>申請する方のお名前</label>
-            <input data-testid="handover-by" value={hoForm.by} onChange={e=>setHoForm(f=>({...f,by:e.target.value}))} placeholder="例: 新しい管理者ご本人" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box'}}/>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>本部へのメモ（任意）</label>
-            <input value={hoForm.note} onChange={e=>setHoForm(f=>({...f,note:e.target.value}))} placeholder="例: 前任者は11月末で退職" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,marginBottom:10,boxSizing:'border-box'}}/>
-            {hoForm.err && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:10}}>{hoForm.err}</div>}
-            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-              <button type="button" disabled={hoForm.busy} onClick={()=>setHoOpen(false)} style={{padding:'9px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>やめる</button>
-              <button type="button" data-testid="handover-submit" disabled={hoForm.busy} onClick={submitHandover} style={{padding:'9px 20px',background:'#5e8030',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',opacity:hoForm.busy?0.6:1}}>{hoForm.busy ? '送信中…' : '本部に申請する'}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {!isSuperAdmin && !loading && <TsuAdminHandover members={members} adminAuth={adminAuth} onSetAdminAuth={onSetAdminAuth} roleChoices={roleChoices} storeName={storeName} storeId={storeId}/>}{/* ★ 2026-11-23 trial617: 部品化(各種設定→ログイン・管理者 からも同じ申請ができる) */}
       {pendingPin && <TsuPinPrompt member={pendingPin} onCancel={() => setPendingPin(null)} onVerify={async (pin) => { const m = pendingPin; await onVerifyPin(m, pin); setPendingPin(null); try { if (m.isAdmin || m.roleLabel === '管理者') sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} afterPin(m); }} />}
       {roleChoice && (
         <div data-testid="role-choice" style={{position:'fixed',inset:0,zIndex:10070,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={() => setRoleChoice(null)}>
@@ -26623,7 +26630,7 @@ export default function App() {
              currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} saveFnRef={printSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} /> :
              currentView === 'master' ? <MasterView appData={appData} onSave={handleSaveToCloud} targetPatientId={targetPatientId} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={masterDirtyRef} saveFnRef={masterSaveFnRef} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} exPendingRef={masterExPendingRef} navAfterExRef={masterNavAfterExRef} /> :
              currentView === 'dash_personal' ? <PersonalDashboardView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  navigateTo={navigateTo} onPatientChange={setTargetPatientId} isSidebarOpen={isSidebarOpen} /> :
-             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} loginLogLoader={isSupabaseEnabled && staffSession?.token && staffSession?.storeId && (staffSession.role === 'manager' || staffSession.role === 'super_admin') ? (() => supabaseStaffLoginsList(staffSession.token, staffSession.storeId, 200)) : null} staffCtx={_staffCtx || ((String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.staffCtx) || null)} /> :
+             currentView === 'settings' ? <SettingsView staffMembers={mergedStaffMembers} roleChoices={staffRoleChoices(appData)} onSetAdminAuth={saveAdminAuth} hoStoreName={staffSession?.storeName || staffSession?.storeShortName || ''} hoStoreId={staffSession?.storeId || ''} /* ★ trial617: 各種設定からの管理者の交代の申請 */ appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} loginLogLoader={isSupabaseEnabled && staffSession?.token && staffSession?.storeId && (staffSession.role === 'manager' || staffSession.role === 'super_admin') ? (() => supabaseStaffLoginsList(staffSession.token, staffSession.storeId, 200)) : null} staffCtx={_staffCtx || ((String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.staffCtx) || null)} /> :
              currentView === 'cmmaster' ? <SettingsView cmOnly appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
              currentView === 'emergency' ? <DisasterView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
@@ -49184,7 +49191,7 @@ function tsuBuildDemoStore(appData, opts = {}) {
   return { patients, records, systemSettings: ss, diarySettings, monthlyShifts: ms, transportPlans: tp, planCount, patientIdSeq: newSeq, slotCount };
 }
 
-function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx, navigateTo }) {
+function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx, navigateTo, staffMembers, roleChoices, onSetAdminAuth, hoStoreName, hoStoreId }) {
   // ★ 2026-10-29(ユーザー「未保存の印入れてみて」): 保存していない入力がある項目の横に印(●)。保存は今までどおり1つのボタンで全部。
   //   「保存していない」の判定(dirtyRef)はそのまま使い、true になったときに開いていた項目を控える(_dirtyTabs)。false(保存・元に戻した)になったら全部消す。
   //   App 側で直接 false にした(移るときの確認で保存した)ときは1秒ごとに見て消す
@@ -51419,6 +51426,12 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
           {/* ★ 2026-10-23(ユーザー指示): ログイン情報・管理者の設定は「ログイン・管理者」のタブに */}
           {activeTab === 'login' && (<>
             {!cmOnly && staffCtx && staffCtx.enabled && <TsuLoginSecurityCard appData={appData} onSave={onSave} staffCtx={staffCtx} isAdmin={isAdmin} />}
+            {!cmOnly && !isSuperAdmin && staffMembers && onSetAdminAuth && (
+              <SectionCard title="管理者の交代">{/* ★ 2026-11-23 trial617 */}
+                <div className="tsu-hint-row mb-2"><TsuHint>管理者が急に代わったときの申請です。前の管理者と連絡が取れなくても出せます。本部が承認すると新しい管理者に切り替わり、前の管理者パスワードは消えます（新しい管理者が設定し直します）。担当者を選ぶ画面の下からも同じ申請ができます。</TsuHint></div>
+                <TsuAdminHandover inSettings members={staffMembers} adminAuth={appData.systemSettings?.adminAuth || null} onSetAdminAuth={onSetAdminAuth} roleChoices={roleChoices} storeName={hoStoreName} storeId={hoStoreId}/>
+              </SectionCard>
+            )}
             <SectionCard title="ログイン情報">
               {(!canAdmin) ? (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
