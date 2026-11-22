@@ -2390,6 +2390,9 @@ function setGlobalPolicyCache(p) { _globalPolicyCache = (p && typeof p === 'obje
 function getGlobalPolicyCache() { return _globalPolicyCache; }
 // 有効ポリシー: ①全店共通(管理局) → ②事業所の上書き(systemSettings.policies[kind]) → ③既定
 //   notify = { announce:改定時にお知らせ公開 / login:ログイン時に再同意を求める } (未設定は両方ON=従来動作)。
+// ★ 2026-11-22 trial609(ユーザー決定「1か月の猶予のあとは自動で PIN だけに」): 一人ずつのログイン(PIN)の期限。全店共通(管理局)→店舗の上書き(security.pinDeadline)の順。空なら期限なし
+const tsuPinDeadline = (sec) => { const g = getGlobalPolicyCache(); const d = String((sec && sec.pinDeadline) || (g && g.pinDeadline) || ''); return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : ''; };
+const tsuPinForced = (sec) => { const d = tsuPinDeadline(sec); return !!d && tsuTodayIso() >= d; };
 function getEffectivePolicy(kind, systemSettings) {
   const _defNotify = { announce: true, login: true };
   const gv = _globalPolicyCache && _globalPolicyCache[kind];
@@ -20014,7 +20017,7 @@ function TsuPinPrompt({ member, onVerify, onCancel }) {
     </div>
   );
 }
-function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, loading, roleChoices, pinMembers, onVerifyPin, pinRequired, onPinLogin }) {
+function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, pinDeadline, loading, roleChoices, pinMembers, onVerifyPin, pinRequired, onPinLogin }) {
   // ★ 2026-10-19(ユーザー要望「ステップを減らす」): PIN を持つ職員がいる店舗では、名前をタップせずに PIN を入れるだけで本人として入れる
   const [quickPin, setQuickPin] = React.useState(''); const [quickErr, setQuickErr] = React.useState(''); const [quickBusy, setQuickBusy] = React.useState(false);
   const quickPress = async (d) => {
@@ -20028,6 +20031,7 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
   const [hoOpen, setHoOpen] = React.useState(false);
   const [hoForm, setHoForm] = React.useState({ newId: '', oldRole: '介護職員', by: '', note: '', busy: false, err: '' });
   const _ho = adminAuth && adminAuth.handover && typeof adminAuth.handover === 'object' ? adminAuth.handover : null;
+  const _pinReq = !!pinRequired || (!!pinDeadline && /^\d{4}-\d{2}-\d{2}$/.test(String(pinDeadline)) && tsuTodayIso() >= String(pinDeadline)); // ★ 2026-11-22 trial609: 期限を過ぎたら PIN 必須(この画面の中で判定)
   const _hoAdmins = (members || []).filter(m => m && (m.isAdmin || m.roleLabel === '管理者') && m.id !== 'hq_viewer');
   const _hoCands = (members || []).filter(m => m && !(m.isAdmin || m.roleLabel === '管理者') && m.id !== 'hq_viewer');
   const submitHandover = async () => {
@@ -20052,7 +20056,7 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
   const selectMember = (m) => {
     tsumugiMaybeAutoFullscreen(); // ★ 端末設定ONなら、このクリックで全画面に
     if (!isSuperAdmin && pinMembers && pinMembers.has(String(m.id)) && onVerifyPin) { setPendingPin(m); return; } // ★ 段階4: PIN で本人確認(管理者パスワードの代わり)
-    if (!isSuperAdmin && pinRequired && m.id !== 'hq_viewer') { alert(`${m.name} さんはまだ本人登録（PIN）が済んでいません。管理者から招待を受けて本人登録をしてから選んでください。`); return; } // ★ 段階4: PIN 必須の店舗
+    if (!isSuperAdmin && _pinReq && m.id !== 'hq_viewer') { alert(`${m.name} さんはまだ本人登録（PIN）が済んでいません。管理者から招待を受けて本人登録をしてから選んでください。`); return; } // ★ 段階4: PIN 必須の店舗
     const isAdminMember = m.isAdmin || m.roleLabel === '管理者';
     if (isAdminMember && !isSuperAdmin) { setPendingAdmin(m); return; }
     onSelect(m);
@@ -20088,7 +20092,7 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
         {!isSuperAdmin && onPinLogin && pinMembers && pinMembers.size > 0 && (
           <div data-testid="quick-pin" style={{background:'white',borderRadius:20,padding:'16px 20px',boxShadow:'0 8px 28px rgba(0,0,0,0.08)',marginBottom:14}}>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
-              <div><div style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>PIN で入る</div><div style={{fontSize:12,color:'#64748b'}}>4桁を入れるだけで、あなたとして記録を始めます{pinRequired ? '' : '（PIN が無い方は下の名前から）'}</div></div>
+              <div><div style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>PIN で入る</div><div style={{fontSize:12,color:'#64748b'}}>4桁を入れるだけで、あなたとして記録を始めます{_pinReq ? '' : '（PIN が無い方は下の名前から）'}</div></div>
               <div style={{display:'flex',gap:10}}>{[0,1,2,3].map(i => <div key={i} style={{width:14,height:14,borderRadius:7,background: quickPin.length > i ? '#3d5021' : '#e2e8f0'}}/>)}</div>
             </div>
             {quickErr && <div style={{color:'#b91c1c',fontSize:13,fontWeight:'bold',marginTop:6}}>{quickErr}</div>}
@@ -20196,6 +20200,17 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
           </div>
         </div>
       )}
+      {/* ★ 2026-11-22 trial609: 一人ずつのログイン(PIN)の期限の案内。期限までは PIN でも名前の選択でも入れる・過ぎると本人登録が済んだ人だけ */}
+      {!isSuperAdmin && pinDeadline && /^\d{4}-\d{2}-\d{2}$/.test(String(pinDeadline)) && (() => {
+        const d = new Date(`${pinDeadline}T00:00:00`); const t = new Date(`${tsuTodayIso()}T00:00:00`); const days = Math.ceil((d - t) / 86400000); const lbl = `${d.getMonth() + 1}月${d.getDate()}日`;
+        return (
+          <div data-testid="pin-deadline-banner" style={{maxWidth:720,margin:'10px auto 0',padding:'10px 14px',borderRadius:12,fontSize:13,lineHeight:1.7,background: days > 0 ? '#fff8ea' : '#fef2f2',border:`1px solid ${days > 0 ? '#f0c66b' : '#fca5a5'}`,color: days > 0 ? '#7a4b00' : '#991b1b'}}>
+            {days > 0
+              ? <><b>{lbl}から、本人登録（PIN）が済んでいない方は選べなくなります（あと {days} 日）。</b>それまでは PIN でも名前の選択でも入れます。管理者から招待を受けて本人登録をお願いします。</>
+              : <><b>{lbl}から、本人登録（PIN）が済んだ方だけ選べます。</b>まだの方は管理者から招待を受けて本人登録をしてください。</>}
+          </div>
+        );
+      })()}
       {/* ★ 2026-11-22 trial608 案B: 管理者の交代(申請中/承認済みの表示と申請の入口) */}
       {!isSuperAdmin && !loading && (
         <div data-testid="handover-box" style={{maxWidth:720,margin:'10px auto 0',padding:'0 12px'}}>
@@ -20450,6 +20465,33 @@ function DiseaseMasterPanel() {
 // ★ J: 全店共通の同意ポリシー編集(つむぎ管理局専用)。 予約レコードに1つだけ保存し、各店が読む。
 //   版(バージョン)を上げると、全店の管理局お知らせ(system_notices)に改定通知を自動掲載(I5)。
 // ★ 2026-10-26(ユーザー決定「計画書の定型文は本部で管理」): 全店共通の定型文(app_state の予約キー policies.kkPresets)。各店は読むだけ
+// ★ 2026-11-22 trial609: 管理局 → 一人ずつのログイン(PIN)の期限(全店共通)。この日から本人登録(PIN)が済んでいない職員は担当者として選べない
+function GlobalPinDeadlinePanel() {
+  const [val, setVal] = React.useState(''); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
+  React.useEffect(() => { let alive = true; (async () => { try { const gp = await supabaseLoadGlobalPolicies(); if (alive) setVal(String((gp && gp.pinDeadline) || '')); } catch {} })(); return () => { alive = false; }; }, []);
+  const save = async (v) => {
+    if (v && !window.confirm(`${v} から、全店で本人登録（PIN）が済んでいない職員は担当者として選べなくなります。よろしいですか？`)) return;
+    setBusy(true); setMsg('');
+    try { const cur = (await supabaseLoadGlobalPolicies()) || {}; const policies = { ...cur, pinDeadline: v || '' }; const ok = await supabaseSaveGlobalPolicies(policies); if (!ok) { alert('保存に失敗しました(通信エラー)'); setBusy(false); return; }
+      setGlobalPolicyCache(policies); setVal(v || ''); setMsg(v ? `✓ 保存しました（${v} から全店で PIN が必要になります）` : '✓ 期限を外しました（PIN でも名前の選択でも入れます）'); }
+    catch (e) { alert('保存に失敗: ' + ((e && e.message) || '')); }
+    setBusy(false);
+  };
+  const plus30 = () => { const d = new Date(); d.setDate(d.getDate() + 30); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  return (
+    <div data-testid="hq-pin-deadline" style={{background:'white',border:'1px solid #94c456',borderRadius:14,padding:'14px 16px',marginTop:14}}>
+      <div style={{fontSize:15,fontWeight:'bold',color:'#3d5021',marginBottom:6}}>一人ずつのログイン（PIN）の期限</div>
+      <div style={{fontSize:12,color:'#64748b',lineHeight:1.7,marginBottom:10}}>この日から、全店で本人登録（PIN）が済んでいない職員は担当者として選べなくなります。それまでは PIN でも名前の選択でも入れます（担当者を選ぶ画面に残り日数が出ます）。空のままなら期限なしです。</div>
+      <div style={{display:'flex',flexWrap:'wrap',gap:8,alignItems:'center'}}>
+        <input type="date" value={val} onChange={e=>setVal(e.target.value)} style={{padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14}}/>
+        <button disabled={busy} onClick={()=>setVal(plus30())} style={{padding:'8px 12px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>1か月後にする</button>
+        <button disabled={busy || !val} onClick={()=>save(val)} style={{padding:'8px 16px',background:'#5e8030',color:'white',border:'none',borderRadius:8,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{busy ? '保存中…' : '保存'}</button>
+        <button disabled={busy} onClick={()=>save('')} style={{padding:'8px 12px',background:'white',color:'#b45309',border:'1px solid #f59e0b',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>期限を外す</button>
+        {msg && <span style={{fontSize:12,color:'#166534',fontWeight:'bold'}}>{msg}</span>}
+      </div>
+    </div>
+  );
+}
 function GlobalKkPresetsPanel() {
   const [open, setOpen] = React.useState(false); const [vals, setVals] = React.useState(null); const [msg, setMsg] = React.useState(''); const [busy, setBusy] = React.useState(false);
   React.useEffect(() => { let alive = true; (async () => { try { const gp = await supabaseLoadGlobalPolicies(); if (!alive) return; const g = (gp && gp.kkPresets && typeof gp.kkPresets === 'object') ? gp.kkPresets : {}; const v = {}; KK_PRESET_LABELS.forEach(([k]) => { v[k] = (Array.isArray(g[k]) && g[k].length ? g[k] : KK_PRESETS_DEFAULT[k]).join('\n'); }); setVals(v); } catch { const v = {}; KK_PRESET_LABELS.forEach(([k]) => { v[k] = KK_PRESETS_DEFAULT[k].join('\n'); }); setVals(v); } })(); return () => { alive = false; }; }, []);
@@ -21521,6 +21563,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         <div ref={_secPolicy} style={{scrollMarginTop:56}}>
         <GlobalPolicyPanel staffSession={staffSession}/>
         <GlobalKkPresetsPanel/>
+        <GlobalPinDeadlinePanel/>
         </div>
         {/* LIFE傷病名マスタのCSV取込(全店共通・置き換え式) */}
         <div ref={_secMaster} style={{scrollMarginTop:56}}>
@@ -25341,7 +25384,7 @@ export default function App() {
   }
   // ★ ログイン済み + 店舗確定 + 記録者未選択 → RecorderPicker
   if (isSupabaseEnabled && staffSession?.storeId && !activeRecorder) {
-    return <RecorderPickerGate roleChoices={staffRoleChoices(appData)} pinMembers={_pinMembers} onVerifyPin={_verifyPin} pinRequired={!!_sec.pinRequired} onPinLogin={_pinLogin}
+    return <RecorderPickerGate roleChoices={staffRoleChoices(appData)} pinMembers={_pinMembers} onVerifyPin={_verifyPin} pinRequired={!!_sec.pinRequired || tsuPinForced(_sec)} pinDeadline={tsuPinDeadline(_sec)} onPinLogin={_pinLogin} /* ★ 2026-11-22 trial609: 期限を過ぎたら PIN 必須 */
       storeName={staffSession.storeName || staffSession.storeShortName}
       storeId={staffSession.storeId}
       loading={isSupabaseEnabled && (!appData._sbStoreId || appData._sbStoreId !== staffSession.storeId)}
@@ -25451,7 +25494,7 @@ export default function App() {
   }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#picker') { // ★ 段階4 の自動テスト: PIN 先行の「どなたですか」(本番では空)
     const _ms = [{ id: 'm1', name: '見本 花子', roleLabel: '介護職員' }, { id: 'm2', name: '見本 次郎', roleLabel: '生活相談員' }, ...((window.__tsumugiE2E && window.__tsumugiE2E.multiRole) ? [{ id: 'm3', name: '見本 花子', roleLabel: '生活相談員' }] : [])]; // ★ 2026-10-26: 同じ名前で役職が複数(役職の選択の自動テスト)
-    return <RecorderPickerGate storeName="テスト店" storeId="s1" members={_ms} canManage={false} isSuperAdmin={false} roleChoices={['介護職員']} pinMembers={new Set(['m1'])} pinRequired={!!(window.__tsumugiE2E && window.__tsumugiE2E.pinRequired)}
+    return <RecorderPickerGate storeName="テスト店" storeId="s1" members={_ms} canManage={false} isSuperAdmin={false} roleChoices={['介護職員']} pinMembers={new Set(['m1'])} pinRequired={!!(window.__tsumugiE2E && window.__tsumugiE2E.pinRequired)} pinDeadline={(window.__tsumugiE2E && window.__tsumugiE2E.pinDeadline) || ''}
       onPinLogin={async (pin) => { if (pin === '1234') return _ms[0]; throw new Error('PIN が違います'); }} onVerifyPin={async (m, pin) => { if (pin !== '1234') throw new Error('PIN が違います'); }}
       onSelect={(m) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), picked: m.id }; }} onLogout={() => {}} />;
   }
