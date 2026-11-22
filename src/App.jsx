@@ -24362,11 +24362,15 @@ export default function App() {
     const famUnread = (appData.patients||[]).flatMap(p => (Array.isArray(p.docUpdates)?p.docUpdates:[])).filter(u => (u.by==='family'||u.by==='caremanager') && !u.readOffice && !isNoticeRead(u.id)).length;
     const nowT = Date.now();
     const _hq = (visibleNotices||[]).filter(n=>!(n.ends_at && new Date(n.ends_at).getTime()<nowT)).map(n=>({ id:n.id, date:(n.created_at?String(n.created_at).slice(0,10):'') }));
-    const _lv = (devUpdateNotes||[]).map(a=>({ id:a.id, date:a.date }));
+    // ★ 2026-11-22 1122e(ユーザー「お知らせを全部既読にしたのに 50 が消えない」): ホームの一覧は trial600 から更新内容を日付ごとに 1 件(id=upd-day-<日付>)にまとめ、「全て既読」はその id に付く。
+    //   ここは項目ごとの id を数えていたので、既読にしてもバッジが減らなかった。一覧と同じ日ごとのまとめで数え、まとめ自体か中の全部が既読なら既読とする(trial600 より前に項目ごとに既読にした分も既読のまま)
+    const _byDayN = {}; (devUpdateNotes||[]).forEach(a => { const k = String(a.date || ''); (_byDayN[k] = _byDayN[k] || []).push(a); });
+    const _lv = Object.keys(_byDayN).map(k => ({ id: `upd-day-${k}`, date: k, _ids: _byDayN[k].map(a => String(a.id)) }));
     const _bi = (typeof DEV_ANNOUNCEMENTS!=='undefined'?DEV_ANNOUNCEMENTS:[]).map(a=>({ id:a.id, date:a.date }));
     const _seenN = new Set();
     const _allN = [..._hq, ..._lv, ..._bi].filter(x=>{ if(!x.id||_seenN.has(x.id)) return false; _seenN.add(x.id); return true; }).sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,50);
-    const noticeUnread = _allN.filter(x=>!isNoticeRead(x.id)).length;
+    const _isReadN = (x) => isNoticeRead(x.id) || (Array.isArray(x._ids) && x._ids.length > 0 && x._ids.every(id => isNoticeRead(id)));
+    const noticeUnread = _allN.filter(x=>!_isReadN(x)).length;
     return schedUnread + famUnread + noticeUnread;
   }, [appData.scheduleEvents, appData.patients, visibleNotices, devUpdateNotes, isNoticeRead]);
   // ★ 管理者名の自動連携: スタッフ切替/日誌で登録した「管理者」を事業所情報(管理者名)へ常に反映する。
