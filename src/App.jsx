@@ -93,6 +93,7 @@ import {
   supabaseLoadStateForStore,
   supabaseStoreStateExists,
   supabaseLoadStateMetaForStore,
+  tsuLastPushInfo, // ★ 2026-11-24 trial624
   supabaseStaffLogin,
   supabaseHqPasskeyRegister, supabaseHqPasskeyLogin, supabaseHqPasskeyList, supabaseHqPasskeyDelete, tsuPasskeyAvailable, tsuPasskeyAutofillAvailable, // ★ 2026-10-23 本部のパスキー ★ 2026-11-01 自動入力
   portalLoadState, portalSubscribeState, portalResolveStore, portalListStores, hasPortalToken, setPortalToken, // ★ 2026-10-18 データ保護(段階3.5): ポータルのサーバー経由
@@ -2075,6 +2076,10 @@ const tsumugiFacilityInfo = (appData) => {
   };
 };
 const tsumugiFaxLog = (appData) => (appData && Array.isArray(appData.faxHistory) ? appData.faxHistory : []).filter(h => h && h.method !== 'pdf');
+// ★ 2026-11-24 trial624: クラウドの店舗データの「印」。版(version)があれば 'v<版>'、無ければ更新時刻。すべての書き込みは CAS で版を進めるので、版が同じ=中身も同じ
+const _tsuStateSig = (row) => { if (!row) return null; const v = Number(row.version); if (row.version != null && Number.isFinite(v)) return 'v' + v; return row.updated_at ? String(row.updated_at) : null; };
+const TSU_PULL_FULL_REFRESH_MS = 3600000; // 変化が無くても全量を取り直す安全網の間隔(trial624: 5分→60分。本部が SQL で直接 data を直したときは版も進めること)
+let _tsuPullSkipLogAt = 0;
 const tsumugiIsIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 // ★ 2026-10-16(ユーザー要望「タブレットでもピンチイン・ピンチアウトできるように」): iPad/iPhone は指で拡大している間、window.innerWidth が
 //   「いま見えている幅」に縮む(1080px の iPad を1.5倍にすると 720px)。スマホ用の画面への切り替え(768px 未満)などの判定が拡大で変わらないよう、
@@ -2206,7 +2211,11 @@ const tsumugiBuildPrintSrcDoc = (html) => {
 // iPad/iPhone では fetch の後に window.open すると開けない(ユーザー操作の外)ため、クリック時に先に空の窓を開いて渡す
 const tsumugiOpenPdfWindow = () => { if (!tsumugiIsIOS()) return null; try { const w = window.open('', '_blank'); if (w) { try { w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>PDFを作成中…</title></head><body style="font-family:-apple-system,sans-serif;padding:40px;color:#334155;font-size:18px;">PDFを作成しています。しばらくお待ちください…</body></html>'); w.document.close(); } catch {} } return w; } catch { return null; } };
 async function tsumugiServerPdf({ html, pageSize, title, win, onReady }) {
-  const r = await fetch('/api/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html, pageSize: pageSize || 'A4 portrait', title: title || 'document' }) });
+  // ★ 2026-11-24 trial624(ユーザー「iPad で連絡帳の PDF が『PDFを作成中』のまま止まる」): 75 秒で時間切れにして案内を出す(待ち続けて白い画面にならないように)
+  const _ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null; const _tm = setTimeout(() => { try { _ctl && _ctl.abort(); } catch {} }, 75000);
+  let r; try { r = await fetch('/api/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html, pageSize: pageSize || 'A4 portrait', title: title || 'document' }), ...(_ctl ? { signal: _ctl.signal } : {}) }); }
+  catch (e) { clearTimeout(_tm); const _ab = e && (e.name === 'AbortError'); if (win) { try { if (_ab) { win.document.body.innerHTML = '<p style="font-family:sans-serif;padding:24px;font-size:16px">PDF の作成に時間がかかりすぎたため中止しました（75 秒）。電波の良い場所で、もう一度お試しください。このタブは閉じて構いません。</p>'; } else win.close(); } catch {} } throw new Error(_ab ? 'PDF の作成が 75 秒で終わりませんでした。通信を確認して、もう一度お試しください' : String((e && e.message) || e)); }
+  clearTimeout(_tm);
   if (!r.ok) { let msg = `HTTP ${r.status}`; try { const j = await r.json(); if (j && j.error) msg = j.error; } catch {} if (win) { try { win.close(); } catch {} } throw new Error(msg); }
   const blob = await r.blob();
   const url = URL.createObjectURL(blob);
@@ -22509,6 +22518,9 @@ export default function App() {
   //   保存(ふつうの保存・再送)の前に必ず最新を取り込み、取り込みが終わるまで待つ。取り込む関数は pull の effect が _pullNowRef に入れる。
   //   書くのは元の保存内容(合成で最新と合わせる)。取り込みが10秒で終わらなければ待たずに進む(保存を失わない)
   const _pullNowRef = React.useRef(null);
+  // ★ 2026-11-24 trial624: 自分の保存(CAS)が「読んだ版」=この端末が最後に取り込んだ版 なら、クラウドは自分の書いた版そのもの。取り直さずに印だけ進める。
+  //   間に他の端末が書いていた(読んだ版が進んでいた)ときは何もしない=次の確認で取り直して、他の端末の内容も画面に入る
+  const _tsuAdoptOwnPush = () => { try { const lp = tsuLastPushInfo; if (!lp || lp.key !== staffSession?.storeId || lp.noop || !(lp.version >= 0)) return; if (lastAppliedSigRef.current === 'v' + lp.base) { lastAppliedSigRef.current = 'v' + lp.version; lastAppliedAtRef.current = Date.now(); syncLog('push-own-sig', { v: lp.version }); } } catch {} };
   const _pullIfStale = async (tag) => {
     try {
       const last = Math.max(lastAppliedAtRef.current || 0, lastPullCheckOkAtRef.current || 0); const age = Date.now() - last;
@@ -22542,7 +22554,7 @@ export default function App() {
         if (p.data._sbStoreId && p.data._sbStoreId !== sid) { await _pendIdb.del(sid); return; } // 別店舗の控えは捨てる(店舗ゲート)
         syncLog('pend-resend', { age: Math.round((Date.now() - (p.at || Date.now())) / 1000) });
         await _pullIfStale('resend'); // ★ trial545: 通信が戻った直後の再送も、まず最新を取り込んでから
-        let ok = false, _blk = false; try { const _r = await supabaseMergeAndSyncStateForStore(sid, p.data); ok = _r !== false; _blk = _r === 'blocked'; } catch {}
+        let ok = false, _blk = false; try { const _r = await supabaseMergeAndSyncStateForStore(sid, p.data); ok = _r !== false; _blk = _r === 'blocked'; if (_r === true) _tsuAdoptOwnPush(); } catch {} // ★ trial624
         if (_blk) { await _pendIdb.del(sid); _pendPushRef.current = false; syncLog('pend-resend-blocked', {}); return; } // ★ 2026-11-02: 読み込み前/利用者0の控えは危険なので送らずに捨てる
         if (ok) { await _pendIdb.del(sid); _pendPushRef.current = false; syncLog('pend-resend-ok', {}); setToastMsg('前回保存できなかった変更をクラウドへ送信しました（数秒後に画面に反映されます）'); setShowToast(true); setTimeout(() => setShowToast(false), 5000); }
         else syncLog('pend-resend-fail', {});
@@ -23015,7 +23027,7 @@ export default function App() {
     try { localStorage.setItem(lastStoreKey, newStoreId); } catch {}
 
     let _pullSkipCount = 0;
-    const checkAndPull = async () => {
+    const _checkAndPullInner = async (opts) => {
       try {
         // ★ メモリ肥大対策(2026-08-30): まず updated_at だけの軽量チェック。 前回反映と同じで、
         //   強制pull不要・最後の反映から60秒以内なら、フルデータ(数MB)の取得・解析ごとスキップする。
@@ -23024,11 +23036,14 @@ export default function App() {
         if (dataLoadedForStoreRef.current === newStoreId && pendingPullForStoreRef.current !== newStoreId) {
           try {
             const _meta = await supabaseLoadStateMetaForStore(newStoreId);
-            const _msig = _meta && _meta.updated_at ? String(_meta.updated_at) : null;
+            const _msig = _tsuStateSig(_meta);
             // ★ 2026-10-07(エラーコード5の再発): 変化が無いときの安全網の全量取り直しを 60秒→5分 に(全データの取得・解析・画面の作り直しを減らす)。
             //   他端末が保存すれば更新時刻が変わるので、これまでどおり数秒で反映される。
+            // ★ 2026-11-24 trial624(ユーザー「iPad が重い」): 判定は版(version)で行う。すべての書き込みは版を進める(CAS)ので、版が同じ=中身も同じ。
+            //   安全網の全量取り直しは 5分→60分(眠りから覚めるたび・保存のたびに 2.5MB を取り直していた)。保存の前の「まず取り込む」(preSave)は版が同じなら何もしない
             if (_msig) lastPullCheckOkAtRef.current = Date.now();
-            if (_msig && lastAppliedSigRef.current === _msig && (Date.now() - (lastAppliedAtRef.current || 0)) < 300000) {
+            if (_msig && lastAppliedSigRef.current === _msig && ((opts && opts.preSave) || (Date.now() - (lastAppliedAtRef.current || 0)) < TSU_PULL_FULL_REFRESH_MS)) {
+              try { const _n = Date.now(); if (!_tsuPullSkipLogAt || _n - _tsuPullSkipLogAt > 60000) { _tsuPullSkipLogAt = _n; syncLog('pull-same', { v: _msig, pre: !!(opts && opts.preSave) }); } } catch {}
               return; // クラウドに変化なし → 何もしない(フル取得もsetAppDataもしない)
             }
           } catch { /* メタ取得失敗時は従来どおりフル取得へ */ }
@@ -23104,10 +23119,11 @@ export default function App() {
         //   長時間表示によるメモリ肥大→クラッシュ を防止)。 forcePull / 初回は必ず反映。
         //   ただし updated_at 判定の取りこぼし対策として、一定時間(10秒)反映が無ければ強制的に反映する
         //   (これが無いと「他端末の更新が自動で反映されず、再読み込みしないと出ない」不具合が起きる)。
-        const _sig = row.updated_at || null;
+        const _sig = _tsuStateSig(row); // ★ trial624: 版で判定
         // ★ 2026-08-30: 取りこぼし対策の強制反映は4秒→60秒に。 4秒だとポーリング毎にほぼ必ず
         //   全再構築(setAppData)が走り、メモリ肥大クラッシュの主因になっていた。
-        const _stale = (Date.now() - (lastAppliedAtRef.current || 0)) > 300000;
+        const _stale = (Date.now() - (lastAppliedAtRef.current || 0)) > TSU_PULL_FULL_REFRESH_MS; // ★ trial624: 5分→60分
+        try { syncLog('pull-full', { why: forcePull ? 'force' : (_sig && lastAppliedSigRef.current === _sig) ? 'stale' : 'changed', v: _sig }); } catch {}
         if (_sig) lastPullCheckOkAtRef.current = Date.now();
         if (!forcePull && !_stale && _sig && lastAppliedSigRef.current === _sig) {
           dataLoadedForStoreRef.current = newStoreId;
@@ -23530,7 +23546,10 @@ export default function App() {
         }
       }
     };
-    _pullNowRef.current = checkAndPull; // ★ trial545: 保存の前の「まず取り込む」で使う
+    // ★ 2026-11-24 trial624: 取り込みは同時に 1 本だけ(目覚めた直後の取り込み・Realtime・保存前の取り込みが重なって 2.5MB を二重に取らない)。走っている間に呼ばれたら、その結果を待つ
+    let _pullInflight = null;
+    const checkAndPull = (opts) => { if (_pullInflight) return _pullInflight; _pullInflight = (async () => { try { return await _checkAndPullInner(opts); } finally { _pullInflight = null; } })(); return _pullInflight; };
+    _pullNowRef.current = () => checkAndPull({ preSave: true }); // ★ trial545: 保存の前の「まず取り込む」で使う(trial624: 版が同じなら見出しだけで終わる)
     checkAndPull(); // 即時1回
     // ★ 2026-11-22 trial608(計画書 P1-4・ユーザー承認「早めに」): 定期の確認は 4秒→20秒。画面が隠れている間は確認しない(戻った瞬間に onWakePull が取り込む)。
     //   ふだんの反映は Realtime(即時)で届くので速さは変わらない。Realtime が切れているときだけ最長 20 秒。保存の前の「まず取り込む」(60秒以上空いたら)はそのまま
@@ -25222,6 +25241,7 @@ export default function App() {
               const _t1 = Date.now(); try { if (_saveStageRef.current) _saveStageRef.current('push'); } catch {}
               const ok = await _retryPush(cur);
               try { syncLog('push-time', { pullMs: _pulled ? _t1 - _t0 : 0, pushMs: Date.now() - _t1, ok: ok === true ? 1 : String(ok) }); } catch {}
+              if (ok === true) _tsuAdoptOwnPush(); // ★ trial624: 間に他の端末が書いていなければ、クラウドは自分の書いた版=取り直さない
               { const ws = _pushWaitersRef.current.splice(0); ws.forEach(r => { try { r(ok === true); } catch {} }); }
               if (ok === 'blocked') { // ★ 2026-11-02 水元店の事故: 関所で止めた保存は再送に積まない(その状態をクラウドへ送ると全店のデータが消える)。端末はまもなく最新を取り直す
                 // ★ trial545: 「減る」保存を止めたとき(blocked-shrink)は案内を変え、すぐ最新を取り込む

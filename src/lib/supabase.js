@@ -953,26 +953,26 @@ async function _casUpdateInner(key, mutate, opts = {}) {
     // ★ クラウドが持つ最大同期時刻を取り込んでから mutate する (時計が遅れた端末でも必ず勝てるようにする)
     observeRemoteClock(row.data && row.data.__clock ? row.data.__clock : maxRecordClock(row.data));
     const next = mutate(row.data || null);
-    if (next == null) return { ok: true, version: base, noop: true };
+    if (next == null) return { ok: true, version: base, base, noop: true };
     // ★ 2026-10-02(扇橋で毎秒1回以上の空回りの書き込みを確認): マージした結果がクラウドと「時刻の印(__clock)と
     //   最後に保存した端末(_lastSync)以外は同じ」なら書かない。書くと版だけが進み、他端末が受信→保存し直す、を
     //   2台で延々と繰り返し(通信を占有して保存失敗・画面の遅れの原因)、中身は何も変わっていなかった。
     if (opts.skipIfSame && row.data && sameStateIgnoringMeta(next, row.data)) {
       try { const _n = Date.now(); if (!_casUpdateInner._noopAt || _n - _casUpdateInner._noopAt > 30000) { _casUpdateInner._noopAt = _n; syncLog('push-noop', { v: base }); } } catch {}
-      return { ok: true, version: base, noop: true, data: row.data };
+      return { ok: true, version: base, base, noop: true, data: row.data };
     }
     // ★ 書き込むデータに「この時点での最大同期時刻」を刻む (次に読む端末がこれ以上へ時計を進める)
     try { next.__clock = Math.max(Number(row.data && row.data.__clock) || 0, syncNow()); } catch {}
     // ② 原子的CAS: WHERE key AND version=base の1行だけ更新(version+1)。 返り行で成否判定。
     // ★ trial562: まず圧縮してサーバー経由で書く(条件が合わなければ null → 従来のブラウザ直接)
     const _api = await _casUpdateViaApi(key, base, next);
-    if (_api && _api.ok) return { ok: true, data: next, version: _api.version };
+    if (_api && _api.ok) return { ok: true, data: next, version: _api.version, base };
     if (_api && _api.conflict) { syncLog('cas-conflict', { attempt, base, via: 'api' }); await _casBackoff(attempt); continue; }
     const { data: upd, error: updErr } = await _withSignal(supabase
       .from('app_state').update({ data: next, version: base + 1 })
       .eq('key', key).eq('version', base).select('version'));
     if (updErr) throw new Error('cas update failed: ' + (updErr.message || updErr.code || 'unknown'));
-    if (upd && upd.length > 0) return { ok: true, data: next, version: base + 1 };
+    if (upd && upd.length > 0) return { ok: true, data: next, version: base + 1, base };
     // ③ 0件=競合(他端末が先に version を進めた) → バックオフして再取得・再mutate・再試行
     syncLog('cas-conflict', { attempt, base });
     await _casBackoff(attempt);
@@ -1037,6 +1037,8 @@ export const scrubAmnestyTombstones = (storeId, tomb) => {
   return changed ? out : tomb;
 };
 
+// ★ 2026-11-24 trial624: 直近の保存(CAS)の「読んだ版(base)→書いた版(version)」。App はこれを見て、自分の保存の直後の取り直しを省く
+export const tsuLastPushInfo = { key: '', base: -1, version: -1, noop: false, at: 0 };
 export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts = {}) { // ★ 2026-11-02: opts.allowEmpty(意図した減少のときだけ関所を通す)
   if (!supabase || !storeId) return false;
   let _blocked = null; // ★ 2026-11-02 水元店の事故: 関所で止めた理由(止めたら 'blocked' を返す・再送に積まない)
@@ -1735,6 +1737,7 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
       return 'blocked';
     }
     const _ok = !!(_casRes && _casRes.ok);
+    if (_ok) { try { Object.assign(tsuLastPushInfo, { key: storeId, base: Number(_casRes.base), version: Number(_casRes.version), noop: !!_casRes.noop, at: Date.now() }); } catch {} } // ★ trial624
     if (_ok) { syncHealth.lastOkAt = Date.now(); if (!_casRes.noop) syncLog('push-ok', { v: _casRes.version }); }
     else { syncHealth.lastFailAt = Date.now(); syncHealth.lastError = (_casRes && _casRes.reason) || 'unknown'; syncLog('push-fail', { reason: syncHealth.lastError }); }
     return _ok;
@@ -1754,7 +1757,7 @@ export async function supabaseLoadStateMetaForStore(storeId) {
   if (!supabase || !storeId) return null;
   const { data, error } = await supabase
     .from('app_state')
-    .select('updated_at')
+    .select('updated_at, version') // ★ 2026-11-24 trial624: 版も読む(変化なしの判定は版で)
     .eq('key', storeId)
     .maybeSingle();
   if (error) throw new Error('loadStateMeta failed: ' + (error.message || error.code || 'unknown'));
@@ -1769,7 +1772,7 @@ export async function supabaseLoadStateForStore(storeId) {
   //   「行が本当に無い (新規店舗)」場合のみ data=null を返す (maybeSingle は error=null)。
   const { data, error } = await supabase
     .from('app_state')
-    .select('data, updated_at')
+    .select('data, updated_at, version') // ★ 2026-11-24 trial624: 版も読む
     .eq('key', storeId)
     .maybeSingle();
   if (error) {
