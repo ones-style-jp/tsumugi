@@ -11,7 +11,7 @@ import crypto from 'crypto';
 import { getSecret } from './_secrets.js';
 import { s3FromSecrets, awsConfig } from './_s3.js';
 
-const RATES = { s3UsdPerGbMonth: 0.025, usdJpy: 150, brevoFreePerDay: 300 };
+const RATES = { s3UsdPerGbMonth: 0.025, usdJpy: 150, brevoFreePerDay: 300, anthropicUsdPerM: { haiku: [1, 5], sonnet: [3, 15], opus: [15, 75], other: [3, 15] } }; // Claude は [入力, 出力] ドル/100万トークン(概算)
 
 const secretOk = (given) => {
   const want = String(process.env.ADMIN_API_SECRET || '');
@@ -73,6 +73,25 @@ async function interfaxPart() {
   return out;
 }
 
+// Claude(AI)の今月: ai-draft が S3 に残した usage/anthropic/<年月>/…-<系統>-i<入力>-o<出力>-s<店舗>.json を一覧だけで集計(中身は読まない)
+async function anthropicPart() {
+  const cfg = await awsConfig();
+  if (!cfg.configured) return { configured: false, why: 'AWS の控えが未設定のため記録していません' };
+  const s3 = await s3FromSecrets(); const ym = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 7);
+  const items = await withTimeout(s3.listAll(`usage/anthropic/${ym}/`, 100000), 30000, 'AI の記録の一覧');
+  const month = { calls: 0, input: 0, output: 0, estUsd: 0 }; const byStore = {}; const byFam = {};
+  for (const it of items) {
+    const m = /-(haiku|sonnet|opus|other)-i(\d+)-o(\d+)-s([A-Za-z0-9_-]*)\.json$/.exec(String(it.key || '')); if (!m) continue;
+    const fam = m[1], inp = Number(m[2]) || 0, outp = Number(m[3]) || 0, sid = m[4] || 'unknown'; const r = RATES.anthropicUsdPerM[fam] || RATES.anthropicUsdPerM.other;
+    const usd = (inp * r[0] + outp * r[1]) / 1e6;
+    month.calls += 1; month.input += inp; month.output += outp; month.estUsd += usd;
+    byStore[sid] = byStore[sid] || { calls: 0, input: 0, output: 0 }; byStore[sid].calls += 1; byStore[sid].input += inp; byStore[sid].output += outp;
+    byFam[fam] = (byFam[fam] || 0) + 1;
+  }
+  month.estUsd = Math.round(month.estUsd * 1000) / 1000; month.estJpy = Math.round(month.estUsd * RATES.usdJpy);
+  return { configured: true, ym, month, byStore, byFam, since: '2026-11-24' };
+}
+
 async function brevoPart() {
   const key = await getSecret('BREVO_API_KEY', 'brevo_api_key');
   if (!key) return { configured: false };
@@ -95,12 +114,11 @@ export default async function handler(req, res) {
   let body = req.body; if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } } body = body || {};
   if (!secretOk(body.secret)) return res.status(401).json({ error: '本部だけが見られます' });
   const safe = async (fn, label) => { try { return await fn(); } catch (e) { return { configured: true, error: `${label}: ${String((e && e.message) || e).replace(/AKIA[0-9A-Z]{12,}/g, 'AKIA…').slice(0, 160)}` }; } };
-  const [aws, interfax, brevo] = await Promise.all([safe(awsPart, 'AWS'), safe(interfaxPart, 'InterFAX'), safe(brevoPart, 'Brevo')]);
-  return res.status(200).json({ ok: true, at: new Date().toISOString(), rates: RATES, aws, interfax, brevo,
+  const [aws, interfax, brevo, anthropic] = await Promise.all([safe(awsPart, 'AWS'), safe(interfaxPart, 'InterFAX'), safe(brevoPart, 'Brevo'), safe(anthropicPart, 'Claude')]);
+  return res.status(200).json({ ok: true, at: new Date().toISOString(), rates: RATES, aws, interfax, brevo, anthropic,
     unavailable: [
       { id: 'supabase', name: 'Supabase（データベース・写真の置き場）', why: '利用量は Supabase の管理画面(Usage)でだけ見られます。つむぎの鍵では取れません' },
       { id: 'vercel', name: 'Vercel（配信・サーバー）', why: '通信量は Vercel の管理画面(Usage)でだけ見られます' },
-      { id: 'anthropic', name: 'Claude（AI）', why: '使った量の記録をつむぎ側に残していないため。必要なら次の版で件数と文字数を記録します' },
       { id: 'gmail', name: 'Google メール', why: '無料の範囲(1日 500 通まで)。件数は Gmail の送信済みで' },
     ] });
 }

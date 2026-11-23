@@ -71,6 +71,20 @@ export default async function handler(req, res) {
       body: JSON.stringify({ model, max_tokens: _maxTok, messages, ...(system ? { system } : {}) }),
     });
     const data = await resp.json().catch(() => ({}));
+    // ★ 2026-11-24 trial622(ユーザー「AI の件数と文字数を記録して」): 使った量を AWS S3 に 1 回 1 件で残す(usage/anthropic/<年月>/…)。鍵の名前に数字を入れ、一覧だけで集計できるようにする。
+    //   AWS が未設定なら何もしない。失敗しても AI の返事は返す(記録は目安)
+    try {
+      const u = data && data.usage; if (u && (u.input_tokens != null || u.output_tokens != null)) {
+        const { awsConfig, s3FromSecrets } = await import('./_s3.js'); const cfg = await awsConfig();
+        if (cfg.configured) {
+          const s3 = await s3FromSecrets(); const now = new Date(); const jst = new Date(now.getTime() + 9 * 3600e3); const ym = jst.toISOString().slice(0, 7);
+          const fam = /haiku/i.test(String(model)) ? 'haiku' : /sonnet/i.test(String(model)) ? 'sonnet' : /opus/i.test(String(model)) ? 'opus' : 'other';
+          const sid = String(body.storeId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'unknown';
+          const key = `usage/anthropic/${ym}/${jst.toISOString().replace(/[-:]/g, '').slice(0, 15)}-${Math.random().toString(36).slice(2, 6)}-${fam}-i${Number(u.input_tokens) || 0}-o${Number(u.output_tokens) || 0}-s${sid}.json`;
+          await s3.putJson(key, { at: now.toISOString(), model: String(model), storeId: sid, input: Number(u.input_tokens) || 0, output: Number(u.output_tokens) || 0 });
+        }
+      }
+    } catch { /* 記録は目安 */ }
     return res.status(resp.status).json(data);
   } catch (e) {
     return res.status(502).json({ error: 'AI呼び出しに失敗しました: ' + String((e && e.message) || e) });

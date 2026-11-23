@@ -20728,7 +20728,7 @@ function GlobalAiPanel({ staffSession }) {
     if (u.error) return <div data-testid="usage-err" style={{color:'#c2410c',fontWeight:'bold'}}>{u.error}</div>;
     const box = { background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:10, padding:'8px 12px', marginTop:6 };
     const h = { fontWeight:'bold', color:'#3d5021' };
-    const a = u.aws || {}, f = u.interfax || {}, b = u.brevo || {}, rt = u.rates || {};
+    const a = u.aws || {}, f = u.interfax || {}, b = u.brevo || {}, c = u.anthropic || {}, rt = u.rates || {};
     return (<div data-testid="usage-box" style={{fontSize:12,lineHeight:1.8,color:'#1e293b'}}>
       <div style={box}><div style={h}>AWS S3（写真・店舗データの控え）</div>
         {!a.configured ? <div>未設定</div> : a.error ? <div style={{color:'#c2410c'}}>{a.error}</div> : (<>
@@ -20744,6 +20744,12 @@ function GlobalAiPanel({ staffSession }) {
         </>)}</div>
       <div style={box}><div style={h}>Brevo（メールの控えの経路）</div>
         {!b.configured ? <div>未設定</div> : b.error ? <div style={{color:'#c2410c'}}>{b.error}</div> : (<div>今月（{b.from}〜{b.to}）の送信 <b>{b.requests ?? 0} 通</b>・届いた {b.delivered ?? 0}・不達 {(b.hardBounces || 0) + (b.softBounces || 0)}・無料枠は 1 日 {b.freePerDay} 通</div>)}</div>
+      <div style={box} data-testid="usage-ai"><div style={h}>Claude（AI の下書き）</div>{/* ★ 2026-11-24 trial622: 件数とトークン(文字数の目安)と概算 */}
+        {!c.configured ? <div>{c.why || '記録なし'}</div> : c.error ? <div style={{color:'#c2410c'}}>{c.error}</div> : (<>
+          <div>今月（{c.ym}）<b>{c.month?.calls ?? 0} 回</b>・入力 {Number(c.month?.input || 0).toLocaleString()} トークン・出力 {Number(c.month?.output || 0).toLocaleString()} トークン（日本語はおよそ 1 トークン＝1〜2 文字）・概算 <b>約 {Number(c.month?.estJpy || 0).toLocaleString()} 円</b>（${c.month?.estUsd ?? 0}）</div>
+          {c.byStore && Object.keys(c.byStore).length > 0 && <div style={{fontSize:11,color:'#475569'}}>店舗ごと: {Object.entries(c.byStore).sort((x, y) => y[1].calls - x[1].calls).map(([k, v]) => `${k} ${v.calls} 回`).join('・')}</div>}
+          <div style={{fontSize:11,color:'#64748b'}}>記録は {c.since} の配信後の分からです。</div>
+        </>)}</div>
       {Array.isArray(u.unavailable) && u.unavailable.length > 0 && <div style={box}><div style={h}>この画面では取れないもの</div>{u.unavailable.map(x => <div key={x.id} style={{fontSize:11,color:'#475569'}}><b>{x.name}</b>: {x.why}</div>)}</div>}
       <div style={{fontSize:11,color:'#64748b'}}>確認した時刻 {_bkJst(u.at)}・概算は目安です。正確な請求は各サービスの管理画面で。</div>
     </div>);
