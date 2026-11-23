@@ -27020,7 +27020,7 @@ let _tsuBackLockN = 0;
 //   overflow を止める/戻すの切り替えをやめた。iPad の WebKit はスクロールする箱の overflow を途中で切り替えると、描き直さずに白く残すことがある。
 //   768px以上で後ろを止めるのは、指・ホイールの見張り(tsuInstallModalScrollGuard: 止めている間は小窓の外の動きを後ろへ伝えない)だけ。
 //   スマホ(ページ全体がスクロールする作り)は今までどおり html/body を止める
-const _tsuEnsureLockStyle = () => { if (typeof document === 'undefined' || document.getElementById('tsu-back-lock-style')) return; const st = document.createElement('style'); st.id = 'tsu-back-lock-style'; st.textContent = '@media (max-width:767px){html.tsu-back-lock,html.tsu-back-lock body{overflow:hidden!important;overscroll-behavior:none!important}html.tsu-back-lock .record-view-scroll{overflow:hidden!important;touch-action:none!important}html.tsu-back-lock .overflow-auto,html.tsu-back-lock .overflow-y-auto,html.tsu-back-lock .overflow-x-auto,html.tsu-back-lock .overflow-scroll{overscroll-behavior:contain!important}}'; document.head.appendChild(st); };
+const _tsuEnsureLockStyle = () => { if (typeof document === 'undefined' || document.getElementById('tsu-back-lock-style')) return; const st = document.createElement('style'); st.id = 'tsu-back-lock-style'; st.textContent = '@media (max-width:767px){html.tsu-back-lock,html.tsu-back-lock body{overflow:hidden!important;overscroll-behavior:none!important}html.tsu-back-lock .record-view-scroll{overflow:hidden!important;touch-action:none!important}html.tsu-back-lock .overflow-auto,html.tsu-back-lock .overflow-y-auto,html.tsu-back-lock .overflow-x-auto,html.tsu-back-lock .overflow-scroll{overscroll-behavior:contain!important}html.tsu-back-lock .overflow-x-auto,html.tsu-back-lock [data-tsu-noy="1"]{overscroll-behavior-y:auto!important}}'; document.head.appendChild(st); };
 const _tsuSyncBackLock = () => { if (typeof document === 'undefined') return; const on = _tsuBackLockN > 0 || _tsuAutoLockOn; if (on) _tsuEnsureLockStyle(); document.documentElement.classList.toggle('tsu-back-lock', on); };
 const useTsuBackLock = (on = true) => {
   React.useEffect(() => {
@@ -39132,6 +39132,66 @@ const tsuInstallIosFocusZoomGuard = () => {
   document.addEventListener('focusout', () => { if (locked) unlockLater(400); }, true);
 };
 if (typeof window !== 'undefined') tsuInstallIosFocusZoomGuard();
+
+// ★ 2026-11-23 trial619(ユーザー「スマホで支援経過表など、表の中を指で動かしてもスクロールしない。外側の枠の余白でしか動かない。表の中も全体的にスクロールの対象にできないか」):
+//   原因: 表を横にスクロールさせる箱(overflow-x:auto など)には、タッチ端末向けの overscroll-behavior:none/contain(2026-09-11 旧iPad対策・小窓の後ろ止め)が付いている。
+//   箱が縦にはスクロールできない(中身が箱より低い)ときでも、Chrome は「この箱の外へ縦の動きを伝えない」と扱い、外の枠(個人ファイルの中身など)まで止めていた
+//   (実験 chk_1123tblscroll: 820px 幅の個人ファイルの支援経過表で再現。表の中 → 動かない / 余白 → 動く)。
+//   対策: 縦にスクロールできない箱には overscroll-behavior-y:auto(縦の動きは外へ伝える)を付ける。縦にスクロールできる箱はそのまま(端で外へ連鎖しない)。
+//   DOM の変化・画面の大きさの変化のあとに全体を、指が触れた瞬間にその場所から上だけを見直す。class の箱も inline style の箱も対象
+let _tsuNoYPassOn = false;
+const tsuInstallNoYScrollPass = () => {
+  if (_tsuNoYPassOn || typeof window === 'undefined' || typeof document === 'undefined') return; _tsuNoYPassOn = true;
+  const SEL = '.overflow-auto, .overflow-x-auto, .overflow-y-auto, .overflow-scroll, [style*="overflow"]';
+  const one = (el) => { try {
+    const cs = getComputedStyle(el); if (!/(auto|scroll)/.test(cs.overflowY) && !/(auto|scroll)/.test(cs.overflowX)) return;
+    const noY = el.scrollHeight <= el.clientHeight + 1; const has = el.getAttribute('data-tsu-noy') === '1';
+    if (noY && !has) { el.setAttribute('data-tsu-noy', '1'); el.style.setProperty('overscroll-behavior-y', 'auto', 'important'); }
+    else if (!noY && has) { el.removeAttribute('data-tsu-noy'); el.style.removeProperty('overscroll-behavior-y'); }
+  } catch {} };
+  const scan = () => { try { document.querySelectorAll(SEL).forEach(one); } catch {} };
+  let pend = false; const schedule = () => { if (pend) return; pend = true; setTimeout(() => { pend = false; scan(); }, 150); };
+  const start = () => { try { new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] }); } catch {} scan(); };
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+  window.addEventListener('resize', schedule); window.addEventListener('orientationchange', schedule);
+  document.addEventListener('touchstart', (e) => { let n = e.target && e.target.nodeType === 1 ? e.target : (e.target && e.target.parentElement); for (; n && n !== document.body; n = n.parentElement) one(n); }, { passive: true, capture: true });
+};
+if (typeof window !== 'undefined') tsuInstallNoYScrollPass();
+// ★ 2026-11-23 trial619(ユーザー「文字の欄のキーボードの閉じ方はおすすめで」): スマホ幅で文章の欄(textarea・文字の input)に文字を打っているとき、
+//   見えている画面のいちばん下(キーボードのすぐ上)の右に「キーボードを閉じる」の小さなボタンを出す。押すと欄から離れてキーボードが閉じる。
+//   iPhone には文章の欄を閉じるキーが無いため(iPad にはあるので 768px 以上では出さない)。
+//   同じ欄をもう一度押しても閉じない(文字の途中にカーソルを置く操作)・欄の外を押せば OS の標準どおり閉じる。数字の欄(テンキー・inputmode numeric など)は対象外
+let _tsuKbCloseOn = false;
+const tsuInstallKbClose = () => {
+  if (_tsuKbCloseOn || typeof window === 'undefined' || typeof document === 'undefined') return; _tsuKbCloseOn = true;
+  let btn = null, cur = null;
+  const coarse = () => { try { return !!(window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches); } catch { return false; } };
+  const isTarget = (el) => {
+    if (!el || el.nodeType !== 1 || window.innerWidth >= 768 || !coarse()) return false;
+    if (el.readOnly || el.disabled) return false;
+    const im = String(el.getAttribute('inputmode') || '').toLowerCase(); if (im === 'none' || im === 'numeric' || im === 'decimal' || im === 'tel') return false;
+    if (el.tagName === 'TEXTAREA') return true;
+    if (el.tagName === 'INPUT') return /^(text|search|email|url)$/.test(String(el.type || 'text').toLowerCase());
+    return el.getAttribute('contenteditable') === 'true';
+  };
+  const hide = () => { cur = null; if (btn) btn.style.display = 'none'; };
+  const place = () => { if (!btn || btn.style.display === 'none') return; const vv = window.visualViewport; const bottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight; btn.style.top = Math.max(0, Math.round(bottom - 36 - 8)) + 'px'; };
+  const ensure = () => {
+    if (btn) return btn;
+    btn = document.createElement('button'); btn.type = 'button'; btn.setAttribute('data-testid', 'tsu-kb-close'); btn.setAttribute('data-tsu-nolock', '1'); btn.setAttribute('aria-label', 'キーボードを閉じる'); btn.textContent = 'キーボードを閉じる';
+    btn.style.cssText = 'position:fixed;z-index:2147483000;right:8px;top:0;display:none;height:36px;padding:0 14px;border-radius:18px;border:1px solid #15803d;background:#15803d;color:#fff;font-size:13px;font-weight:700;line-height:34px;box-shadow:0 4px 12px rgba(0,0,0,.18);touch-action:manipulation;-webkit-tap-highlight-color:transparent;font-family:inherit;';
+    const close = (e) => { try { e.preventDefault(); } catch {} const el = cur || document.activeElement; try { if (el && el.blur) el.blur(); } catch {} hide(); };
+    btn.addEventListener('pointerdown', (e) => e.preventDefault()); btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('touchend', close, { passive: false }); btn.addEventListener('click', close);
+    document.body.appendChild(btn); return btn;
+  };
+  const show = (el) => { cur = el; ensure().style.display = 'block'; place(); setTimeout(place, 250); setTimeout(place, 700); };
+  document.addEventListener('focusin', (e) => { if (isTarget(e.target)) show(e.target); else hide(); });
+  document.addEventListener('focusout', () => { setTimeout(() => { if (!isTarget(document.activeElement)) hide(); }, 60); });
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', place); window.visualViewport.addEventListener('scroll', place); }
+  window.addEventListener('resize', place);
+};
+if (typeof window !== 'undefined') tsuInstallKbClose();
 // ★ 2026-10-15(ユーザー報告「日誌の車で、各種設定は1号車・2号車だけなのに車の名前も出る。名前を変えても前の名前が残る」):
 //   車の欄は 9/12 に「名前」1つにまとめた(車種の欄は廃止)が、以前の車種(type)が残っている車がある。表示する名前は1つだけ:
 //   名前が「1号車」のような番号だけ(または空)で車種があれば車種(ユーザー指示「下に車の名前がある店舗は車の名前を優先」)、それ以外は名前。
