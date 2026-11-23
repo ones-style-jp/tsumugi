@@ -20696,6 +20696,7 @@ function GlobalAiPanel({ staffSession }) {
   const [err, setErr] = React.useState('');
   const [testMsg, setTestMsg] = React.useState({});   // {serviceId: 結果}
   const [showPlanned, setShowPlanned] = React.useState(false);
+  const [bkSt, setBkSt] = React.useState(null); // ★ 2026-11-23 trial620(ユーザー「AWS に保存されているか確認してほしい」): 控えの最後の実行(api/backup-status)。'loading' | {…} | {error}
 
   const call = async (action, extra) => {
     if (!secret.trim()) { setErr('合言葉を入力してください'); return null; }
@@ -20711,6 +20712,32 @@ function GlobalAiPanel({ staffSession }) {
       if (j.services) setServices(j.services);
       return j;
     } catch (e) { setBusy(''); setErr('通信エラー: ' + (e?.message || '')); return null; }
+  };
+
+  // ★ 2026-11-23 trial620: 控えの最後の実行(S3 の manifest/last_run.json)を本部の合言葉で読む。鍵は返らない
+  const loadBackupStatus = async () => {
+    if (!secret.trim()) { setErr('合言葉を入力してください'); return; }
+    setErr(''); setBkSt('loading');
+    try { const r = await fetch('/api/backup-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: secret.trim() }) }); const j = await r.json().catch(() => ({})); setBkSt(j && !j.error ? j : { error: (j && j.error) || `HTTP ${r.status}` }); }
+    catch (e) { setBkSt({ error: '通信エラー: ' + (e?.message || '') }); }
+  };
+  const _bkJst = (iso) => { try { return iso ? new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'; } catch { return String(iso || '—'); } };
+  const bkStView = (st) => {
+    if (!st || st === 'loading') return null;
+    if (st.error) return <div data-testid="aws-backup-status-err" style={{color:'#c2410c',fontWeight:'bold'}}>{st.error}</div>;
+    if (!st.configured) return <div data-testid="aws-backup-status-none" style={{color:'#c2410c',fontWeight:'bold'}}>AWS の設定がまだありません。上の 4 つの欄を入れて保存すると、毎晩 3:30 に控えが始まります。</div>;
+    const lr = st.lastRun; const old = lr && lr.finishedAt && (Date.now() - new Date(lr.finishedAt).getTime() > 36 * 3600 * 1000);
+    return (<div data-testid="aws-backup-status-box" style={{background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,padding:'8px 12px'}}>
+      <div>保存先: <b>{st.bucket}</b>（{st.region || 'ap-northeast-3'}）・控えの合計 <b>{Number(st.totalFiles || 0).toLocaleString()}</b> 件・一覧の更新 {_bkJst(st.manifestUpdatedAt)}</div>
+      {!lr ? <div data-testid="aws-backup-status-norun" style={{color:'#c2410c',fontWeight:'bold'}}>まだ一度も実行されていません（毎晩 3:30 に動きます）。</div> : (<>
+        <div>最後の実行: <b>{_bkJst(lr.startedAt)}</b> 〜 {_bkJst(lr.finishedAt)}（{lr.trigger === 'cron' ? '毎晩の自動' : lr.trigger || '手動'}{lr.dryRun ? '・試し' : ''}・{Math.round((lr.elapsedMs || 0) / 1000)}秒）
+          {lr.ok && !lr.errorCount ? <span data-testid="aws-backup-status-ok" style={{marginLeft:8,color:'#15803d',fontWeight:'bold'}}>正常に終わりました</span> : <span data-testid="aws-backup-status-ng" style={{marginLeft:8,color:'#c2410c',fontWeight:'bold'}}>エラー {lr.errorCount || 0} 件</span>}</div>
+        <div>写真・PDF: 新しく控えた <b>{lr.copied ?? 0}</b> 件・変わらず {lr.skipped ?? 0} 件・残り {lr.remaining ?? 0} 件　／　店舗データ: {lr.appState && lr.appState.copied != null ? `${lr.appState.copied} 店舗を控えました` : '—'}</div>
+        {old && <div data-testid="aws-backup-status-old" style={{color:'#c2410c',fontWeight:'bold'}}>注意: 最後の実行から 1 日以上たっています。本番(安定版)の毎晩の自動実行が止まっていないか確認してください。</div>}
+        {Array.isArray(lr.errors) && lr.errors.length > 0 && <div style={{color:'#c2410c',fontSize:11}}>{lr.errors.slice(0, 5).map((e, i) => <div key={i}>{typeof e === 'string' ? e : (e && (e.key || e.message || JSON.stringify(e)))}</div>)}</div>}
+      </>)}
+      {Array.isArray(st.stores) && st.stores.length > 0 && <div style={{fontSize:11,color:'#475569'}}>店舗データの控え: {st.stores.slice(0, 12).map(x => `${x.store}（${x.date || '—'}）`).join('・')}{st.stores.length > 12 ? ` ほか ${st.stores.length - 12} 店舗` : ''}</div>}
+    </div>);
   };
 
   const inp = { width:'100%', padding:'7px 10px', border:'1px solid #cbd5e1', borderRadius:8, fontSize:13, outline:'none', fontWeight:'bold' };
@@ -20736,6 +20763,15 @@ function GlobalAiPanel({ staffSession }) {
       </div>
       <div style={{fontSize:11.5,color:'#64748b',lineHeight:1.7,marginBottom:8}}>{svc.desc}</div>
       {testMsg[svc.id] && <div style={{fontSize:12,fontWeight:'bold',color:'#16a34a',marginBottom:8}}>{testMsg[svc.id]}</div>}
+      {svc.id === 'aws_backup' && (/* ★ 2026-11-23 trial620: 控えの最後の実行を画面で */
+        <div style={{marginBottom:8}}>
+          <button type="button" data-testid="aws-backup-status-btn" disabled={!!busy || bkSt === 'loading'} onClick={loadBackupStatus}
+            style={{padding:'5px 12px',background:'#f0fdf4',color:'#15803d',border:'1px solid #bbf7d0',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>
+            {bkSt === 'loading' ? <><BusySpin/>確認中…</> : '控えの最後の実行を見る'}
+          </button>
+          {bkSt && bkSt !== 'loading' && <div style={{fontSize:12,lineHeight:1.8,marginTop:6,color:'#1e293b'}}>{bkStView(bkSt)}</div>}
+        </div>
+      )}
       {(svc.fields||[]).map(f => (
         <div key={f.env} style={{display:'flex',gap:8,alignItems:'flex-end',flexWrap:'wrap',marginBottom:6}}>
           <div style={{flex:1,minWidth:220}}>
@@ -25565,6 +25601,9 @@ export default function App() {
   }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#devname') {
     return <div style={{minHeight:'100vh',background:'#f0f7e0'}}><TsuDeviceNamePrompt suggested="テスト店1" onDone={(v) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), devName: String(v || '').trim() || 'テスト店1' }; }} /></div>;
+  }
+  if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#hqservices') { // ★ 2026-11-23 trial620 自動テスト: 外部サービス設定(控えの最後の実行)
+    return <div style={{padding:24,background:'#f0f7e0',minHeight:'100vh'}}><GlobalAiPanel staffSession={{ username: 'e2e' }}/></div>;
   }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#hqdevices') {
     return <div style={{padding:24,background:'#f0f7e0',minHeight:'100vh'}}><HqDevicePanel stores={(window.__tsumugiE2E && window.__tsumugiE2E.stores) || []}/></div>;
