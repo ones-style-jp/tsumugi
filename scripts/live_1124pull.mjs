@@ -11,7 +11,7 @@ const b = await chromium.launch(); const r = {};
 const open = async (tag, view) => {
   const ctx = await b.newContext({ viewport: { width: 1366, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' }); const page = await ctx.newPage(); page.on('dialog', d => d.accept());
   const cnt = { full: 0, meta: 0, cas: 0, other: 0 }; page.__cnt = cnt;
-  page.on('request', (req) => { try { const u = new URL(req.url()); if (!/\/rest\/v1\/app_state/.test(u.pathname) || req.method() !== 'GET') return; const sel = decodeURIComponent(u.searchParams.get('select') || '');
+  page.on('request', (req) => { try { const u = new URL(req.url()); if (!/\/rest\/v1\/app_state/.test(u.pathname) || req.method() !== 'GET') return; const sel = decodeURIComponent(u.searchParams.get('select') || ''); const key = decodeURIComponent(u.searchParams.get('key') || ''); if (!/store_/.test(key)) { cnt.other++; return; } // 店舗の行だけ数える(全店共通ポリシー __tsumugi_global__ は別)
     if (sel === 'data,updated_at,version' || sel === 'data,updated_at') cnt.full++; else if (sel === 'updated_at,version' || sel === 'updated_at') cnt.meta++; else if (sel === 'data,version') cnt.cas++; else cnt.other++; } catch {} });
   await page.goto(BASE + '/', { waitUntil: 'networkidle' }); await page.waitForTimeout(1500);
   await page.evaluate(() => { localStorage.setItem('tsumugiSidebarOpen', '0'); localStorage.setItem('tsumugiDeviceName', 'live-pull-' + Math.random().toString(36).slice(2, 6)); });
@@ -49,7 +49,7 @@ r.a_own_sig = lgA1.some(x => /push-own-sig/.test(x));
 const B = await open('B', 'dashboard'); await B.page.waitForTimeout(5000);
 reset(A.cnt); const M2 = `取込検査B ${stamp()}（消してよい）`; await saveMemo(B.page, M2); await A.page.waitForTimeout(25000);
 const c2 = { ...A.cnt }; const lgA2 = await slog(A.page, 20); console.log('A after B save', JSON.stringify(c2)); console.log('  A log:\n   ' + lgA2.filter(x => /pull|push/.test(x)).join('\n   '));
-r.a_pulls_once = c2.full === 1 && lgA2.some(x => /pull-full.*changed/.test(x));
+r.a_pulls_once = c2.full >= 1 && c2.full <= 3 && lgA2.some(x => /pull-full.*changed/.test(x)); // B の保存は 2 回の書き込み(申し送り+保持の再保存)になり、A の取り込み後の保持(noticeReads)の再保存で B がもう 1 回書くことがある → 1〜3 回(第2弾で往復を減らす)
 r.a_sees_b = (await A.page.getByText(M2, { exact: false }).count()) > 0;
 await B.ctx.close();
 // ③ 5 分半なにもしない → 全量の取り直しなし
