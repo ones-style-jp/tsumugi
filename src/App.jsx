@@ -26009,7 +26009,7 @@ export default function App() {
           </div>
         </div>, document.body)}
       {showToast && ReactDOM.createPortal(
-        <div style={{position:'fixed',top:24,right:32,zIndex:99999}} className={`bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center max-w-[min(92vw,560px)] ${/…$/.test(String(toastMsg||'')) ? '' : 'animate-bounce'}`}>
+        <div style={{position:'fixed',top:24,right:32,zIndex:99999}} className={`bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center max-w-[min(92vw,560px)]`}>{/* ★ 2026-11-23 1122f(ユーザー「秒数が出ているときポップアップが上下に揺れてチラチラする。基本ポップアップは揺れないように」): 揺れ(animate-bounce)をやめた。保存の経過秒は「…（8秒）」で末尾が…でなくなり、揺れが始まっていた */}
           {/* ★ 2026-10-02: 保存中は回る輪・失敗(⚠)は赤、成功だけ緑のチェック */}
           {/^⚠/.test(String(toastMsg||'')) ? <span className="text-red-400 mr-2 font-bold">!</span> : /…$/.test(String(toastMsg||'')) ? <BusySpin style={{marginRight:10,color:'#a7f3d0'}}/> : <CheckCircle2 className="text-emerald-400 mr-2" />}{String(toastMsg||'').replace(/^⚠\s*/, '')}
         </div>,
@@ -65072,7 +65072,7 @@ function FaceSheetPdfPreview({ patient, appData, faceSheet, onClose }) {
 function PlaceholderView({ title, icon, description, color = "text-blue-500" }) {
   return (
     <div className="h-full flex flex-col items-center justify-center bg-slate-50">
-       <div className={`${color} mb-4 animate-bounce`}>{icon}</div>
+       <div className={`${color} mb-4`}>{icon}</div>
        <h2 className="text-2xl font-bold text-slate-700 mb-2">{title}（開発中）</h2>
        <p className="text-slate-500 text-center max-w-md">{description}</p>
     </div>

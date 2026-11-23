@@ -55,9 +55,9 @@ export default async function handler(req, res) {
 </body></html>`.trim();
 
   try {
-    const r = await sendMailAny({ to: [toEmail], subject: (isHandover ? `【つむぎ】管理者の交代の申請: ${(ctx.facility || '事業所')}` : `【つむぎ不具合】${(ctx.facility || '事業所')} / ${(ctx.view || '')}`).slice(0, 120), html, senderName: isHandover ? 'つむぎ 管理局' : 'つむぎ 不具合レポート', replyTo: toEmail }); // ★ 2026-11-02: 共通部品
+    const r = await sendMailAny({ to: String(toEmail).split(/[\s,;]+/).filter(Boolean), /* ★ 2026-11-23 1122f: 複数宛先 */ subject: (isHandover ? `【つむぎ】管理者の交代の申請: ${(ctx.facility || '事業所')}` : `【つむぎ不具合】${(ctx.facility || '事業所')} / ${(ctx.view || '')}`).slice(0, 120), html, senderName: isHandover ? 'つむぎ 管理局' : 'つむぎ 不具合レポート', replyTo: toEmail }); // ★ 2026-11-02: 共通部品
     if (!r.ok) return res.status(500).json({ error: 'メール送信に失敗しました', detail: (r.error || '').slice(0, 300) });
-    return res.status(200).json({ ok: true });
+    return res.status(200).json({ ok: true, to: toEmail, via: r.via || '' }); // ★ 2026-11-23 1122f: 宛先を返して画面に出す
   } catch (e) {
     return res.status(500).json({ error: '送信に失敗しました', detail: String(e.message || e) });
   }
