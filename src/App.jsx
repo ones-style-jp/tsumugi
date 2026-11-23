@@ -20051,9 +20051,12 @@ function TsuAdminHandover({ members, adminAuth, onSetAdminAuth, roleChoices, inS
     setHoForm(f => ({ ...f, busy: true, err: '' }));
     const ho = { status: 'pending', newMemberId: nm.id, newMemberName: nm.name, oldMemberIds: _hoAdmins.map(a => a.id), oldMemberNames: _hoAdmins.map(a => a.name), oldNewRole: hoForm.oldRole, by: String(hoForm.by).trim(), note: String(hoForm.note || '').trim().slice(0, 300), requestedAt: Date.now() };
     try { await onSetAdminAuth({ handover: ho }); } catch {}
+    let _mail = { ok: false, to: '', err: '' }; // ★ 2026-11-23 trial618(ユーザー「申請したらメールが来るんじゃない?」→届いていない): メールの結果を控えて「申請中」の表示に出す
     try {
-      await fetch('/api/report', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'admin_handover', description: `新しい管理者: ${ho.newMemberName}\n前の管理者: ${ho.oldMemberNames.join('・') || '（なし）'} → ${ho.oldNewRole}\n申請者: ${ho.by}\nメモ: ${ho.note || '（なし）'}\n\n管理局の「管理者の交代の申請」で承認してください。`, context: { facility: storeName, storeId, recorder: ho.by, view: '管理者の交代の申請', when: new Date().toLocaleString('ja-JP'), url: (typeof location !== 'undefined' ? location.href : ''), appVersion: (__builtUpdateNotes && __builtUpdateNotes.version) || '' } }) });
-    } catch {}
+      const _r = await fetch('/api/report', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'admin_handover', description: `新しい管理者: ${ho.newMemberName}\n前の管理者: ${ho.oldMemberNames.join('・') || '（なし）'} → ${ho.oldNewRole}\n申請者: ${ho.by}\nメモ: ${ho.note || '（なし）'}\n\n管理局の「管理者の交代の申請」で承認してください。`, context: { facility: storeName, storeId, recorder: ho.by, view: '管理者の交代の申請', when: new Date().toLocaleString('ja-JP'), url: (typeof location !== 'undefined' ? location.href : ''), appVersion: (__builtUpdateNotes && __builtUpdateNotes.version) || '' } }) });
+      const _j = await _r.json().catch(() => ({})); _mail = { ok: !!(_r.ok && _j.ok), to: String(_j.to || ''), err: String(_j.error || (_r.ok ? '' : 'HTTP ' + _r.status)).slice(0, 200) };
+    } catch (e) { _mail = { ok: false, to: '', err: String((e && e.message) || e).slice(0, 200) }; }
+    try { await onSetAdminAuth({ handover: { ...ho, mail: _mail.ok ? 'sent' : 'failed', mailTo: _mail.to, mailErr: _mail.err } }); } catch {}
     setHoForm({ newId: '', oldRole: '介護職員', by: '', note: '', busy: false, err: '' }); setHoOpen(false);
   };
   return (<>
@@ -20062,7 +20065,7 @@ function TsuAdminHandover({ members, adminAuth, onSetAdminAuth, roleChoices, inS
         <div data-testid="handover-box" style={inSettings ? {} : {maxWidth:720,margin:'10px auto 0',padding:'0 12px'}}>
           {_ho && _ho.status === 'pending' && (
             <div style={{background:'#fff8ea',border:'1px solid #f0c66b',borderRadius:12,padding:'10px 14px',fontSize:13,color:'#7a4b00',lineHeight:1.7}}>
-              <b>管理者の交代を本部に申請中</b>（新しい管理者: {_ho.newMemberName}・申請: {_ho.by}）。本部の承認をお待ちください。
+              <b>管理者の交代を本部に申請中</b>（新しい管理者: {_ho.newMemberName}・申請: {_ho.by}）。本部の承認をお待ちください。{_ho.mail === 'sent' ? <>　本部へメールを送りました{_ho.mailTo ? `（宛先: ${_ho.mailTo}）` : ''}。</> : _ho.mail === 'failed' ? <>　<b>メールは送れませんでした</b>（{_ho.mailErr || '理由不明'}）。管理局の一覧には申請が載っています。</> : null}
               <button type="button" onClick={async()=>{ if(!window.confirm('申請を取り下げますか？')) return; try { await onSetAdminAuth({ handover: null }); } catch {} }} style={{marginLeft:10,padding:'4px 10px',background:'white',border:'1px solid #d9b25a',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#7a4b00',cursor:'pointer'}}>取り下げる</button>
             </div>
           )}
@@ -26035,7 +26038,7 @@ export default function App() {
           </div>
         </div>, document.body)}
       {showToast && ReactDOM.createPortal(
-        <div style={{position:'fixed',top:24,right:32,zIndex:99999}} className={`bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center max-w-[min(92vw,560px)] ${/…$/.test(String(toastMsg||'')) ? '' : 'animate-bounce'}`}>
+        <div style={{position:'fixed',top:24,right:32,zIndex:99999}} className={`bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center max-w-[min(92vw,560px)]`}>{/* ★ 2026-11-23 1122f(ユーザー「秒数が出ているときポップアップが上下に揺れてチラチラする。基本ポップアップは揺れないように」): 揺れ(animate-bounce)をやめた。保存の経過秒は「…（8秒）」で末尾が…でなくなり、揺れが始まっていた */}
           {/* ★ 2026-10-02: 保存中は回る輪・失敗(⚠)は赤、成功だけ緑のチェック */}
           {/^⚠/.test(String(toastMsg||'')) ? <span className="text-red-400 mr-2 font-bold">!</span> : /…$/.test(String(toastMsg||'')) ? <BusySpin style={{marginRight:10,color:'#a7f3d0'}}/> : <CheckCircle2 className="text-emerald-400 mr-2" />}{String(toastMsg||'').replace(/^⚠\s*/, '')}
         </div>,
@@ -65443,7 +65446,7 @@ function FaceSheetPdfPreview({ patient, appData, faceSheet, onClose }) {
 function PlaceholderView({ title, icon, description, color = "text-blue-500" }) {
   return (
     <div className="h-full flex flex-col items-center justify-center bg-slate-50">
-       <div className={`${color} mb-4 animate-bounce`}>{icon}</div>
+       <div className={`${color} mb-4`}>{icon}</div>
        <h2 className="text-2xl font-bold text-slate-700 mb-2">{title}（開発中）</h2>
        <p className="text-slate-500 text-center max-w-md">{description}</p>
     </div>

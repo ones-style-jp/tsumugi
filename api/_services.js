@@ -63,6 +63,18 @@ export const EXT_SERVICES = [
     ],
   },
   {
+    id: 'report_mail',
+    name: '本部への知らせの宛先（不具合レポート・管理者の交代の申請）',
+    vendor: 'つむぎ',
+    desc: '店舗からの不具合レポートと「管理者の交代」の申請のメールを受け取るアドレスです。空なら support@ones-style.co.jp に届きます。複数はカンマ区切り。「テスト」で今の宛先にテストメールを送れます。',
+    status: 'active',
+    required: false,
+    test: 'report_mail',
+    fields: [
+      { env: 'REPORT_TO_EMAIL', dbKey: 'REPORT_TO_EMAIL', label: '受け取るアドレス（複数はカンマ区切り）', type: 'text', placeholder: 'honbu@example.co.jp, support@example.co.jp', note: '不具合レポートと管理者の交代の申請が、このアドレスに届きます（2026-11-23 1122f）' },
+    ],
+  },
+  {
     id: 'interfax',
     name: 'InterFAX（FAX送信）',
     vendor: 'InterFAX',

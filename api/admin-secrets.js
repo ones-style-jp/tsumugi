@@ -77,6 +77,12 @@ async function runTest(id) {
       return { error: `つながりませんでした: ${j.status || r.status}${j.error_message ? ' / ' + j.error_message : ''}` };
     }
     if (kind === 'gmail') { const { verifyGmail } = await import('./_mail.js'); return await verifyGmail(); } // ★ 2026-11-02
+    if (kind === 'report_mail') { // ★ 2026-11-23 1122f: 本部への知らせの宛先にテストメール
+      const to = (await getSecret('REPORT_TO_EMAIL', 'REPORT_TO_EMAIL')) || 'support@ones-style.co.jp';
+      const { sendMailAny } = await import('./_mail.js');
+      const r = await sendMailAny({ to: String(to).split(/[\s,;]+/).filter(Boolean), subject: '【つむぎ】本部への知らせの宛先テスト', html: '<p>このアドレスに、店舗からの不具合レポートと「管理者の交代」の申請のメールが届きます。</p><p>（管理局の外部サービス設定からのテスト送信です）</p>', senderName: 'つむぎ 管理局' });
+      return r.ok ? { ok: true, detail: `テストメールを送りました（宛先 ${to}${r.via ? '・' + r.via : ''}）。届かないときは迷惑メールも見てください` } : { error: `送れませんでした: ${r.error || ''}` };
+    }
     if (kind === 's3') { // ★ 2026-11-16 写真の控え(AWS S3)
       const { s3FromSecrets, maskAws } = await import('./_s3.js');
       const s3 = await s3FromSecrets();
