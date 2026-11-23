@@ -164,7 +164,7 @@ export async function runBackup({ dryRun = false, maxFiles = DEFAULT_MAX_FILES, 
     { name: 'family_invites', order: ['id'] },
     { name: 'system_notices', order: ['id'] },
     { name: 'undo_snapshots', order: ['id', 't'] },
-    { name: 'sync_ops', order: ['id', 'seq', 'created_at', 'at'], sinceDays: 35, sinceCols: ['created_at', 'at', 'ts'] },
+    { name: 'sync_ops', order: ['revision', 'id', 'seq', 'created_at'], sinceDays: 35, sinceCols: ['created_at', 'at', 'ts'], maxRows: 60000 }, // ★ 2026-11-24 1122g: 列は revision(並び)・期間の列が無ければ新しい順に 60000 行まで
     { name: 'app_state', order: ['key'], filter: 'key=not.like.store_*' },
   ];
   out.tables = { copied: 0, skipped: 0, rows: 0, names: [] };
@@ -175,25 +175,31 @@ export async function runBackup({ dryRun = false, maxFiles = DEFAULT_MAX_FILES, 
     if (dryRun) { out.tables.copied++; out.tables.names.push(tb.name); continue; }
     try {
       let rows = null, usedOrder = '', missing = false;
-      for (const oc of tb.order) { // 並び替えの列は表ごとに違うので、使えるものを順に試す
-        try {
-          const all = []; let offset = 0;
-          while (true) {
-            let q = `${SUPA_URL}/rest/v1/${tb.name}?select=*&order=${enc(oc)}.asc&limit=1000&offset=${offset}`;
-            if (tb.filter) q += `&${tb.filter}`;
-            if (tb.sinceDays && tb.sinceCols && tb.sinceCols.length) q += `&${enc(tb.sinceCols[0])}=gte.${enc(new Date(Date.now() - tb.sinceDays * 86400000).toISOString())}`;
-            const page = await sbJson(q);
-            if (!Array.isArray(page)) throw new Error('rows not array');
-            all.push(...page); offset += page.length; if (page.length < 1000) break;
-            if (Date.now() > deadline) throw Object.assign(new Error('時間切れ(次の晩に続きから)'), { fatal: true });
+      // ★ 2026-11-24 1122g(控えの失敗 1 件 = sync_ops「並び替えの列が合いません」): 並び替えの列と期間の列を別々に試す。
+      //   以前は失敗のたびに両方を 1 つずつ進めていたため、組み合わせが合う前に候補が尽きていた。
+      //   期間の列がどれも無い表は、並び替えの列の新しい順に maxRows 件まで(全履歴を毎晩写して時間切れにならないように)
+      const sinceList = (tb.sinceDays && Array.isArray(tb.sinceCols) && tb.sinceCols.length) ? [...tb.sinceCols, null] : [null];
+      outer: for (const oc of tb.order) {
+        for (const sc of sinceList) {
+          try {
+            const all = []; let offset = 0; const descCap = (!sc && tb.sinceDays && tb.maxRows) ? Number(tb.maxRows) : 0;
+            while (true) {
+              let q = `${SUPA_URL}/rest/v1/${tb.name}?select=*&order=${enc(oc)}.${descCap ? 'desc' : 'asc'}&limit=1000&offset=${offset}`;
+              if (tb.filter) q += `&${tb.filter}`;
+              if (sc) q += `&${enc(sc)}=gte.${enc(new Date(Date.now() - tb.sinceDays * 86400000).toISOString())}`;
+              const page = await sbJson(q);
+              if (!Array.isArray(page)) throw new Error('rows not array');
+              all.push(...page); offset += page.length; if (page.length < 1000) break;
+              if (descCap && all.length >= descCap) break;
+              if (Date.now() > deadline) throw Object.assign(new Error('時間切れ(次の晩に続きから)'), { fatal: true });
+            }
+            rows = descCap ? all.reverse() : all; usedOrder = sc ? `${oc}(${sc}≧${tb.sinceDays}日)` : (descCap ? `${oc}(新しい順 ${all.length}行)` : oc); break outer;
+          } catch (e) {
+            const m = String((e && e.message) || e);
+            if (e && e.fatal) throw e;
+            if (/404|relation .* does not exist|Could not find the table/.test(m)) { missing = true; break outer; } // 表が無い
+            // 列が無い(400)など → 次の期間の列、次の並び替えの列で試す
           }
-          rows = all; usedOrder = oc; break;
-        } catch (e) {
-          const m = String((e && e.message) || e);
-          if (e && e.fatal) throw e;
-          if (/404|relation .* does not exist|Could not find the table/.test(m)) { missing = true; break; } // 表が無い
-          // 列が無い(400)など → 次の並び替え列で試す。since の列が違うときも次へ(since 列は order 列と同じ順で試す)
-          if (tb.sinceCols && tb.sinceCols.length > 1 && /column .* does not exist|42703|400/.test(m)) tb.sinceCols = tb.sinceCols.slice(1);
         }
       }
       if (missing) { out.tables.skipped++; continue; }
