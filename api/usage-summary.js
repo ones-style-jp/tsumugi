@@ -78,18 +78,20 @@ async function anthropicPart() {
   const cfg = await awsConfig();
   if (!cfg.configured) return { configured: false, why: 'AWS の控えが未設定のため記録していません' };
   const s3 = await s3FromSecrets(); const ym = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 7);
-  const items = await withTimeout(s3.listAll(`usage/anthropic/${ym}/`, 100000), 30000, 'AI の記録の一覧');
-  const month = { calls: 0, input: 0, output: 0, estUsd: 0 }; const byStore = {}; const byFam = {};
+  // ★ 2026-11-24 trial623(ユーザー「ひと月ごとに出して過去分も見られるように」): 全部の月を一覧して月ごとに集計(鍵の名前だけ・中身は読まない)
+  const items = await withTimeout(s3.listAll('usage/anthropic/', 200000), 40000, 'AI の記録の一覧');
+  const months = {}; // ym -> { calls, input, output, estUsd, byStore, byFam }
   for (const it of items) {
-    const m = /-(haiku|sonnet|opus|other)-i(\d+)-o(\d+)-s([A-Za-z0-9_-]*)\.json$/.exec(String(it.key || '')); if (!m) continue;
-    const fam = m[1], inp = Number(m[2]) || 0, outp = Number(m[3]) || 0, sid = m[4] || 'unknown'; const r = RATES.anthropicUsdPerM[fam] || RATES.anthropicUsdPerM.other;
-    const usd = (inp * r[0] + outp * r[1]) / 1e6;
-    month.calls += 1; month.input += inp; month.output += outp; month.estUsd += usd;
-    byStore[sid] = byStore[sid] || { calls: 0, input: 0, output: 0 }; byStore[sid].calls += 1; byStore[sid].input += inp; byStore[sid].output += outp;
-    byFam[fam] = (byFam[fam] || 0) + 1;
+    const m = /^usage\/anthropic\/(\d{4}-\d{2})\/.*-(haiku|sonnet|opus|other)-i(\d+)-o(\d+)-s([A-Za-z0-9_-]*)\.json$/.exec(String(it.key || '')); if (!m) continue;
+    const k = m[1], fam = m[2], inp = Number(m[3]) || 0, outp = Number(m[4]) || 0, sid = m[5] || 'unknown'; const r = RATES.anthropicUsdPerM[fam] || RATES.anthropicUsdPerM.other;
+    const mo = months[k] = months[k] || { ym: k, calls: 0, input: 0, output: 0, estUsd: 0, byStore: {}, byFam: {} };
+    mo.calls += 1; mo.input += inp; mo.output += outp; mo.estUsd += (inp * r[0] + outp * r[1]) / 1e6;
+    mo.byStore[sid] = mo.byStore[sid] || { calls: 0, input: 0, output: 0 }; mo.byStore[sid].calls += 1; mo.byStore[sid].input += inp; mo.byStore[sid].output += outp;
+    mo.byFam[fam] = (mo.byFam[fam] || 0) + 1;
   }
-  month.estUsd = Math.round(month.estUsd * 1000) / 1000; month.estJpy = Math.round(month.estUsd * RATES.usdJpy);
-  return { configured: true, ym, month, byStore, byFam, since: '2026-11-24' };
+  const list = Object.values(months).sort((x, y) => y.ym.localeCompare(x.ym)).map(mo => ({ ...mo, estUsd: Math.round(mo.estUsd * 1000) / 1000, estJpy: Math.round(mo.estUsd * RATES.usdJpy) }));
+  const cur = list.find(x => x.ym === ym) || { ym, calls: 0, input: 0, output: 0, estUsd: 0, estJpy: 0, byStore: {}, byFam: {} };
+  return { configured: true, ym, month: cur, byStore: cur.byStore, byFam: cur.byFam, months: list, since: '2026-11-24' };
 }
 
 async function brevoPart() {
