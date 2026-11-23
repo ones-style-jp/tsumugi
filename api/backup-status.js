@@ -56,6 +56,7 @@ export default async function handler(req, res) {
       lastRun: pick,
       manifestUpdatedAt: manifest ? manifest.updatedAt || null : null,
       totalFiles: manifest ? Object.keys(manifest.files || {}).length : 0,
+      failed: manifest ? Object.entries(manifest.failed || {}).map(([path, v]) => ({ path, count: Number(v && v.count) || 0, error: String((v && v.error) || '').slice(0, 160), at: (v && v.at) || null })).sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))).slice(0, 30) : [], // ★ 2026-11-23 trial621: 控えに失敗しているファイル
       stores: manifest ? Object.entries(manifest.appState || {}).map(([k, v]) => ({ store: k, date: v && v.date, version: v && v.version })) : [],
     });
   } catch (e) {

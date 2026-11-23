@@ -20696,6 +20696,7 @@ function GlobalAiPanel({ staffSession }) {
   const [err, setErr] = React.useState('');
   const [testMsg, setTestMsg] = React.useState({});   // {serviceId: 結果}
   const [showPlanned, setShowPlanned] = React.useState(false);
+  const [usage, setUsage] = React.useState(null); // ★ 2026-11-23 trial621(ユーザー「従量課金のところは個数と料金が見えるように」): 'loading' | {…} | {error}
   const [bkSt, setBkSt] = React.useState(null); // ★ 2026-11-23 trial620(ユーザー「AWS に保存されているか確認してほしい」): 控えの最後の実行(api/backup-status)。'loading' | {…} | {error}
 
   const call = async (action, extra) => {
@@ -20714,6 +20715,39 @@ function GlobalAiPanel({ staffSession }) {
     } catch (e) { setBusy(''); setErr('通信エラー: ' + (e?.message || '')); return null; }
   };
 
+  // ★ 2026-11-23 trial621: 利用量と概算の料金(api/usage-summary・合言葉・読むだけ)
+  const loadUsage = async () => {
+    if (!secret.trim()) { setErr('合言葉を入力してください'); return; }
+    setErr(''); setUsage('loading');
+    try { const r = await fetch('/api/usage-summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: secret.trim() }) }); const j = await r.json().catch(() => ({})); setUsage(j && !j.error ? j : { error: (j && j.error) || `HTTP ${r.status}` }); }
+    catch (e) { setUsage({ error: '通信エラー: ' + (e?.message || '') }); }
+  };
+  const _gb = (bytes) => { const b = Number(bytes) || 0; return b >= 1073741824 ? `${(b / 1073741824).toFixed(2)} GB` : b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.round(b / 1024)} KB`; };
+  const usageView = (u) => {
+    if (!u || u === 'loading') return null;
+    if (u.error) return <div data-testid="usage-err" style={{color:'#c2410c',fontWeight:'bold'}}>{u.error}</div>;
+    const box = { background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:10, padding:'8px 12px', marginTop:6 };
+    const h = { fontWeight:'bold', color:'#3d5021' };
+    const a = u.aws || {}, f = u.interfax || {}, b = u.brevo || {}, rt = u.rates || {};
+    return (<div data-testid="usage-box" style={{fontSize:12,lineHeight:1.8,color:'#1e293b'}}>
+      <div style={box}><div style={h}>AWS S3（写真・店舗データの控え）</div>
+        {!a.configured ? <div>未設定</div> : a.error ? <div style={{color:'#c2410c'}}>{a.error}</div> : (<>
+          <div>置いてある数 <b>{Number(a.objects || 0).toLocaleString()}</b> 件・容量 <b>{_gb(a.bytes)}</b>（写真・PDF {_gb(a.by?.photos?.bytes)}／店舗データ {_gb(a.by?.appState?.bytes)}／提供記録 {_gb(a.by?.records?.bytes)}／その他の表 {_gb(a.by?.tables?.bytes)}）</div>
+          <div>保管料の概算 <b>約 {Number(a.estJpyMonth || 0).toLocaleString()} 円／月</b>（${a.estUsdMonth}・1GB あたり ${rt.s3UsdPerGbMonth}／月・1ドル {rt.usdJpy} 円で換算。通信や操作の料金は含みません）</div>
+          <div>控えに失敗しているファイル: {a.failedCount ? <b style={{color:'#c2410c'}}>{a.failedCount} 件</b> : 'なし'}{a.failedCount ? '（AWS S3 の「控えの最後の実行を見る」に一覧）' : ''}</div>
+        </>)}</div>
+      <div style={box}><div style={h}>InterFAX（FAX）</div>
+        {!f.configured ? <div>未設定</div> : f.error ? <div style={{color:'#c2410c'}}>{f.error}</div> : (<>
+          <div>残高 <b>{f.balance ?? '—'}</b></div>
+          <div>今月の送信 <b>{f.month?.count ?? 0} 通・{f.month?.pages ?? 0} 枚</b>・料金 <b>{f.month?.cost ?? 0}</b>（InterFAX の記録: 単位 {f.month?.units ?? 0} × 単価）{f.month?.failed ? `・失敗 ${f.month.failed} 通` : ''}</div>
+          {f.note && <div style={{color:'#c2410c',fontSize:11}}>{f.note}</div>}
+        </>)}</div>
+      <div style={box}><div style={h}>Brevo（メールの控えの経路）</div>
+        {!b.configured ? <div>未設定</div> : b.error ? <div style={{color:'#c2410c'}}>{b.error}</div> : (<div>今月（{b.from}〜{b.to}）の送信 <b>{b.requests ?? 0} 通</b>・届いた {b.delivered ?? 0}・不達 {(b.hardBounces || 0) + (b.softBounces || 0)}・無料枠は 1 日 {b.freePerDay} 通</div>)}</div>
+      {Array.isArray(u.unavailable) && u.unavailable.length > 0 && <div style={box}><div style={h}>この画面では取れないもの</div>{u.unavailable.map(x => <div key={x.id} style={{fontSize:11,color:'#475569'}}><b>{x.name}</b>: {x.why}</div>)}</div>}
+      <div style={{fontSize:11,color:'#64748b'}}>確認した時刻 {_bkJst(u.at)}・概算は目安です。正確な請求は各サービスの管理画面で。</div>
+    </div>);
+  };
   // ★ 2026-11-23 trial620: 控えの最後の実行(S3 の manifest/last_run.json)を本部の合言葉で読む。鍵は返らない
   const loadBackupStatus = async () => {
     if (!secret.trim()) { setErr('合言葉を入力してください'); return; }
@@ -20736,6 +20770,10 @@ function GlobalAiPanel({ staffSession }) {
         {old && <div data-testid="aws-backup-status-old" style={{color:'#c2410c',fontWeight:'bold'}}>注意: 最後の実行から 1 日以上たっています。本番(安定版)の毎晩の自動実行が止まっていないか確認してください。</div>}
         {Array.isArray(lr.errors) && lr.errors.length > 0 && <div style={{color:'#c2410c',fontSize:11}}>{lr.errors.slice(0, 5).map((e, i) => <div key={i}>{typeof e === 'string' ? e : (e && (e.key || e.message || JSON.stringify(e)))}</div>)}</div>}
       </>)}
+      {Array.isArray(st.failed) && st.failed.length > 0 && (/* ★ 2026-11-23 trial621: どのファイルが失敗しているか */
+        <div data-testid="aws-backup-failed" style={{marginTop:4}}><div style={{color:'#c2410c',fontWeight:'bold'}}>控えに失敗しているファイル {st.failed.length} 件（毎晩やり直します）</div>
+          {st.failed.map((f, i) => <div key={i} style={{fontSize:11,color:'#475569'}}>{f.path}　{f.count} 回　{f.error}　{f.at ? `最後 ${_bkJst(f.at)}` : ''}</div>)}</div>
+      )}
       {Array.isArray(st.stores) && st.stores.length > 0 && <div style={{fontSize:11,color:'#475569'}}>店舗データの控え: {st.stores.slice(0, 12).map(x => `${x.store}（${x.date || '—'}）`).join('・')}{st.stores.length > 12 ? ` ほか ${st.stores.length - 12} 店舗` : ''}</div>}
     </div>);
   };
@@ -20835,6 +20873,16 @@ function GlobalAiPanel({ staffSession }) {
           {err && <div style={{marginBottom:10,fontSize:12,fontWeight:'bold',color:'#dc2626',lineHeight:1.6,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'8px 10px'}}>{err}</div>}
           {services && (
             <>
+              <div data-testid="usage-card" style={{border:'1px solid #bbf7d0',borderRadius:12,padding:'12px 14px',marginBottom:10,background:'#f0fdf4'}}>{/* ★ 2026-11-23 trial621: 従量課金の利用量と概算 */}
+                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:4}}>
+                  <span style={{fontSize:14,fontWeight:'bold',color:'#3d5021'}}>利用量と概算の料金（従量課金のサービス）</span>
+                  <button type="button" data-testid="usage-btn" disabled={!!busy || usage === 'loading'} onClick={loadUsage} style={{marginLeft:'auto',padding:'5px 12px',background:'#15803d',color:'white',border:'1px solid #15803d',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>
+                    {usage === 'loading' ? <><BusySpin/>確認中…（最大 1 分）</> : '利用量と概算の料金を見る'}
+                  </button>
+                </div>
+                <div style={{fontSize:11.5,color:'#64748b',lineHeight:1.7}}>AWS S3 の容量と保管料の概算・InterFAX の残高と今月の送信枚数と料金・Brevo の今月の送信数を、各サービスから読んで出します（何も書きません）。</div>
+                {usage && usage !== 'loading' && usageView(usage)}
+              </div>
               {active.map(renderService)}
               <button type="button" onClick={()=>setShowPlanned(p=>!p)} style={{marginTop:6,marginBottom:8,padding:'6px 12px',background:'#f5f3ff',color:'#7c3aed',border:'1px solid #ddd6fe',borderRadius:8,fontSize:11.5,fontWeight:'bold',cursor:'pointer'}}>
                 今後導入予定のサービス {planned.length}件 {showPlanned?'▲':'▼'}
