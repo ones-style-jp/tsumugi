@@ -22957,7 +22957,7 @@ export default function App() {
         //   (控えはすでに画面に出ている。実測で 直近 622 行 762KB + 全量 763 行 936KB を毎回読んでいた)。控えの無い新しい端末・薄い端末は従来どおり 2 段階
         // ★ trial630: 判定は控えを書くときに残した印(tsumugiRecCache)で。appDataRef は、この時点では控えがまだ画面に戻っていないことがある(実測)
         const _cachedRecs = (() => { try { const m = JSON.parse(localStorage.getItem('tsumugiRecCache') || 'null'); return (m && m.s === storeId) ? (Number(m.n) || 0) : 0; } catch { return 0; } })();
-        const _skipRecent = _cachedRecs >= 50;
+        const _skipRecent = _cachedRecs >= 20; // ★ trial632: 控えは直近 35 日分なので、記録の少ない店舗でも効くように 50→20 件
         if (_skipRecent) { opsReadyRef.current = true; setOpsLoading(false); syncLog('boot-recent-skip', { cached: _cachedRecs }); }
         try {
           const _cut = new Date(Date.now() - 75 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
