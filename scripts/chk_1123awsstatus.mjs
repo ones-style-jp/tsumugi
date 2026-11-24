@@ -17,7 +17,7 @@ const run = async (status, label) => {
   await page.route('**/api/backup-status', async (route) => { const body = JSON.parse(route.request().postData() || '{}'); calls.push(['status', body.secret, Object.keys(body).join(',')]); await route.fulfill({ status: status.http || 200, contentType: 'application/json', body: JSON.stringify(status.json) }); });
   await page.goto(`http://localhost:${PORT}/#hqservices`, { waitUntil: 'networkidle' }); await page.waitForTimeout(600);
   await page.getByText('外部サービス設定（全店共通').first().click(); await page.waitForTimeout(400);
-  const pw = page.locator('input[type="password"]').first(); await pw.fill('e2e-secret'); await pw.press('Enter'); await page.waitForTimeout(600);
+  const pw = page.getByTestId('hq-secret'); await pw.fill('e2e-secret'); await pw.press('Enter'); await page.waitForTimeout(600);
   const btn = page.getByTestId('aws-backup-status-btn'); const has = await btn.count();
   if (has) { await btn.click(); await page.waitForTimeout(600); }
   const t = await page.locator('body').innerText();

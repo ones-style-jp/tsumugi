@@ -26,7 +26,7 @@ const open = async (usageResp) => {
   await page.route('**/api/backup-status', async (route) => { await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STATUS) }); });
   await page.goto(`http://localhost:${PORT}/#hqservices`, { waitUntil: 'networkidle' }); await page.waitForTimeout(600);
   await page.getByText('外部サービス設定（全店共通').first().click(); await page.waitForTimeout(400);
-  const pw = page.locator('input[type="password"]').first(); await pw.fill('e2e-secret'); await pw.press('Enter'); await page.waitForTimeout(600);
+  const pw = page.getByTestId('hq-secret'); await pw.fill('e2e-secret'); await pw.press('Enter'); await page.waitForTimeout(600);
   return { ctx, page, calls };
 };
 { const { ctx, page, calls } = await open({ json: USAGE });

@@ -12414,7 +12414,7 @@ function TsuPhoneTodaySheet({ open, onClose, appData, onSave, navigateTo }) {
   const DOWJ = ['日','月','火','水','木','金','土'];
   const evs = Array.isArray(appData && appData.scheduleEvents) ? appData.scheduleEvents : [];
   const pname = (pid) => { const p = (pid !== '' && pid != null) ? ((appData.patients || []).find(x => x.id === pid)) : null; return p ? `${p.name} 様` : ''; };
-  const evOn = (iso) => evs.filter(e => e && e.date && !tsuIsMemo(e) && !tsuIsTask(e) && (e.date === iso || (tsuEvMulti(e) && e.date < iso && iso <= String(e.endDate)))).sort((a, b) => String(a.start || '99').localeCompare(String(b.start || '99')));
+  const evOn = (iso) => evs.filter(e => e && e.date && !tsuIsMemo(e) && !tsuIsTask(e) && (e.date === iso || (tsuEvMulti(e) && e.date < iso && iso <= String(e.endDate))) && !tsuSkipOn(e, iso)).sort((a, b) => String(a.start || '99').localeCompare(String(b.start || '99')));
   const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const sd = new Date(`${sel}T00:00:00`);
   const dayEv = evOn(sel);
@@ -13559,7 +13559,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const dow = ['日','月','火','水','木','金','土'][now.getDay()];
-  const todayEvents = (appData.scheduleEvents||[]).filter(e=>(e.date===todayStr || (tsuEvMulti(e) && e.date < todayStr && todayStr <= String(e.endDate))) && !tsuIsMemo(e) && !tsuIsTask(e)).sort((a,b)=>String(a.start||'99').localeCompare(String(b.start||'99')));
+  const todayEvents = (appData.scheduleEvents||[]).filter(e=>(e.date===todayStr || (tsuEvMulti(e) && e.date < todayStr && todayStr <= String(e.endDate))) && !tsuIsMemo(e) && !tsuIsTask(e) && !tsuSkipOn(e, todayStr)).sort((a,b)=>String(a.start||'99').localeCompare(String(b.start||'99')));
   // お知らせ (事業所が投稿したお知らせ) 直近
   const patName = (pid) => (appData.patients||[]).find(p=>p.id===pid)?.name || '';
   // ★ 2026-10-04(ユーザー指示「ここのお知らせもグループ化して」): モニタリングの自動お知らせ(monann_)は月ごとに1行にまとめる(詳細に配信先一覧)
@@ -14064,7 +14064,11 @@ const TSU_MEMO_MAX = 200;
 const tsuIsMemo = (e) => !!e && e.kind === 'memo';
 // ★ 2026-11-13 trial574(ユーザー「カレンダーからも申し送りを入れたい。予定と同じく いつからいつまで表示するかを」): endDate があれば その日まで毎日出す
 const tsuMemoEndOf = (m) => (m && m.endDate && String(m.endDate) > String(m.date)) ? m.endDate : (m ? m.date : '');
-const tsuMemoOnDay = (m, iso) => !!m && !!iso && String(m.date || '') <= String(iso) && String(iso) <= String(tsuMemoEndOf(m));
+// ★ 2026-11-24 trial625(ユーザー「11/23〜25 で出している申し送り・予定・タスクのうち 1 日分を消すと 3 日分とも消える。この日だけ／すべて を選びたい」):
+//   skipDates=「この日だけ消す」で消した日。その日だけ出さない(画面の判定 tsuMemoOnDay/tsuOccursOn/_memoByDate と、通知サーバー api/_push_plan.js occursOn の両方)
+const tsuSkipOn = (e, iso) => !!(e && Array.isArray(e.skipDates) && iso && e.skipDates.includes(String(iso)));
+const TSU_REP_LABEL = { daily: '毎日', weekly: '毎週', monthly: '毎月(同じ日)', monthly_nth: '毎月(第◯曜日)', monthly_lastbiz: '毎月(最終営業日)', yearly: '毎年' };
+const tsuMemoOnDay = (m, iso) => !!m && !!iso && String(m.date || '') <= String(iso) && String(iso) <= String(tsuMemoEndOf(m)) && !tsuSkipOn(m, iso);
 const tsuIsoAdd = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return _isoOf(d); };
 const tsuNextOpenIso = (appData, iso) => forwardOpenDate(tsuIsoAdd(iso, 1), appData?.systemSettings?.facilityInfo?.closedDays || [0], appData?.holidays);
 // 'M/D（曜）'。rel=true なら今日・あすを前に付ける
@@ -14126,8 +14130,33 @@ const tsuAddDaysIso = (iso, n) => { const m = String(iso || '').match(/^(\d{4})-
 const tsuDaysBetweenIso = (a, b) => { const p = (s) => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null; }; const x = p(a), y = p(b); return (x && y) ? Math.round((y - x) / 86400000) : 0; };
 const tsuEvMd = (iso) => { const m = String(iso || '').match(/^\d{4}-(\d{2})-(\d{2})/); return m ? `${Number(m[1])}/${Number(m[2])}` : ''; };
 const tsuEvRangeLabel = (e) => { const s = e._baseDate || e.date; return `${tsuEvMd(s)}${e.start ? ` ${e.start}` : ''}〜${tsuEvMd(e.endDate)}${e.end ? ` ${e.end}` : ''}`; };
+// ★ 2026-11-24 trial625: 「この日だけ消す」を選べるもの = 何日か続く(date〜endDate)か 繰り返し
+const tsuEvHasDays = (e) => !!(e && (tsuEvMulti(e) || (e.repeat && e.repeat !== 'none')));
+// 小窓に出す「いつ出しているか」
+const tsuEvSpanLabel = (e) => { if (!e) return ''; if (e.repeat && e.repeat !== 'none') return `繰り返し（${TSU_REP_LABEL[e.repeat] || e.repeat}${Number(e.repeatEvery) > 1 ? `・${e.repeatEvery}ごと` : ''}${e.repeatUntil ? `・${tsuMemoDayLabel(e.repeatUntil)}まで` : ''}）`; if (tsuEvMulti(e)) return `${tsuMemoDayLabel(e.date)}〜${tsuMemoDayLabel(e.endDate)}の毎日`; return tsuMemoDayLabel(e.date); };
+// iso の日の分だけ消したあとの記録。繰り返し= skipDates に足す。何日か続くもの= 残る日を数え直して date/endDate を縮め、途中の日だけ skipDates に残す。残る日が無ければ null(記録ごと消す)
+const tsuEvWithoutDay = (e, iso) => {
+  if (!e || !iso) return e;
+  const _sk = (e.skipDates || []).map(String);
+  if (e.repeat && e.repeat !== 'none') return { ...e, skipDates: Array.from(new Set([..._sk, String(iso)])).sort() };
+  if (!tsuEvMulti(e)) return null;
+  const sk = new Set([..._sk, String(iso)]); const days = []; let d = String(e.date), n = 0;
+  while (d <= String(e.endDate) && n++ < 400) { if (!sk.has(d)) days.push(d); d = tsuAddDaysIso(d, 1); }
+  if (!days.length) return null;
+  const out = { ...e, date: days[0] }; delete out.endDate; delete out.skipDates;
+  if (days.length > 1) { out.endDate = days[days.length - 1]; const inner = Array.from(sk).filter(x => x > days[0] && x < out.endDate).sort(); if (inner.length) out.skipDates = inner; }
+  return out;
+};
+// 「この日だけ消す」を保存。記録ごと消すべきとき(1 日しか残らない等)は false を返す → 呼ぶ側が従来の削除(墓石つき)を行う
+const tsuEvApplyWithoutDay = (appData, onSave, ev, iso) => {
+  const nx = tsuEvWithoutDay(ev, iso); if (nx === null || nx === ev) return false;
+  const list = Array.isArray(appData.scheduleEvents) ? appData.scheduleEvents : [];
+  onSave({ ...appData, scheduleEvents: list.map(x => x.id === ev.id ? { ...nx, _savedAt: syncNow() } : x) }, { manual: true, message: `✓ ${tsuMemoDayLabel(iso)}の分だけ消しました` });
+  return true;
+};
 const tsuOccursOn = (e, dstr, appData) => {
   if (!e || !e.date) return false;
+  if (tsuSkipOn(e, dstr)) return false; // ★ trial625: 「この日だけ消す」で消した日
   if (e.date === dstr) return true;
   if (tsuEvMulti(e) && dstr > e.date && dstr <= String(e.endDate)) return true;
   if (!e.repeat || e.repeat === 'none') return false;
@@ -14171,10 +14200,26 @@ const tsuTaskOpenOccurrences = (appData, fromIso, toIso, todayIso) => {
   });
   return out.sort((a, b) => a.iso.localeCompare(b.iso) || String(a.t.start || '99').localeCompare(String(b.t.start || '99')));
 };
+// ★ 2026-11-24 trial625: 「この日の分だけ消す／すべて消す」を選ぶ小窓(申し送り・予定・タスク共通)
+function TsuDelScopeDialog({ kindLabel, iso, spanLabel, note, onDay, onAll, onClose }) {
+  const btn = { width: '100%', minHeight: 48, fontSize: 16, fontWeight: 'bold', borderRadius: 12, cursor: 'pointer', padding: '0 14px' };
+  return (
+    <div data-testid="del-scope" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 140, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: 16, width: '100%', maxWidth: 400, padding: '18px 18px 16px', boxShadow: '0 20px 50px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'left', boxSizing: 'border-box' }}>
+        <div style={{ fontSize: 17, fontWeight: 'bold', color: '#1e293b' }}>{kindLabel}を消します</div>
+        <div style={{ fontSize: 14, color: '#475569', lineHeight: 1.6 }}>この{kindLabel}は <b>{spanLabel}</b> に出しています。どちらを消しますか。{note ? <><br />{note}</> : null}</div>
+        <button type="button" data-testid="del-scope-day" onClick={onDay} style={{ ...btn, background: 'white', border: '1px solid #fdba74', color: '#c2410c' }}>{tsuMemoDayLabel(iso)}の分だけ消す</button>
+        <button type="button" data-testid="del-scope-all" onClick={onAll} style={{ ...btn, background: '#c2410c', border: '1px solid #c2410c', color: 'white' }}>すべて消す</button>
+        <button type="button" data-testid="del-scope-cancel" onClick={onClose} style={{ ...btn, background: '#f1f5f9', border: 'none', color: '#475569' }}>やめる</button>
+      </div>
+    </div>
+  );
+}
 function TsuMemoEditor({ appData, onSave, init, onClose }) {
   useTsuBackLock(true);
   const _ph = tsuViewW() < 640; const _touch = tsuTouchDev(); const today = tsuTodayIso();
   const prev = init && init.id ? (appData.scheduleEvents || []).find(e => e.id === init.id) : null;
+  const viewDay = (init && init._day) || ''; const [ask, setAsk] = React.useState(false); // ★ trial625: どの日から開いたか(この日だけ消す)
   const [d, setD] = React.useState(() => ({ id: prev ? prev.id : '', date: (prev && prev.date) || (init && init.date) || today, patientId: (prev && prev.patientId) || (init && init.patientId) || '', title: (prev && prev.title) || '', endDate: (prev && prev.endDate) || (init && init.endDate) || '', toSupport: false }));
   // ★ 2026-10-30(ユーザー要望「退所した方は名前の選択に出さない」): 利用者マスタの「退所済み」(利用終了日を過ぎた・退所/終了)は出さない。直すときに選んであった方だけは残す
   const pts = React.useMemo(() => (appData.patients || []).filter(p => String(p.name || '').trim() && (isPatientListable(p) || (prev && prev.patientId !== '' && prev.patientId != null && p.id === prev.patientId))).slice().sort((a, b) => String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja')), [appData.patients]);
@@ -14183,9 +14228,10 @@ function TsuMemoEditor({ appData, onSave, init, onClose }) {
   const lab = { fontSize: 12, fontWeight: 'bold', color: '#64748b', marginBottom: 4 };
   const chip = (on) => ({ minHeight: hh, fontSize: _ph ? 15 : 13, fontWeight: 'bold', borderRadius: 10, padding: '0 12px', cursor: 'pointer', whiteSpace: 'nowrap', border: `1px solid ${on ? '#fb923c' : '#e2e8f0'}`, background: on ? '#fff7ed' : 'white', color: on ? '#c2410c' : '#475569' });
   const save = () => { const t = String(d.title || '').trim(); if (!t) { alert('申し送りの内容を入力してください'); return; } if (!d.date) { alert('表示する日を選んでください'); return; } if (d.endDate && String(d.endDate) < String(d.date)) { alert('「いつまで」は、表示する日より後の日を選んでください'); return; } tsuMemoSave(appData, onSave, { ...d, title: t, endDate: d.endDate || '' }); onClose(); };
-  const del = () => { if (!prev) return; if (!window.confirm(`この申し送りを削除しますか？${prev.spId ? '\n（支援経過表に残した行はそのまま残ります）' : ''}`)) return; tsuMemoDelete(appData, onSave, prev.id); onClose(); };
+  const del = () => { if (!prev) return; if (viewDay && tsuEvHasDays(prev) && tsuMemoOnDay(prev, viewDay)) { setAsk(true); return; } if (!window.confirm(`この申し送りを削除しますか？${prev.spId ? '\n（支援経過表に残した行はそのまま残ります）' : ''}`)) return; tsuMemoDelete(appData, onSave, prev.id); onClose(); };
   return (
     <div data-testid="memo-editor" style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: _ph ? 'stretch' : 'center', justifyContent: 'center', padding: _ph ? 0 : 16 }}>
+      {ask && prev && <TsuDelScopeDialog kindLabel="申し送り" iso={viewDay} spanLabel={tsuEvSpanLabel(prev)} note={prev.spId ? '支援経過表に残した行はそのまま残ります。' : ''} onDay={() => { setAsk(false); if (!tsuEvApplyWithoutDay(appData, onSave, prev, viewDay)) tsuMemoDelete(appData, onSave, prev.id); onClose(); }} onAll={() => { setAsk(false); tsuMemoDelete(appData, onSave, prev.id); onClose(); }} onClose={() => setAsk(false)} />}
       <div onClick={e => e.stopPropagation()} style={{ background: 'white', width: '100%', maxWidth: _ph ? 'none' : 480, borderRadius: _ph ? 0 : 16, boxShadow: '0 20px 50px rgba(0,0,0,0.25)', padding: _ph ? '14px 16px 20px' : 20, display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto', maxHeight: '100%', boxSizing: 'border-box', textAlign: 'left' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ fontSize: 17, fontWeight: 'bold', color: '#9a3412', flex: 1 }}>{prev ? '申し送りを編集' : '申し送りを書く'}</div>
@@ -14265,13 +14311,13 @@ function TsuMemoCopyDialog({ appData, onSave, m, onClose }) {
   );
 }
 // 1件の申し送り(ホーム・カレンダー共通)。ボタンは 複製・編集・削除(2026-10-30 ユーザー要望)
-function TsuMemoRow({ appData, onSave, m, onEdit, showDate }) {
+function TsuMemoRow({ appData, onSave, m, onEdit, showDate, day }) {
   const _ph = tsuViewW() < 640; const _tp = tsuTouchDev();
-  const [cp, setCp] = React.useState(false);
+  const [cp, setCp] = React.useState(false); const [ask, setAsk] = React.useState(false); // ★ trial625: day=この行を出している日(この日だけ消す)
   const pt = (m.patientId !== '' && m.patientId != null) ? (appData.patients || []).find(p => p.id === m.patientId) : null;
   const btn = { minHeight: _ph ? 44 : _tp ? 40 : 30, fontSize: _ph ? 14 : 12, fontWeight: 'bold', borderRadius: 8, padding: '0 10px', cursor: 'pointer', whiteSpace: 'nowrap' };
-  const meta = [(m.endDate && String(m.endDate) > String(m.date)) ? `${tsuMemoDayLabel(m.date)}〜${tsuMemoDayLabel(m.endDate)}` : '', m.by || '', m.copyOf && m.fromDate ? `${tsuMemoDayLabel(m.fromDate)}から` : '', m.spId ? '支援経過表に残しました' : ''].filter(Boolean).join('・'); // ★ trial574: 期間つきは「いつからいつまで」を添える
-  const del = () => { if (!window.confirm(`この申し送りを削除しますか？${m.spId ? '\n（支援経過表に残した行はそのまま残ります）' : ''}`)) return; tsuMemoDelete(appData, onSave, m.id); };
+  const meta = [(m.endDate && String(m.endDate) > String(m.date)) ? `${tsuMemoDayLabel(m.date)}〜${tsuMemoDayLabel(m.endDate)}` : '', m.by || '', m.copyOf && m.fromDate ? `${tsuMemoDayLabel(m.fromDate)}から` : '', (Array.isArray(m.skipDates) && m.skipDates.length) ? `${m.skipDates.map(tsuEvMd).join('・')}は消しました` : '', m.spId ? '支援経過表に残しました' : ''].filter(Boolean).join('・'); // ★ trial574: 期間つきは「いつからいつまで」を添える
+  const del = () => { if (day && tsuEvHasDays(m) && tsuMemoOnDay(m, day)) { setAsk(true); return; } if (!window.confirm(`この申し送りを削除しますか？${m.spId ? '\n（支援経過表に残した行はそのまま残ります）' : ''}`)) return; tsuMemoDelete(appData, onSave, m.id); };
   return (
     <div data-testid={`memo-row-${m.id}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: _ph ? 'wrap' : 'nowrap', background: 'white', border: '1px solid #e2e8f0', borderLeft: `4px solid ${TSU_MEMO_COLOR}`, borderRadius: 10, padding: '8px 12px', textAlign: 'left' }}>
       <div style={{ flex: '1 1 220px', minWidth: 0 }}>
@@ -14284,10 +14330,11 @@ function TsuMemoRow({ appData, onSave, m, onEdit, showDate }) {
       </div>
       {onSave && <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center', marginLeft: _ph ? 'auto' : 0 }}>
         <button type="button" data-testid={`memo-copy-${m.id}`} onClick={() => setCp(true)} title="同じ内容を、選んだ日にも出します" style={{ ...btn, color: '#047857', background: 'white', border: '1px solid #6ee7b7' }}>複製</button>
-        {onEdit && <button type="button" data-testid={`memo-edit-${m.id}`} onClick={() => onEdit(m)} style={{ ...btn, color: '#334155', background: '#f1f5f9', border: '1px solid #e2e8f0' }}>編集</button>}
+        {onEdit && <button type="button" data-testid={`memo-edit-${m.id}`} onClick={() => onEdit({ ...m, _day: day })} style={{ ...btn, color: '#334155', background: '#f1f5f9', border: '1px solid #e2e8f0' }}>編集</button>}
         <button type="button" data-testid={`memo-rdel-${m.id}`} onClick={del} style={{ ...btn, color: '#c2410c', background: 'white', border: '1px solid #fdba74' }}>削除</button>
       </div>}
       {cp && <TsuMemoCopyDialog appData={appData} onSave={onSave} m={m} onClose={() => setCp(false)} />}
+      {ask && <TsuDelScopeDialog kindLabel="申し送り" iso={day} spanLabel={tsuEvSpanLabel(m)} note={m.spId ? '支援経過表に残した行はそのまま残ります。' : ''} onDay={() => { setAsk(false); if (!tsuEvApplyWithoutDay(appData, onSave, m, day)) tsuMemoDelete(appData, onSave, m.id); }} onAll={() => { setAsk(false); tsuMemoDelete(appData, onSave, m.id); }} onClose={() => setAsk(false)} />}
     </div>
   );
 }
@@ -14315,12 +14362,12 @@ function TsuHomeMemos({ appData, onSave, isRead, markRead }) {
       </div>
       {todayL.length === 0
         ? <div style={{ fontSize: 12, color: '#94a3b8' }}>今日の申し送りはありません</div>
-        : <div data-testid="home-memos-today" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{todayL.map(m => <TsuMemoRow key={m.id} appData={appData} onSave={onSave} m={m} onEdit={x => setEd(x)} />)}</div>}
+        : <div data-testid="home-memos-today" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{todayL.map(m => <TsuMemoRow key={m.id} appData={appData} onSave={onSave} m={m} day={today} onEdit={x => setEd(x)} />)}</div>}
       {showUp && groups.length > 0 && (
         <div data-testid="home-memos-upcoming-list" style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {groups.map(g => (<React.Fragment key={g.date}>
             <div style={{ fontSize: 12, fontWeight: 'bold', color: '#9a3412', marginTop: 2 }}>{tsuMemoDayLabel(g.date, true)}</div>
-            {g.list.map(m => <TsuMemoRow key={m.id} appData={appData} onSave={onSave} m={m} onEdit={x => setEd(x)} />)}
+            {g.list.map(m => <TsuMemoRow key={m.id} appData={appData} onSave={onSave} m={m} day={g.date} onEdit={x => setEd(x)} />)}
           </React.Fragment>))}
         </div>
       )}
@@ -14381,9 +14428,10 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const _memoAll = (appData.scheduleEvents || []).filter(tsuIsMemo);
   const events = (appData.scheduleEvents || []).filter(e => !tsuIsMemo(e));
   const save = (list, msg) => onSave({ ...appData, scheduleEvents: [...list, ..._memoAll] }, msg ? { manual:true, message: msg } : undefined);
-  const _memoByDate = {}; _memoAll.forEach(m => { const _end = tsuMemoEndOf(m); let _d = m.date, _n = 0; while (_d && String(_d) <= String(_end) && _n < 62) { if (!_memoByDate[_d]) _memoByDate[_d] = []; _memoByDate[_d].push(m); _d = tsuIsoAdd(_d, 1); _n++; } }); // ★ trial574: いつまで表示 の各日に
+  const _memoByDate = {}; _memoAll.forEach(m => { const _end = tsuMemoEndOf(m); let _d = m.date, _n = 0; while (_d && String(_d) <= String(_end) && _n < 62) { if (!tsuSkipOn(m, _d)) { if (!_memoByDate[_d]) _memoByDate[_d] = []; _memoByDate[_d].push(m); } _d = tsuIsoAdd(_d, 1); _n++; } }); // ★ trial574: いつまで表示 の各日に
   const memosOf = (ds) => (_memoByDate[ds] || []).slice().sort(tsuMemoSort);
   const [memoEd, setMemoEd] = useState(null);
+  const [delAsk, setDelAsk] = useState(null); // ★ trial625: {id, iso} 「この日だけ消す／すべて消す」の小窓
   // ★ 色ラベル(カテゴリ): 色を押すとタイトルが自動で入る。 各種設定不要でここで編集・保存。
   const DEFAULT_SCHED_LABELS = [{color:'#3b82f6',label:'担当者会議'},{color:'#ef4444',label:'契約'},{color:'#10b981',label:'見学'},{color:'#f59e0b',label:'避難訓練'},{color:'#8b5cf6',label:'行事'},{color:'#0ea5e9',label:'その他'}];
   // ★ 固定ラベル(2026-08-28 店舗要望): 担当者会議・契約・見学は必ず使うため先頭3件に固定し、名前変更・削除不可。
@@ -14414,7 +14462,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
     if (modal.kind !== 'task' && (!modal.repeat || modal.repeat === 'none') && modal.endDate && String(modal.endDate) < String(modal.date)) { alert('終わりの日は、開始の日より後の日を選んでください'); return; } // ★ 2026-11-07 trial529
     const evId = modal.id || `ev_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
     const ev = { ...modal, id: evId, title: modal.title.trim(), ...(modal.kind === 'task' ? { kind: 'task', color: TSU_TASK_COLOR, end: '', notify: false } : {}), _savedAt: syncNow() }; if (ev.kind !== 'task') delete ev.kind; // ★ 2026-10-30: タスク
-    delete ev._allDay; // ★ 2026-11-08 trial530: 「終日」の切り替えは画面だけの印(時刻が空=終日)
+    delete ev._allDay; delete ev._viewDay; // ★ 2026-11-08 trial530: 「終日」の切り替えは画面だけの印(時刻が空=終日)
     if (ev.kind === 'task' || (ev.repeat && ev.repeat !== 'none') || !ev.endDate || String(ev.endDate) <= String(ev.date)) delete ev.endDate; // ★ 2026-11-07 trial529: 同じ日・繰り返し・タスクは終わりの日なし
     const list = modal.id ? events.map(e=>e.id===modal.id?ev:e) : [...events, ev];
     // ★ お知らせ配信: 利用者を選び「お知らせとして配信」ON → その利用者(ご家族)＋担当ケアマネの閲覧画面のお知らせに掲載
@@ -14429,8 +14477,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
     onSave({ ...appData, scheduleEvents: [...list, ..._memoAll], familyPersonalAnnouncements: personalAnns }, { manual:true, message: (ev.patientId&&ev.notify) ? '✓ 予定を保存し、お知らせを配信しました' : (modal.id ? '✓ 予定を更新しました' : '✓ 予定を追加しました') });
     setModal(null);
   };
-  const del = (id) => {
-    if(!window.confirm('この予定を削除しますか？')) return;
+  const del = (id, _o) => {
+    if(!(_o && _o.silent) && !window.confirm('この予定を削除しますか？')) return; // ★ trial625: 小窓で「すべて消す」を選んだあとは聞き直さない
     const annId = `schednews_${id}`;
     // ★ 端末間の id 単位マージで削除済み予定が復活しないよう、墓石(tombstone)を記録する
     const _td = { ...(appData.deletedIds||{}), scheduleEvents: { ...((appData.deletedIds||{}).scheduleEvents||{}), [String(id)]: Date.now() } };
@@ -14464,8 +14512,9 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   };
   const addMonthsToDate = (dstr, months) => { if(!dstr) return ''; const [y,m,d]=dstr.split('-').map(Number); const dt=new Date(y,m-1+months,d); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`; };
   const evOf = (dstr) => events.filter(e=>occursOn(e,dstr)).map(e=> e.date===dstr ? e : {...e, date:dstr, _occ:true, _baseId:e.id, _baseDate:e.date}).sort((a,b)=>String(a.start||'99').localeCompare(String(b.start||'99')));
-  const editEvent = (e) => { const be = e._occ ? (events.find(x=>x.id===e._baseId)||e) : e; setModal({...be}); };
-  const delEvent = (e) => { del(e._occ ? e._baseId : e.id); };
+  const editEvent = (e) => { const be = e._occ ? (events.find(x=>x.id===e._baseId)||e) : e; setModal({...be, _viewDay: e.date || ''}); }; // ★ trial625: どの日から開いたか(保存では消す)
+  // ★ trial625: 何日か続く・繰り返しのものは、見ていた日の分だけ消すか すべて消すかを聞く
+  const delEvent = (e) => { const id = e._occ ? e._baseId : e.id; const base = events.find(x=>x.id===id) || e; const iso = e.date; if (iso && tsuEvHasDays(base) && occursOn(base, iso)) { setDelAsk({ id, iso }); return; } del(id); };
   const moveEvent = (e, toDstr) => { if(!e||!toDstr) return; const id=e._occ?e._baseId:e.id; const base=events.find(x=>x.id===id); if(!base||base.date===toDstr) return; save(events.map(x=>x.id===id?{...base,date:toDstr,...(tsuEvMulti(base)?{endDate:tsuAddDaysIso(base.endDate, tsuDaysBetweenIso(base.date, toDstr))}:{}),_savedAt:syncNow()}:x), '✓ 予定を移動しました'); }; // ★ 2026-11-07 trial529: 何日か続く予定は終わりの日も同じだけずらす
   // 誕生日・認定有効期間終了(介護保険/認定が切れる) を日付ごとに判定
   const activePatients = (appData.patients||[]).filter(p=>p.status!=='退所' && (p.name||'').trim());
@@ -14719,12 +14768,13 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                     <button type="button" data-testid="sch-memo-add" onClick={()=>setMemoEd({ date: selDay })} style={{whiteSpace:'nowrap',background:'white',color:'#c2410c',border:'1px solid #fdba74',borderRadius:8,padding:_schPhone?'10px 12px':'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>＋ 申し送り</button>
                   </div>
                   {ms.length === 0 ? <div style={{fontSize:12,color:'#94a3b8'}}>この日の申し送りはありません</div>
-                    : <div style={{display:'flex',flexDirection:'column',gap:6}}>{ms.map(m => <TsuMemoRow key={m.id} appData={appData} onSave={onSave} m={m} onEdit={x=>setMemoEd(x)} />)}</div>}
+                    : <div style={{display:'flex',flexDirection:'column',gap:6}}>{ms.map(m => <TsuMemoRow key={m.id} appData={appData} onSave={onSave} m={m} day={selDay} onEdit={x=>setMemoEd(x)} />)}</div>}
                 </div>); })()}
             </div>
           </div>
         </div>
       </div>
+      {delAsk && (() => { const _b = events.find(x=>x.id===delAsk.id); if (!_b) return null; return <TsuDelScopeDialog kindLabel={tsuIsTask(_b) ? 'タスク' : '予定'} iso={delAsk.iso} spanLabel={tsuEvSpanLabel(_b)} note="" onDay={() => { setDelAsk(null); setEvDetail(null); setModal(null); if (!tsuEvApplyWithoutDay(appData, onSave, _b, delAsk.iso)) del(_b.id, { silent: true }); }} onAll={() => { setDelAsk(null); setEvDetail(null); del(_b.id, { silent: true }); }} onClose={() => setDelAsk(null)} />; })()}{/* ★ trial625 */}
       {memoEd && <TsuMemoEditor appData={appData} onSave={onSave} init={memoEd} onClose={()=>setMemoEd(null)} />}
       {/* 予定 追加/編集モーダル */}
       {/* ★ 予定の確認ポップアップ: クリック→内容確認→編集/削除(2026-08-21) */}
@@ -14737,6 +14787,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               <div style={{fontSize:23,fontWeight:'bold',color:'#1e293b',lineHeight:1.4}}>{e.title||'（無題の予定）'}</div>
               <div style={{fontSize:16,color:'#475569',marginTop:10,display:'flex',alignItems:'center',gap:8}}><Clock size={17}/>{tsuEvMulti(e) ? `${fmtJp(e._baseDate || e.date)}${e.start ? ` ${e.start}` : ''} 〜 ${fmtJp(e.endDate)}${e.end ? ` ${e.end}` : ''}` : <>{fmtJp(e.date)}　{timeLabel(e)}</>}</div>
               {e.repeat && e.repeat!=='none' && <div style={{fontSize:14,color:'#64748b',marginTop:6}}>繰り返し: {REP[e.repeat]||e.repeat}{e.repeatEvery>1?`（${e.repeatEvery}ごと）`:''}</div>}
+              {Array.isArray(e.skipDates) && e.skipDates.length > 0 && <div data-testid="sch-evd-skipped" style={{fontSize:13,color:'#9a3412',marginTop:4}}>消した日: {e.skipDates.map(tsuEvMd).join('・')}</div>}{/* ★ trial625 */}
               {patName(e) && <div style={{fontSize:16,color:'#4338ca',marginTop:6,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}><Users size={17}/>
                 {/* ★ 利用者名タップで利用者マスタへ(2026-08-28) */}
                 <button type="button" onClick={()=>{ setEvDetail(null); _goMaster(e.patientId); }} title="利用者マスタを開く"
@@ -14885,7 +14936,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                 })}
               </div>
             </div>}
-            {modal.id && <button type="button" data-testid="sch-modal-del" onClick={()=>del(modal.id)} style={{width:'100%',background:'white',border:'1px solid #fdba74',color:'#c2410c',borderRadius:14,padding:'12px 14px',fontWeight:'bold',fontSize:15,cursor:'pointer',marginTop:2}}>{isTask ? 'このタスクを削除' : 'この予定を削除'}</button>}
+            {modal.id && <button type="button" data-testid="sch-modal-del" onClick={()=>{ const _b = events.find(x=>x.id===modal.id); if (modal._viewDay && _b && tsuEvHasDays(_b) && occursOn(_b, modal._viewDay)) { setDelAsk({ id: modal.id, iso: modal._viewDay }); return; } del(modal.id); }} style={{width:'100%',background:'white',border:'1px solid #fdba74',color:'#c2410c',borderRadius:14,padding:'12px 14px',fontWeight:'bold',fontSize:15,cursor:'pointer',marginTop:2}}>{isTask ? 'このタスクを削除' : 'この予定を削除'}</button>}
           </div>
         </div>
         ); })()}
@@ -20881,7 +20932,7 @@ function GlobalAiPanel({ staffSession }) {
           <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end',marginBottom:14}}>
             <div style={{width:240}}>
               <label style={{fontSize:10,fontWeight:'bold',color:'#64748b'}}>合言葉（本部のみ）</label>
-              <input type="password" value={secret} onChange={e=>setSecret(e.target.value)} placeholder="ADMIN_API_SECRET" style={inp} autoComplete="off"
+              <input type="text" {...TSU_NOFILL} name="tsu-hq-secret" data-testid="hq-secret" value={secret} onChange={e=>setSecret(e.target.value)} placeholder="ADMIN_API_SECRET" style={{...inp, WebkitTextSecurity:'disc'}} /* ★ 2026-11-24 trial625(ユーザー「合言葉の欄に自動で文字が入る」): type=password だとブラウザが保存したパスワードを勝手に入れる → 文字だけ伏せる欄に */
                 onKeyDown={e=>{ if(e.key==='Enter') call('list'); }}/>
             </div>
             <button type="button" onClick={()=>call('list')} disabled={!!busy} style={{padding:'9px 18px',background: busy?'#94a3b8':'#475569',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>
