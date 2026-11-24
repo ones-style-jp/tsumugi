@@ -14096,7 +14096,10 @@ const tsuMemoSave = (appData, onSave, memo) => {
       patients = (appData.patients || []).map(x => x.id === p.id ? { ...p, personalFile: { ...pf, supportProgress: [...(Array.isArray(pf.supportProgress) ? pf.supportProgress : []), { id: spId, date: today, staff: ev.by || me, from: '', content, memoId: id }] } } : x);
       patChanged = true; ev.spId = spId; ev.spAt = today; }
   }
-  onSave({ ...appData, scheduleEvents: prev ? list.map(e => e.id === id ? ev : e) : [...list, ev], ...(patChanged ? { patients } : {}) },
+  // ★ 2026-11-24 trial627(重さ対策 第2弾): 書いた本人の既読(noticeReads)をこの保存に同梱する。これまではホームに出た 1.2 秒後に既読の無音保存がもう 1 回走り(計 2 回の書き込み)、他の端末が 2 回取り込んでいた
+  let _nr;
+  if (!prev) { try { const _k = (me ? normalizeName(me).trim() : '') || '_'; const _map = appData.noticeReads || {}; const _arr = Array.isArray(_map[_k]) ? _map[_k] : []; if (!_arr.includes(String(id))) _nr = { ..._map, [_k]: [..._arr, String(id)].slice(-1000) }; } catch {} }
+  onSave({ ...appData, scheduleEvents: prev ? list.map(e => e.id === id ? ev : e) : [...list, ev], ...(patChanged ? { patients } : {}), ...(_nr ? { noticeReads: _nr } : {}) },
     { manual: true, message: patChanged ? '✓ 申し送りを保存し、支援経過表にも残しました' : (prev ? '✓ 申し送りを更新しました' : '✓ 申し送りを保存しました') });
   return ev;
 };
@@ -22499,7 +22502,7 @@ export default function App() {
     if (_noticePushTimerRef.current) clearTimeout(_noticePushTimerRef.current);
     _noticePushTimerRef.current = setTimeout(() => {
       try { _noticeSaveRef.current && _noticeSaveRef.current(appDataRef.current, { silent: true }); } catch (e) { console.warn('[noticeReads] push failed', e); }
-    }, 800);
+    }, 15000); // ★ 2026-11-24 trial627: 0.8秒→15秒(続けて読んだ分をまとめ、直後の別の保存があればそれに同梱される。他の端末への既読の反映は十数秒)
   }, []);
   const markNoticeRead = React.useCallback((id) => {
     if (id == null) return;
@@ -22825,6 +22828,9 @@ export default function App() {
   const appDataRef = React.useRef(appData);
   appDataRef.current = appData;
   const _lastTblSyncRef = React.useRef(null);   // 最後に取り込んだ updated_at
+  // ★ 2026-11-24 trial627(実測: テスト店舗で同じ 21 行を 6 秒ごとに取り直していた): 印の比較は時刻で行い、同じミリ秒ならサーバーの(マイクロ秒つき・桁の多い)文字列を採る。
+  //   これまでは文字の比較で、端末の "…35.856Z" よりサーバーの "…35.856167+00:00" が小さいと誤判定され、印が進まなかった
+  const _tblNewer = (a, b) => { if (!a) return false; if (!b) return true; const ta = Date.parse(a), tb = Date.parse(b); if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta > tb; return String(a).length !== String(b).length ? String(a).length > String(b).length : String(a) > String(b); };
   // ★ 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): 他端末の提供記録がテーブルから届いた状況を再現する入口
   useEffect(() => {
     if (String(import.meta.env.VITE_E2E_DEMO || '') !== '1') return;
@@ -22896,7 +22902,7 @@ export default function App() {
         let changed = false;
         items.forEach(({ rec, deleted, updated_at }) => {
           const id = String(rec.id);
-          if (updated_at && (!_lastTblSyncRef.current || updated_at > _lastTblSyncRef.current)) _lastTblSyncRef.current = updated_at;
+          if (updated_at && _tblNewer(updated_at, _lastTblSyncRef.current)) _lastTblSyncRef.current = updated_at; // ★ trial627: 時刻で比べる
           if (deleted) {
             // ★ 削除の伝搬(2026-08-10): 従来は無視していたため、取り消した振替が他端末に表示され続け、
             //   その端末の保存で復活し得た。 明示削除(deleted_at)は手元にも反映する。
@@ -22955,7 +22961,8 @@ export default function App() {
         oplogState.readable = true;
         oplogState.tableFailed = false;   // テーブルが読めた → 凍結・pullガードを継続
         markOplogWritable();
-        _lastTblSyncRef.current = rows.reduce((m, r) => { const t = r._savedAt ? new Date(r._savedAt).toISOString() : null; return (t && (!m || t > m)) ? t : m; }, null);
+        // ★ trial627: 起動時の印はサーバーの updated_at(マイクロ秒つき)から。_savedAt のミリ秒の文字列だと、同じミリ秒の行を毎回取り直す
+        _lastTblSyncRef.current = _all.reduce((m, x) => (x && x.updated_at && _tblNewer(x.updated_at, m)) ? x.updated_at : m, rows.reduce((m, r) => { const t = r._savedAt ? new Date(r._savedAt).toISOString() : null; return (t && _tblNewer(t, m)) ? t : m; }, null));
         setAppData(prev => {
           applyingRemoteRef.current = true;
           // ★ テーブルを土台にしつつ、手元(localStorage由来)の記録も非空優先で統合する。
@@ -23572,7 +23579,7 @@ export default function App() {
         });
         // ★ 端末内の新しい記録を保持した場合は、クラウドにも反映(失敗していた保存を再送し、次回pullで消えないように)。
         if (_mergedForPush) {
-          Promise.resolve().then(() => supabaseMergeAndSyncStateForStore(newStoreId, _mergedForPush)).catch(e => console.warn('[pull preserve] push failed', e));
+          Promise.resolve().then(() => supabaseMergeAndSyncStateForStore(newStoreId, _mergedForPush)).then((r) => { if (r === true) _tsuAdoptOwnPush(); }).catch(e => console.warn('[pull preserve] push failed', e)); // ★ trial627: 自分の再保存の版は取り直さない
         }
         // ★ load 完了 → push 解禁
         dataLoadedForStoreRef.current = newStoreId;
