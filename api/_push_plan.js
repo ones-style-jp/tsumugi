@@ -27,6 +27,7 @@ export const taskDoneOn = (e, dstr) => { const x = e && e.done && e.done[dstr]; 
 // 画面(App.jsx tsuOccursOn)と同じ繰り返しの判定
 export function occursOn(e, dstr, ctx) {
   if (!e || !e.date) return false;
+  if (Array.isArray(e.skipDates) && e.skipDates.includes(dstr)) return false; // ★ 2026-11-24 trial625: 「この日だけ消す」で消した日
   if (e.date === dstr) return true;
   if (!e.repeat || e.repeat === 'none') return false;
   if (dstr < e.date) return false;
