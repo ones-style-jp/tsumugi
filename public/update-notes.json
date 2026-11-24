@@ -1,7 +1,21 @@
 {
-  "version": "upd-2026-1124-trial629",
+  "version": "upd-2026-1124-trial630",
   "updatedAt": "2026-11-24",
   "notes": [
+    {
+      "id": "upd-2026-1124-trial630",
+      "type": "fix",
+      "title": "起動時の提供記録の二重読みをやめる（判定の直し）",
+      "date": "2026-11-24",
+      "body": "同期",
+      "items": [
+        {
+          "kind": "fix",
+          "where": "全体 → 起動時の通信",
+          "change": "trial629 の「控えがあれば提供記録の先行取得を省く」が、判定の順番の都合で効いていなかったのを直しました。"
+        }
+      ]
+    },
     {
       "id": "upd-2026-1124-trial629",
       "type": "improve",

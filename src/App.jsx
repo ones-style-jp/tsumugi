@@ -22657,7 +22657,9 @@ export default function App() {
     } else
     try {
       // ★ 2026-09-10: テーブル方式では控えの提供記録を直近35日に常時トリム(正本はテーブル・容量8割超対策)
-      localStorage.setItem('daycareAppData_v3', JSON.stringify(TABLE_ENABLED ? { ...appData, ticketRecords: _slimTickets(appData.ticketRecords) } : appData));
+      const _slimForCache = TABLE_ENABLED ? _slimTickets(appData.ticketRecords) : appData.ticketRecords;
+      localStorage.setItem('daycareAppData_v3', JSON.stringify(TABLE_ENABLED ? { ...appData, ticketRecords: _slimForCache } : appData));
+      try { localStorage.setItem('tsumugiRecCache', JSON.stringify({ s: appData._sbStoreId || '', n: Array.isArray(_slimForCache) ? _slimForCache.length : 0 })); } catch {} // ★ 2026-11-24 trial630: 起動時に「控えに記録があるか」を速く知るための印(店舗IDと件数)
       // 成功時: 古い分離保存キーを掃除 (整合性確保)
       try { localStorage.removeItem('daycarePhotos_v1'); } catch {}
     } catch (e) {
@@ -22942,8 +22944,9 @@ export default function App() {
         //   「再読み込み直後の空欄時間」の恒久対策。
         // ★ 2026-11-24 trial629(起動の通信): 手元の控えに記録が十分あれば(50 行以上)、直近分の先行取得を省いて全量の 1 回だけにする
         //   (控えはすでに画面に出ている。実測で 直近 622 行 762KB + 全量 763 行 936KB を毎回読んでいた)。控えの無い新しい端末・薄い端末は従来どおり 2 段階
-        const _cachedRecs = (() => { try { const a = appDataRef.current && appDataRef.current.ticketRecords; return Array.isArray(a) ? a.length : 0; } catch { return 0; } })();
-        const _skipRecent = _cachedRecs >= 50 && (appDataRef.current && appDataRef.current._sbStoreId === storeId);
+        // ★ trial630: 判定は控えを書くときに残した印(tsumugiRecCache)で。appDataRef は、この時点では控えがまだ画面に戻っていないことがある(実測)
+        const _cachedRecs = (() => { try { const m = JSON.parse(localStorage.getItem('tsumugiRecCache') || 'null'); return (m && m.s === storeId) ? (Number(m.n) || 0) : 0; } catch { return 0; } })();
+        const _skipRecent = _cachedRecs >= 50;
         if (_skipRecent) { opsReadyRef.current = true; setOpsLoading(false); syncLog('boot-recent-skip', { cached: _cachedRecs }); }
         try {
           const _cut = new Date(Date.now() - 75 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
