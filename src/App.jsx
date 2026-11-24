@@ -22275,9 +22275,9 @@ export default function App() {
         if (!stopped && j && Array.isArray(j.alerts)) setDisasterAlerts(j.alerts);
       } catch {}
     };
-    load();
+    const t0 = setTimeout(load, 2500); // ★ 2026-11-24 trial629: ログイン直後は住所が「空→入る」と変わり 3 回呼んでいた → 2.5 秒待って 1 回に
     const t = setInterval(load, 60000);
-    return () => { stopped = true; clearInterval(t); };
+    return () => { stopped = true; clearTimeout(t0); clearInterval(t); };
   }, [staffSession?.storeId, appData.systemSettings?.facilityInfo?.address]);
   const dismissAlert = (id) => setDismissedAlertIds(prev => { const n = [...new Set([...prev, id])].slice(-200); try { localStorage.setItem('tsumugiAlertDismissed', JSON.stringify(n)); } catch {} return n; });
   const visibleAlerts = disasterAlerts.filter(a => a && a.id && !dismissedAlertIds.includes(a.id));
@@ -22758,9 +22758,14 @@ export default function App() {
         //   全量(過去分)は続けて裏で取得・統合する。 記録が何年分に増えても初期表示の待ちは一定
         //   (直近分の件数)にとどまる。 容量超過で端末内キャッシュが薄い店舗(扇橋)の
         //   「再読み込み直後の空欄時間」の恒久対策。
+        // ★ 2026-11-24 trial629(起動の通信): 手元の控えに記録が十分あれば(50 行以上)、直近分の先行取得を省いて全量の 1 回だけにする
+        //   (控えはすでに画面に出ている。実測で 直近 622 行 762KB + 全量 763 行 936KB を毎回読んでいた)。控えの無い新しい端末・薄い端末は従来どおり 2 段階
+        const _cachedRecs = (() => { try { const a = appDataRef.current && appDataRef.current.ticketRecords; return Array.isArray(a) ? a.length : 0; } catch { return 0; } })();
+        const _skipRecent = _cachedRecs >= 50 && (appDataRef.current && appDataRef.current._sbStoreId === storeId);
+        if (_skipRecent) { opsReadyRef.current = true; setOpsLoading(false); syncLog('boot-recent-skip', { cached: _cachedRecs }); }
         try {
           const _cut = new Date(Date.now() - 75 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-          const _recent = await fetchTicketRecordsRecent(storeId, _cut);
+          const _recent = _skipRecent ? [] : await fetchTicketRecordsRecent(storeId, _cut);
           if (stopped) return;
           if (_recent.length) {
             syncLog('boot-recent', { n: _recent.length });
