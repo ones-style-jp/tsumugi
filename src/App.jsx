@@ -20750,6 +20750,44 @@ function GlobalAiPanel({ staffSession }) {
   const [err, setErr] = React.useState('');
   const [testMsg, setTestMsg] = React.useState({});   // {serviceId: 結果}
   const [showPlanned, setShowPlanned] = React.useState(false);
+  // ★ 2026-11-24 trial634(LIFE 12/10・2027年1月の全店提出に向けて): 全店の LIFE 提出の準備状況(api/life-readiness・件数だけ・個人名なし)
+  const [lifeRd, setLifeRd] = React.useState(null); const [lifeRdYm, setLifeRdYm] = React.useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; });
+  const loadLifeRd = async () => {
+    if (!secret.trim()) { setErr('合言葉を入力してください'); return; }
+    setErr(''); setLifeRd('loading');
+    try { const r = await fetch('/api/life-readiness', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: secret.trim(), ym: lifeRdYm }) }); const j = await r.json().catch(() => ({})); setLifeRd(j && !j.error ? j : { error: (j && j.error) || `HTTP ${r.status}` }); }
+    catch (e) { setLifeRd({ error: '通信エラー: ' + (e?.message || '') }); }
+  };
+  const lifeRdView = (u) => {
+    if (!u || u === 'loading') return null;
+    if (u.error) return <div data-testid="life-ready-err" style={{color:'#c2410c',fontWeight:'bold'}}>{u.error}</div>;
+    const rows = (u.stores || []).filter(x => !x.isTest).concat((u.stores || []).filter(x => x.isTest));
+    const th = { padding:'6px 8px', borderBottom:'2px solid #cbd5e1', fontSize:11, color:'#475569', whiteSpace:'nowrap', textAlign:'left', background:'#f8fafc' };
+    const td = { padding:'6px 8px', borderBottom:'1px solid #e2e8f0', fontSize:12, whiteSpace:'nowrap', fontVariantNumeric:'tabular-nums' };
+    const ng = (v) => <span style={{color:'#c2410c',fontWeight:'bold'}}>{v}</span>;
+    const okng = (b, okText, ngText) => b ? <span style={{color:'#15803d',fontWeight:'bold'}}>{okText}</span> : ng(ngText);
+    const f3 = (f) => f ? <>{f.recent}<span style={{color:'#94a3b8'}}>／</span>{f.old ? ng(f.old) : 0}<span style={{color:'#94a3b8'}}>／</span>{f.none ? ng(f.none) : 0}</> : '-';
+    return (<div data-testid="life-ready-box" style={{fontSize:12,lineHeight:1.7,color:'#1e293b'}}>
+      <div style={{color:'#475569',marginBottom:6}}>提出年月 <b>{u.ym}</b> として数えています。様式の列は「3か月以内の評価あり／3か月より前／評価なし」(利用中の方の人数)。個人名は出ません。</div>
+      <div style={{overflowX:'auto'}}><table data-testid="life-ready-table" style={{borderCollapse:'collapse',minWidth:980}}>
+        <thead><tr><th style={th}>店舗</th><th style={th}>加算(科学/ADL/個別)</th><th style={th}>事業所番号(介護／総合)</th><th style={th}>保険者番号</th><th style={th}>既定の職種</th><th style={th}>利用中</th><th style={th}>被保番10桁</th><th style={th}>基本4項目そろい</th><th style={th}>自立度2つ</th><th style={th}>ADL評価</th><th style={th}>生活機能</th><th style={th}>個別機能訓練</th></tr></thead>
+        <tbody>{rows.map(x => { const P = x.patients || {}, O = x.office || {}, A = x.addons || {}, F = x.forms || {}; const anyLife = A.kagaku || A.adl || A.kinou2; return (
+          <tr key={x.key} data-testid={`life-ready-row-${x.key}`} style={{opacity: x.isTest ? 0.6 : 1}}>
+            <td style={{...td,fontWeight:'bold'}}>{x.name || x.key}{x.isTest ? '（テスト）' : ''}{x.error ? ng(' 読めません') : ''}</td>
+            <td style={td}>{anyLife ? <>{A.kagaku ? '科' : <span style={{color:'#cbd5e1'}}>科</span>}{A.adl ? ' A' : <span style={{color:'#cbd5e1'}}> A</span>}{A.kinou2 ? ' 個' : <span style={{color:'#cbd5e1'}}> 個</span>}</> : ng('未設定')}</td>
+            <td style={td}>{O.officeNumber ? O.officeNumber : ng('未入力')}{O.officeNumber2 ? ` ／ ${O.officeNumber2}` : ''}{O.serviceCode ? <span style={{color:'#64748b'}}>（{O.serviceCode}{O.serviceCode2 ? `／${O.serviceCode2}` : ''}）</span> : ''}</td>
+            <td style={td}>{O.insurerNo ? O.insurerNo : <span style={{color:'#64748b'}}>利用者ごと {P.insurerOk ?? 0}/{P.active ?? 0}</span>}</td>
+            <td style={td}>{okng(!!O.defaultJob, 'あり', '未設定')}</td>
+            <td style={td}>{P.active ?? '-'}</td>
+            <td style={td}>{P.insuredOk ?? 0}/{P.active ?? 0}{P.insuredShort ? ng(`（桁不足 ${P.insuredShort}）`) : ''}</td>
+            <td style={td}>{P.basic4 ?? 0}/{P.active ?? 0}</td>
+            <td style={td}>{P.levelOk ?? 0}/{P.active ?? 0}</td>
+            <td style={td}>{f3(F.adl)}</td><td style={td}>{f3(F.seikatsu)}</td><td style={td}>{f3(F.kinou)}</td>
+          </tr>); })}</tbody>
+      </table></div>
+      <div style={{marginTop:6,color:'#64748b',fontSize:11}}>基本4項目＝保険者番号・被保険者番号(10桁)・性別・生年月日(新LIFEの照合に使われ、1つでも違うと様式も登録できません)。自立度2つ＝障害高齢者・認知症高齢者の日常生活自立度(フェイスシート)。確認した時刻 {u.at ? new Date(u.at).toLocaleString('ja-JP') : ''}</div>
+    </div>);
+  };
   const [usage, setUsage] = React.useState(null); // ★ 2026-11-23 trial621(ユーザー「従量課金のところは個数と料金が見えるように」): 'loading' | {…} | {error}
   const [bkSt, setBkSt] = React.useState(null); // ★ 2026-11-23 trial620(ユーザー「AWS に保存されているか確認してほしい」): 控えの最後の実行(api/backup-status)。'loading' | {…} | {error}
 
@@ -20937,6 +20975,17 @@ function GlobalAiPanel({ staffSession }) {
           {err && <div style={{marginBottom:10,fontSize:12,fontWeight:'bold',color:'#dc2626',lineHeight:1.6,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'8px 10px'}}>{err}</div>}
           {services && (
             <>
+              <div data-testid="life-ready-card" style={{border:'1px solid #bbf7d0',borderRadius:12,padding:'12px 14px',marginBottom:10,background:'#f0fdf4'}}>{/* ★ 2026-11-24 trial634: 全店の LIFE 提出の準備状況 */}
+                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:4}}>
+                  <span style={{fontSize:14,fontWeight:'bold',color:'#3d5021'}}>LIFE 提出の準備状況（全店）</span>
+                  <label style={{fontSize:12,color:'#475569',display:'flex',alignItems:'center',gap:4}}>提出年月 <input type="month" data-testid="life-ready-ym" value={lifeRdYm} onChange={e=>setLifeRdYm(e.target.value)} style={{...inp,width:150,padding:'4px 8px'}}/></label>
+                  <button type="button" data-testid="life-ready-btn" disabled={!!busy || lifeRd === 'loading'} onClick={loadLifeRd} style={{marginLeft:'auto',padding:'5px 12px',background:'#15803d',color:'white',border:'1px solid #15803d',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>
+                    {lifeRd === 'loading' ? <><BusySpin/>確認中…（最大 1 分）</> : '全店の準備状況を見る'}
+                  </button>
+                </div>
+                <div className="tsu-hint-row"><TsuHint>各店舗の設定・利用者マスタ・評価の件数だけを読んで出します（個人名は出ません・何も書きません）。12/10 は扇橋店だけ、全店は 2027 年 1 月提出分から。</TsuHint></div>
+                {lifeRdView(lifeRd)}
+              </div>
               <div data-testid="usage-card" style={{border:'1px solid #bbf7d0',borderRadius:12,padding:'12px 14px',marginBottom:10,background:'#f0fdf4'}}>{/* ★ 2026-11-23 trial621: 従量課金の利用量と概算 */}
                 <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:4}}>
                   <span style={{fontSize:14,fontWeight:'bold',color:'#3d5021'}}>利用量と概算の料金（従量課金のサービス）</span>

@@ -1,5 +1,7 @@
 {
-  "regions": ["hnd1"],
+  "regions": [
+    "hnd1"
+  ],
   "crons": [
     {
       "path": "/api/brevo-keepalive",
@@ -63,6 +65,10 @@
     },
     "api/backup-photos.js": {
       "maxDuration": 300,
+      "memory": 1024
+    },
+    "api/life-readiness.js": {
+      "maxDuration": 60,
       "memory": 1024
     }
   }
