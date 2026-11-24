@@ -15577,18 +15577,9 @@ function FamilyAdminView({ appData, onSave }) {
         return stored?.path ? { storagePath: stored.path, name: it.name } : { url: it.url, name: it.name };
       }));
     }
-    // クォータ超過チェック (Supabase 移行後のシミュレーション + 現在の localStorage 警告)
-    try {
-      const used = ((localStorage.getItem('daycareAppData_v3')||'').length + (localStorage.getItem('daycarePhotos_v1')||'').length) * 2;
-      const quotaBytes = (appData.systemSettings?.storeQuotaGB || 2) * 1024 * 1024 * 1024;
-      const localLimitBytes = 5 * 1024 * 1024;
-      if (used > localLimitBytes * 0.9) {
-        if (!window.confirm('⚠ 現在のブラウザ保存容量が上限に近づいています (90%超)\n\n古いお知らせを削除してから投稿することをおすすめします。\n各種設定 → データ管理 で削除できます。\n\nこのまま投稿しますか?')) return;
-      }
-      if (used > quotaBytes * 0.95) {
-        if (!window.confirm(`⚠ 事業所クォータ (${appData.systemSettings?.storeQuotaGB || 2}GB) が 95% を超えています\n\nこのまま投稿しますか?`)) return;
-      }
-    } catch {}
+    // ★ 2026-11-24 1124a(ユーザー「お知らせを投稿しようとしたら『ブラウザ保存容量が上限に近づいています(90%超)』」): 古い当て推量の警告を外した。
+    //   localStorage の文字数×2 を 5MB と比べていたため、店舗データが 2.3M 文字前後の今はほぼ毎回出ていた。写真は Supabase Storage に置くので
+    //   「古いお知らせを削除」の案内も的外れ。端末側の保存は失敗したら自動で縮めて保存し(persist の fallback)、本体はクラウドにあるので投稿は止めない。
     let newData = { ...appData };
     const nowIso = new Date().toISOString();
     const ts = Date.now();
