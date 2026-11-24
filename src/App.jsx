@@ -22454,19 +22454,9 @@ export default function App() {
   //   pull由来の保存だけ10秒に1回へ間引く(クラウドが正のため端末控えの鮮度低下は無害)。
   const _persistLastRef = React.useRef(0);
   const _persistSbRef = React.useRef(null); // ★ 2026-11-22 trial611: 最後に端末へ書いた店舗の印。読み込み直後(印が付いた瞬間)は間引かずに必ず一度書く
-  useEffect(()=>{
-    const isRemote = applyingRemoteRef.current;
-    applyingRemoteRef.current = false;
-    // ローカル編集の時だけ「最終編集時刻」を更新 (pull は編集ではない)
-    if (!isRemote) lastLocalEditRef.current = Date.now();
-    // ★ 2026-11-22 trial611(テスト店舗の実機確認): 読み込み直後の控えは 10 秒の間引きに当たって書かれず、見るだけの端末は次回の起動で控えが無かった → 印が付いた瞬間は必ず書く
-    const _justLoaded = !!appData._sbStoreId && _persistSbRef.current !== appData._sbStoreId;
-    if (_justLoaded) _persistSbRef.current = appData._sbStoreId;
-    if (!_justLoaded && (appData._bootCache || (isRemote && Date.now() - _persistLastRef.current < 10000))) {
-      // pull由来かつ直近10秒以内に保存済み → 端末保存をスキップ(クラウド同期部分は下で継続)
-      // ★ 2026-11-22 trial610: 起動直後に見せている控え(読み込み前・_bootCache)も書かない(店舗の印の無い控えを端末に残さない)
-    } else {
-    _persistLastRef.current = Date.now();
+  // ★ 2026-11-24 trial631: 端末の控えを書く処理(間引きで飛ばした分をあとで書くために関数に)。appData は書く時点の中身
+  const _tsuWriteCacheRef = React.useRef(null); const _persistDeferRef = React.useRef(null);
+  _tsuWriteCacheRef.current = (appData) => {
     // 容量超過モード中: 軽量版へ直行(10分ごとにフル保存を再挑戦)
     if (TABLE_ENABLED && Date.now() < persistQuotaUntilRef.current) {
       try { localStorage.setItem('daycareAppData_v3', JSON.stringify({ ...appData, familyPhotos: [], ticketRecords: _slimTickets(appData.ticketRecords) })); }
@@ -22545,6 +22535,27 @@ export default function App() {
         } catch {}
       }
     }
+  };
+  useEffect(()=>{
+    const isRemote = applyingRemoteRef.current;
+    applyingRemoteRef.current = false;
+    // ローカル編集の時だけ「最終編集時刻」を更新 (pull は編集ではない)
+    if (!isRemote) lastLocalEditRef.current = Date.now();
+    // ★ 2026-11-22 trial611(テスト店舗の実機確認): 読み込み直後の控えは 10 秒の間引きに当たって書かれず、見るだけの端末は次回の起動で控えが無かった → 印が付いた瞬間は必ず書く
+    const _justLoaded = !!appData._sbStoreId && _persistSbRef.current !== appData._sbStoreId;
+    if (_justLoaded) _persistSbRef.current = appData._sbStoreId;
+    if (!_justLoaded && (appData._bootCache || (isRemote && Date.now() - _persistLastRef.current < 10000))) {
+      // pull由来かつ直近10秒以内に保存済み → 端末保存をスキップ(クラウド同期部分は下で継続)
+      // ★ 2026-11-22 trial610: 起動直後に見せている控え(読み込み前・_bootCache)も書かない(店舗の印の無い控えを端末に残さない)
+      // ★ 2026-11-24 trial631: 飛ばしたままだと、そのあと変化が無い端末(見るだけ)は控えに記録が残らない(実測: 起動の 1 回目は記録 0 件で書かれ、表の 762 行が入ったあとは書かれない)
+      //   → 間引きの残り時間のあとに、最新の中身を 1 回だけ書く
+      if (isRemote && !appData._bootCache && !_persistDeferRef.current) {
+        const _wait = Math.max(1500, 10000 - (Date.now() - _persistLastRef.current));
+        _persistDeferRef.current = setTimeout(() => { _persistDeferRef.current = null; try { const _a = appDataRef.current; if (_a && _a._sbStoreId && !_a._bootCache) { _persistLastRef.current = Date.now(); _tsuWriteCacheRef.current(_a); syncLog('persist-deferred', {}); } } catch {} }, _wait);
+      }
+    } else {
+    _persistLastRef.current = Date.now();
+    _tsuWriteCacheRef.current(appData);
     } // ← 端末保存の間引きブロック終端(pull由来10秒間引き)
     // ★ Supabase 同期 (debounce 1.5秒 - 店舗ごとに保存)
     // 以下の条件すべてを満たす時のみ push:
