@@ -912,6 +912,7 @@ async function _casUpdateViaApi(key, base, next) {
     const rt = await r.text().catch(() => ''); let j = null; try { j = rt ? JSON.parse(rt) : null; } catch { j = null; }
     if (r.status === 404 || (j == null && /<html/i.test(rt))) { _casGzOffUntil = Date.now() + 10 * 60 * 1000; syncLog('push-gz-off', { why: 'no-server' }); return null; }
     if (r.status === 401 || r.status === 403) { _casGzOffUntil = Date.now() + 10 * 60 * 1000; syncLog('push-gz-off', { why: r.status }); return null; }
+    if (!r.ok && j && /shrink-guard/.test(String(j.error || ''))) return { guard: 'shrink-guard', msg: String(j.error || '').slice(0, 120) }; // ★ 2026-11-24 trial633: サーバーの守りが断った(圧縮経路はそのまま使う)
     if (!r.ok || !j || j.ok !== true) { _casGzOffUntil = Date.now() + 10 * 60 * 1000; syncLog('push-gz-off', { why: r.status, err: j && j.error }); return null; }
     syncLog('push-gz', { raw: text.length, gz: gz.length, zipMs: t1 - t0, sendMs: Date.now() - t1, conflict: !!j.conflict });
     if (j.conflict) return { conflict: true };
@@ -968,9 +969,11 @@ async function _casUpdateInner(key, mutate, opts = {}) {
     const _api = await _casUpdateViaApi(key, base, next);
     if (_api && _api.ok) return { ok: true, data: next, version: _api.version, base };
     if (_api && _api.conflict) { syncLog('cas-conflict', { attempt, base, via: 'api' }); await _casBackoff(attempt); continue; }
+    if (_api && _api.guard) return { ok: false, reason: _api.guard, base, msg: _api.msg }; // ★ trial633: サーバーの守り(減る保存を断る)は失敗ではなく 'blocked' 扱いへ
     const { data: upd, error: updErr } = await _withSignal(supabase
       .from('app_state').update({ data: next, version: base + 1 })
       .eq('key', key).eq('version', base).select('version'));
+    if (updErr && /shrink-guard/.test(String(updErr.message || updErr.hint || ''))) return { ok: false, reason: 'shrink-guard', base, msg: String(updErr.message || '').slice(0, 120) }; // ★ trial633
     if (updErr) throw new Error('cas update failed: ' + (updErr.message || updErr.code || 'unknown'));
     if (upd && upd.length > 0) return { ok: true, data: next, version: base + 1, base };
     // ③ 0件=競合(他端末が先に version を進めた) → バックオフして再取得・再mutate・再試行
@@ -1734,6 +1737,11 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
       syncHealth.lastFailAt = Date.now(); syncHealth.lastError = 'blocked-' + _blocked.reason;
       try { syncLog('push-blocked-empty', _blocked); } catch {}
       try { console.warn('[supabase] push blocked (data not loaded / empty patients):', _blocked); } catch {}
+      return 'blocked';
+    }
+    if (_casRes && _casRes.ok === false && _casRes.reason === 'shrink-guard') { // ★ 2026-11-24 trial633: サーバー側の守り(docs/sql/20261122_app_state_shrink_guard.sql)が断った → 端末の関所と同じ 'blocked'(再送に積まない・案内して最新を取り込む)
+      syncHealth.lastFailAt = Date.now(); syncHealth.lastError = 'blocked-shrink';
+      try { syncLog('push-blocked-server', { msg: _casRes.msg || '' }); } catch {}
       return 'blocked';
     }
     const _ok = !!(_casRes && _casRes.ok);
