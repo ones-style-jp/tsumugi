@@ -18,7 +18,7 @@ const ctx = async () => { const c = await b.newContext({ viewport: { width: 420,
   // 2回目: 印を送ってコードなし
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(500); calls.length = 0;
   await page.locator('input').nth(0).fill('hq'); await page.locator('input[type=password]').first().fill('Testpass1234'); await page.locator('button[type=submit]').click(); await page.waitForTimeout(800);
-  r.secondTrustSent = calls.length === 1 && calls[0].hq_trust === 'TRUST1';
+  { const _lg = calls.filter(c => c.action === 'login'); r.secondTrustSent = _lg.length === 1 && _lg[0].hq_trust === 'TRUST1'; } // ★ 2026-11-24: ログイン画面は passkey_login_options / device_id も呼ぶ(trial496/529)ので login だけ数える
   const sess = await page.evaluate(() => window.__tsumugiE2E && window.__tsumugiE2E.staffSession); r.secondNoCode = !!(sess && sess.token === 'tok2') && (await page.getByTestId('hq-code').count()) === 0;
   await page.context().close(); }
 // ② 事業所の「続ける」 ★ 2026-10-31(trial487): 10/26 の「○○さんとして続ける／別の人」はやめた。控え(tsumugiRelogin)が端末に残っていても箱は出ず、開いたときに消える
