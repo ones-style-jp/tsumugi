@@ -2205,6 +2205,8 @@ export async function supabaseHqAccountSetActive(token, staffId, active) { retur
 // ★ 2026-10-17 データ保護(段階1): ログインの証から Supabase の証を取り直す(起動時・12時間ごと)。サーバーに秘密が無ければ null(従来どおり)
 export async function supabaseStaffRefreshSbToken(staffToken) {
   if (!supabase || !staffToken) return { ok: false };
+  // ★ 2026-11-24 trial628(ログインの待ち): ログインの返事で受け取った証がまだ 20 時間以上残っていれば取り直さない(ログイン直後に 2〜3 秒の呼び出しが 1 本減る。12 時間ごとの更新はそのまま)
+  if (_sbJwt && _sbJwtExp && (_sbJwtExp - Date.now()) > 20 * 60 * 60 * 1000) return { ok: true, configured: true, skipped: true };
   try { const j = await staffApi({ action: 'sb_token', token: staffToken }); if (j.sb_token) { setSbAccessToken(j.sb_token, j.sb_exp); return { ok: true, configured: true }; } setSbAccessToken(null); return { ok: true, configured: !!j.configured }; }
   catch (e) { if (e && e.expired) return { ok: false, expired: true }; return { ok: false }; }
 }

@@ -345,12 +345,16 @@ export default async function handler(req, res) {
         else { try { _trustOut = await hqTrustIssue(staff, body.device); } catch {} }
       }
       // ★ 段階4: 店舗の設定で「店舗IDでのログインを止める」が入っていれば、店舗共通ログインは拒否(本人のログインへ)
-      if ((staff.kind || 'store') === 'store' && staff.role !== 'super_admin' && staff.store_id && (await storeSecurity(staff.store_id)).storeLoginDisabled) {
+      // ★ 2026-11-24 trial628(ログインの待ち): DB の呼び出しを直列 5 回→3 段に。店舗の設定と証の確認は同時に、最終ログインの記録とログイン記録も同時に
+      const _needSec = (staff.kind || 'store') === 'store' && staff.role !== 'super_admin' && !!staff.store_id;
+      const [_sec, mc] = await Promise.all([_needSec ? storeSecurity(staff.store_id) : Promise.resolve({}), mintSbTokenChecked(staff)]);
+      if (_needSec && _sec.storeLoginDisabled) {
         return res.status(403).json({ error: 'この店舗は「従業員ごとのログイン」に切り替わりました。ご自身のログインIDとパスワードでログインしてください。', store_login_disabled: true });
       }
-      try { await sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString(), ...(pwIsLegacy(staff.password_hash) ? { password_hash: pwStore(hash) } : {}) }) }); } catch {} // ★ 2026-11-22 P1-6: 旧形式はこの機会に scrypt へ
-      const mc = await mintSbTokenChecked(staff);
-      await logLogin(staff, staff.kind === 'person' ? 'person' : 'store', body.device); // ★ 段階4: ログイン記録(表が無ければ何もしない)
+      await Promise.all([
+        sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString(), ...(pwIsLegacy(staff.password_hash) ? { password_hash: pwStore(hash) } : {}) }) }).catch(() => {}),
+        logLogin(staff, staff.kind === 'person' ? 'person' : 'store', body.device), // ★ 段階4: ログイン記録(表が無ければ何もしない)
+      ]);
       return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason, hq_trust: _trustOut ? _trustOut.token : undefined, hq_trust_exp: _trustOut ? _trustOut.exp : undefined });
     }
     // ★ 2026-10-23 本部のパスキー
