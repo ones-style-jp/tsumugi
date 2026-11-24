@@ -27007,7 +27007,31 @@ let _tsuBackLockN = 0;
 //   overflow を止める/戻すの切り替えをやめた。iPad の WebKit はスクロールする箱の overflow を途中で切り替えると、描き直さずに白く残すことがある。
 //   768px以上で後ろを止めるのは、指・ホイールの見張り(tsuInstallModalScrollGuard: 止めている間は小窓の外の動きを後ろへ伝えない)だけ。
 //   スマホ(ページ全体がスクロールする作り)は今までどおり html/body を止める
-const _tsuEnsureLockStyle = () => { if (typeof document === 'undefined' || document.getElementById('tsu-back-lock-style')) return; const st = document.createElement('style'); st.id = 'tsu-back-lock-style'; st.textContent = '@media (max-width:767px){html.tsu-back-lock,html.tsu-back-lock body{overflow:hidden!important;overscroll-behavior:none!important}html.tsu-back-lock .record-view-scroll{overflow:hidden!important;touch-action:none!important}html.tsu-back-lock .overflow-auto,html.tsu-back-lock .overflow-y-auto,html.tsu-back-lock .overflow-x-auto,html.tsu-back-lock .overflow-scroll{overscroll-behavior:contain!important}}'; document.head.appendChild(st); };
+const _tsuEnsureLockStyle = () => { if (typeof document === 'undefined' || document.getElementById('tsu-back-lock-style')) return; const st = document.createElement('style'); st.id = 'tsu-back-lock-style'; st.textContent = '@media (max-width:767px){html.tsu-back-lock,html.tsu-back-lock body{overflow:hidden!important;overscroll-behavior:none!important}html.tsu-back-lock .record-view-scroll{overflow:hidden!important;touch-action:none!important}html.tsu-back-lock .overflow-auto,html.tsu-back-lock .overflow-y-auto,html.tsu-back-lock .overflow-x-auto,html.tsu-back-lock .overflow-scroll{overscroll-behavior:contain!important}html.tsu-back-lock .overflow-x-auto,html.tsu-back-lock [data-tsu-noy="1"]{overscroll-behavior-y:auto!important}}'; document.head.appendChild(st); };
+// ★ 2026-11-23 trial619(ユーザー「スマホで支援経過表など、表の中を指で動かしてもスクロールしない。外側の枠の余白でしか動かない。表の中も全体的にスクロールの対象にできないか」):
+//   原因: 表を横にスクロールさせる箱(overflow-x:auto など)には、タッチ端末向けの overscroll-behavior:none/contain(2026-09-11 旧iPad対策・小窓の後ろ止め)が付いている。
+//   箱が縦にはスクロールできない(中身が箱より低い)ときでも、Chrome は「この箱の外へ縦の動きを伝えない」と扱い、外の枠(個人ファイルの中身など)まで止めていた
+//   (実験 chk_1123tblscroll: 820px 幅の個人ファイルの支援経過表で再現。表の中 → 動かない / 余白 → 動く)。
+//   対策: 縦にスクロールできない箱には overscroll-behavior-y:auto(縦の動きは外へ伝える)を付ける。縦にスクロールできる箱はそのまま(端で外へ連鎖しない)。
+//   DOM の変化・画面の大きさの変化のあとに全体を、指が触れた瞬間にその場所から上だけを見直す。class の箱も inline style の箱も対象
+let _tsuNoYPassOn = false;
+const tsuInstallNoYScrollPass = () => {
+  if (_tsuNoYPassOn || typeof window === 'undefined' || typeof document === 'undefined') return; _tsuNoYPassOn = true;
+  const SEL = '.overflow-auto, .overflow-x-auto, .overflow-y-auto, .overflow-scroll, [style*="overflow"]';
+  const one = (el) => { try {
+    const cs = getComputedStyle(el); if (!/(auto|scroll)/.test(cs.overflowY) && !/(auto|scroll)/.test(cs.overflowX)) return;
+    const noY = el.scrollHeight <= el.clientHeight + 1; const has = el.getAttribute('data-tsu-noy') === '1';
+    if (noY && !has) { el.setAttribute('data-tsu-noy', '1'); el.style.setProperty('overscroll-behavior-y', 'auto', 'important'); }
+    else if (!noY && has) { el.removeAttribute('data-tsu-noy'); el.style.removeProperty('overscroll-behavior-y'); }
+  } catch {} };
+  const scan = () => { try { document.querySelectorAll(SEL).forEach(one); } catch {} };
+  let pend = false; const schedule = () => { if (pend) return; pend = true; setTimeout(() => { pend = false; scan(); }, 150); };
+  const start = () => { try { new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] }); } catch {} scan(); };
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+  window.addEventListener('resize', schedule); window.addEventListener('orientationchange', schedule);
+  document.addEventListener('touchstart', (e) => { let n = e.target && e.target.nodeType === 1 ? e.target : (e.target && e.target.parentElement); for (; n && n !== document.body; n = n.parentElement) one(n); }, { passive: true, capture: true });
+};
+if (typeof window !== 'undefined') tsuInstallNoYScrollPass();
 const _tsuSyncBackLock = () => { if (typeof document === 'undefined') return; const on = _tsuBackLockN > 0 || _tsuAutoLockOn; if (on) _tsuEnsureLockStyle(); document.documentElement.classList.toggle('tsu-back-lock', on); };
 const useTsuBackLock = (on = true) => {
   React.useEffect(() => {

@@ -98,6 +98,11 @@ table { -webkit-touch-callout: none; }
 @media (hover: none) and (pointer: coarse) {
   .overflow-auto, .overflow-x-auto, .overflow-y-auto { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
 }
+/* ★ 2026-11-23 trial619 → 1124e(ユーザー「表の中を指で動かしてもスクロールしない」): 横にスクロールする表の箱は、縦の指の動きを外の枠へ伝える。
+   箱が縦にスクロールできないのに上の none が縦まで止めていた。縦にスクロールできない箱全般は JS(tsuInstallNoYScrollPass)が data-tsu-noy を付けて同じ扱いにする */
+@media (hover: none) and (pointer: coarse) {
+  .overflow-x-auto, [data-tsu-noy="1"] { overscroll-behavior-y: auto !important; }
+}
 
 /* ★ 2026-10-01(試験版・ユーザー要望「読み込み中や処理中で画面が固まっている時は分かりやすくアニメーションを」):
    処理中・読み込み中の共通の回る輪(<BusySpin/>)。文字の大きさ・色に合わせて回る */
