@@ -1602,6 +1602,11 @@ const tsuSearchNorm = (s) => toKatakana(String(s ?? '')).toLowerCase().replace(/
 const tsuSearchHit = (q, ...fields) => { const nq = tsuSearchNorm(q); if (!nq) return true;
   if ([...nq].length === 1 && /^[ァ-ヶー]$/.test(nq)) return fields.some(f => f != null && String(f).split(/[\s\u3000・／/()（）「」【】]+/).some(t => tsuSearchNorm(t).startsWith(nq)));
   return fields.some(f => f != null && tsuSearchNorm(f).includes(nq)); };
+// ★ 2026-11-25 trial637(ユーザー「ケアマネの担当者が来月から変更のとき、変更履歴には予定として入っているが、分かりやすいところに『ケアマネ変更予定』と出ると同じ入力をしなくて済む」):
+//   変更履歴(cmHistory)の「開始日が今日より先」の一番近い予定 { office, name, from, note }。開始日になると App の自動切替(cmOffice/cmName)で反映される
+const tsuCmPlanned = (p, todayIso) => { try { const t = todayIso || tsuTodayIso(); const l = (Array.isArray(p && p.cmHistory) ? p.cmHistory : []).filter(h => h && h.from && String(h.from) > t && !h.to).sort((x, y) => String(x.from).localeCompare(String(y.from))); return l[0] || null; } catch { return null; } };
+const tsuCmPlannedDay = (h) => String((h && h.from) || '').replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, '$2/$3');
+const tsuCmPlannedLabel = (h) => h ? `${tsuCmPlannedDay(h)}〜 ${[h.office, h.name].filter(Boolean).join(' ')}` : '';
 
 // ★ 候補表示つき検索入力: 入力に応じて候補(利用者名など)をドロップダウン表示し、選ぶと確定できる。
 //   options: [{key, label, sub}] / onSelect(option) で選択時の挙動を指定 (省略時は label を入力欄へ)。
@@ -46202,6 +46207,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <div className="flex flex-col items-end shrink-0 min-w-0" style={{maxWidth:'38%'}}>
                 {p.cmOffice && <span className="text-[10px] font-bold text-slate-900 truncate text-right w-full">{p.cmOffice}</span>}
                 {p.cmName && <span className="text-[10px] font-bold text-slate-600 truncate text-right w-full">{p.cmName}</span>}
+                {(() => { const _pl = tsuCmPlanned(p); return _pl ? <span data-testid={`cm-planned-chip-${p.id}`} className="text-[9px] font-bold text-orange-700 bg-orange-50 border border-orange-200 rounded px-1 truncate max-w-full">CM変更予定 {tsuCmPlannedDay(_pl)}〜</span> : null; })()}
               </div>
             </button>); })}{dPats.length === 0 && <div className="text-center text-slate-400 text-[10px] font-bold py-6">該当なし</div>}</div>
         </>)}
@@ -46344,6 +46350,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   const _ro = (v)=><div className="px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm font-bold text-slate-700">{v||'ー'}</div>;
                   return (
                   <div>
+                    {(() => { const _pl = tsuCmPlanned(localPatient); if (!_pl) return null; return (<div data-testid="cm-planned-note" className="mb-2 px-3 py-2 rounded-xl border border-orange-300 bg-orange-50 text-sm font-bold text-orange-800">ケアマネ変更予定: {tsuCmPlannedLabel(_pl)}{_pl.note ? `（${_pl.note}）` : ''}<span className="block text-[11px] font-normal text-orange-700 mt-0.5">変更履歴に登録済みです。開始日になると自動で切り替わります（同じ内容をもう一度入れる必要はありません）。</span></div>); })()}
                     {!isOff && <div className="flex justify-end mb-2"><button type="button" onClick={()=>setCmChangeModal({office: localPatient.cmOffice||'', name: localPatient.cmName||'', from: new Date().toISOString().split('T')[0], note:''})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95">担当を変更</button></div>}
                     <div className="border border-slate-200 rounded-lg overflow-hidden">
                       <InfoRow label="事業所名">{localPatient.cmOffice}</InfoRow>
@@ -48506,6 +48513,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
             <h3 className="text-base font-bold text-slate-800 mb-4 text-center">ケアマネジャーの変更</h3>
+            {(() => { const _pl = localPatient ? tsuCmPlanned(localPatient) : null; return _pl ? <div data-testid="cm-planned-modal-note" className="mb-3 px-3 py-2 rounded-xl border border-orange-300 bg-orange-50 text-xs font-bold text-orange-800">すでに {tsuCmPlannedLabel(_pl)} の変更予定があります（変更履歴）。同じ内容なら、ここで入れ直す必要はありません。</div> : null; })()}
             <div className="space-y-3 mb-5">
               <div>
                 <label className="block text-sm font-bold text-slate-600 mb-1.5">事業所</label>
