@@ -1596,7 +1596,12 @@ const toKatakana = (s) => (s||'')
 //   検索欄には必ずこれを付ける({...TSU_NOFILL})。autoComplete=off に加え、パスワード管理ツール向けの印と、住所/氏名と誤認されない name を付ける
 const TSU_NOFILL = { autoComplete: 'off', autoCorrect: 'off', autoCapitalize: 'off', spellCheck: false, name: 'tsu-q', 'data-form-type': 'other', 'data-lpignore': 'true', 'data-1p-ignore': 'true', 'aria-autocomplete': 'list' };
 const tsuSearchNorm = (s) => toKatakana(String(s ?? '')).toLowerCase().replace(/[\s\u3000]+/g, '');
-const tsuSearchHit = (q, ...fields) => { const nq = tsuSearchNorm(q); if (!nq) return true; return fields.some(f => f != null && tsuSearchNorm(f).includes(nq)); };
+// ★ 2026-11-25 1125c(ユーザー「ケアマネ事業所で『サ』と入れると、サが入っていない人が出る。2文字目も打たないと絞り込めていない」):
+//   カナ1文字は「頭文字」(姓・名・事業所名などの各語の先頭)だけに一致させる。中ほどの一致(例: 事業所のフリガナ「…カイゴサービス」の『サ』・法人名)で無関係な事業所と、その事業所の担当者まで出ていた。
+//   2文字以上と漢字1文字は今までどおり部分一致(「中」で田中・中村の両方)。全部の検索欄(tsuSearchHit)に共通
+const tsuSearchHit = (q, ...fields) => { const nq = tsuSearchNorm(q); if (!nq) return true;
+  if ([...nq].length === 1 && /^[ァ-ヶー]$/.test(nq)) return fields.some(f => f != null && String(f).split(/[\s\u3000・／/()（）「」【】]+/).some(t => tsuSearchNorm(t).startsWith(nq)));
+  return fields.some(f => f != null && tsuSearchNorm(f).includes(nq)); };
 
 // ★ 候補表示つき検索入力: 入力に応じて候補(利用者名など)をドロップダウン表示し、選ぶと確定できる。
 //   options: [{key, label, sub}] / onSelect(option) で選択時の挙動を指定 (省略時は label を入力欄へ)。
@@ -1610,7 +1615,7 @@ function SuggestInput({ value, onChangeText, options = [], onSelect, maxItems = 
   const pick = (o) => { if (onSelect) onSelect(o); else onChangeText(o.label); setOpen(false); setHi(-1); };
   return (
     <div style={{ position: 'relative', ...wrapStyle }}>
-      <input {...inputProps} value={value}
+      <input {...TSU_NOFILL} {...inputProps} value={value}
         onChange={(e) => { onChangeText(e.target.value); setOpen(true); setHi(-1); }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 160)}
