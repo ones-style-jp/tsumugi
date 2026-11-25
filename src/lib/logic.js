@@ -487,3 +487,30 @@ export function bootCacheKeepable(prev, storeId, isStoreChanged) {
   if (String(prev._sbStoreId || '') !== String(storeId)) return false;
   return Array.isArray(prev.patients) && prev.patients.length > 0;
 }
+
+// ★ 2026-11-25 1125d(ユーザー「提供記録で○×を付けると一瞬ついて消えることがたまにある」):
+//   運動の○×(exercises)などオブジェクトの項目を、キー単位で合成する決まり。
+//   older/newer = 古い側・新しい側の中身。newerStrict = 新しい側が「厳密に新しい」か。
+//   ・新しい側に値がある → 採用  ・新しい側が厳密に新しく「キーはあるが空」→ はっきり消したとみて空を反映  ・それ以外 → 古い側の値を残す
+//   「どちらが新しいか」は supabase.js 側が決める(項目ごとの時刻 _fieldTs[項目] があればそれ、無ければ記録全体の _savedAt)。
+//   従来は記録全体の _savedAt だけで決めていたため、別端末が同じ方の記録(体温など)を少し後に保存すると、その端末の画面の
+//   空欄が「新しい空=消した」と扱われ、こちらで付けたばかりの○が消えていた。
+export const mergeObjKeys = (older, newer, newerStrict) => {
+  const o = (older && typeof older === 'object' && !Array.isArray(older)) ? older : {};
+  const n = (newer && typeof newer === 'object' && !Array.isArray(newer)) ? newer : {};
+  const empty = (v) => v == null || v === '';
+  const out = { ...o };
+  Object.keys(n).forEach(kk => {
+    if (!empty(n[kk])) out[kk] = n[kk];
+    else if (newerStrict) out[kk] = n[kk];
+    else if (!(kk in out)) out[kk] = n[kk];
+  });
+  return out;
+};
+// どちらを新しい側にするか: 項目ごとの時刻(aft/bft)がどちらかにあればそれで、無ければ記録全体(aNewer/newerStrict)で決める。
+//   戻り値 { aNewer, strict }
+export const pickObjNewer = (aNewer, newerStrict, aft, bft) => {
+  const a = Number(aft) || 0, b = Number(bft) || 0;
+  if (!a && !b) return { aNewer: !!aNewer, strict: !!newerStrict };
+  const an = a >= b; return { aNewer: an, strict: an ? a > b : b > a };
+};

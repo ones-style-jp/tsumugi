@@ -1,7 +1,7 @@
 // Supabase クライアント (Phase 1: 家族認証のみ)
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
-import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard, pushShrinkGuard, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads } from './logic.js';
+import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard, pushShrinkGuard, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, mergeObjKeys, pickObjNewer } from './logic.js';
 import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL, mergeEmergencyContacts } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
@@ -1142,15 +1142,11 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
         //   新しい方が「明示的に空にした」項目(=キーはあるが空)は、より新しい場合クリアを反映する
         //   (○を消して保存→戻る問題の解消)。 触っていない項目はキー自体が無いので相手の値が残る。
         const ao = aObj ? av : {}, bo = bObj ? bv : {};
-        const older = aNewer ? bo : ao, newer = aNewer ? ao : bo;
-        const newerStrict = aNewer ? (at > bt) : (bt > at);
-        const mo = { ...older };
-        Object.keys(newer).forEach(kk => {
-          if (!_isEmptyVal(newer[kk])) mo[kk] = newer[kk];        // 新しい方に値あり → 採用
-          else if (newerStrict) mo[kk] = newer[kk];              // 新しい方が明示的に空にした → クリアを反映
-          else if (!(kk in mo)) mo[kk] = newer[kk];              // それ以外は相手の値を維持
-        });
-        out[k] = mo; return;
+        // ★ 2026-11-25 1125d(○×が一瞬ついて消える): どちらが新しいかは、項目ごとの時刻(_fieldTs[k]・この端末で実際に触ったときだけ刻まれる)が
+        //   あればそれで決める。記録全体の _savedAt だけで決めると、別端末が同じ方の記録(体温など)を少し後に保存しただけで、
+        //   その端末の画面にあった空欄('')が「新しい空=消した」と扱われ、こちらで付けたばかりの○が消えていた。決まりは logic.js mergeObjKeys/pickObjNewer
+        const _pk = pickObjNewer(aNewer, aNewer ? (at > bt) : (bt > at), _aFts[k], _bFts[k]);
+        out[k] = mergeObjKeys(_pk.aNewer ? bo : ao, _pk.aNewer ? ao : bo, _pk.strict); return;
       }
       // ★ スカラー(特記/気分理由 等): 片方が空・片方が非空のとき。
       //   従来は無条件で「非空」を優先していたため、特記を削除して保存しても古い値が復活して消せなかった。

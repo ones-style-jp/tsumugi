@@ -28880,7 +28880,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   temp: p[`temp_${timeFilter}`] || p.temp_AM || p.temp_PM || "",
                   bpUpSt: p[`bpUpSt_${timeFilter}`] || p.bpUpSt_AM || p.bpUpSt_PM || "", bpDnSt: p[`bpDnSt_${timeFilter}`] || p.bpDnSt_AM || p.bpDnSt_PM || "", plSt: p[`plSt_${timeFilter}`] || p.plSt_AM || p.plSt_PM || "",
                   bpUpEn: p[`bpUpEn_${timeFilter}`] || p.bpUpEn_AM || p.bpUpEn_PM || "", bpDnEn: p[`bpDnEn_${timeFilter}`] || p.bpDnEn_AM || p.bpDnEn_PM || "", plEn: p[`plEn_${timeFilter}`] || p.plEn_AM || p.plEn_PM || "",
-                  massage: p.massage || "", exercises: p.exercises || {}, tokki: p._pauseAuto ? "" : (p.tokki || ""), actualTime: p.actualTime || "",
+                  massage: p.massage || "", // ★ 2026-11-25 1125d: 運動の空欄は、もともと記録に無かった項目ならキーごと書かない(他端末との合成で「新しい空=消した」と誤解させない)。前からある項目(○を消した等)は空のまま残す
+                  exercises: (() => { const src = p.exercises || {}; const ex0 = (existing && existing.exercises && typeof existing.exercises === 'object') ? existing.exercises : {}; const o = {}; Object.keys(src).forEach(kk => { const v = src[kk]; const e = v == null || v === '' || (v && typeof v === 'object' && !Array.isArray(v) && (v.value == null || v.value === '') && !v.itemId); if (!e || (kk in ex0)) o[kk] = v; }); return o; })(), tokki: p._pauseAuto ? "" : (p.tokki || ""), actualTime: p.actualTime || "",
                   kibunArrival: p.kibunArrival || "", kibunArrivalReason: p.kibunArrivalReason || "",
                   kibunDeparture: p.kibunDeparture || "", kibunDepartureReason: p.kibunDepartureReason || "",
                   // ★ 次回予定(連絡帳で設定する 次回利用日/お迎え時間)は提供記録入力では編集しない。
