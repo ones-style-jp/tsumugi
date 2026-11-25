@@ -27970,16 +27970,24 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       const _dup = Object.values(_byPid).filter(c=>c>1).length;
       syncLog('seed', { n: filtered.length, rec: _dayRecs.length, dat: _dat, ex: _ex, dup: _dup });
     } catch { syncLog('seed', { n: filtered.length }); } }
+    // ★ 2026-11-25 trial639 診断(ユーザー「○×を付けると一瞬ついて消えることがたまにある」・2台の再現試験では出ず): 画面の作り直しで、
+    //   直前まで画面にあった運動の○×が空になったら ex-lost を診断に残す(どの方・どの項目・編集中か・直近の編集の経過秒)。原因の切り分け用で表示には影響しない
+    const _logExLost = (prevRows, nextRows, tag) => { try { const nm = new Map((nextRows||[]).map(r => [String(r.id), r])); const lost = []; let obAge = -1;
+      (prevRows||[]).forEach(pr => { const nr = nm.get(String(pr.id)); if (!nr) return; const pe = pr.exercises || {}, ne = nr.exercises || {}; const val = (v) => (v && typeof v === 'object') ? String(v.value ?? '') : String(v ?? '');
+        Object.keys(pe).forEach(k => { if (val(pe[k]) !== '' && val(ne[k]) === '') { lost.push(`${pr.id}:${k}`); const ob = _recEditObs.map.get(`${pr.id}|${new Date(selectedDate).getMonth()+1}月${new Date(selectedDate).getDate()}日|${new Date(selectedDate).getFullYear()}`) || {}; if (ob.exercises) obAge = Math.round((Date.now() - ob.exercises) / 1000); } }); });
+      if (lost.length) syncLog('ex-lost', { tag, n: lost.length, ex: lost.slice(0, 3).join(','), dirty: !!(dirtyRef && dirtyRef.current), obAge }); } catch {} };
     if (_mergeDirty) {
       try {
         const _mg = mergeDraftRows(filtered, _localPatientsRef.current, _seedBaseRef.current);
         _seedBaseRef.current = _mg.base;
+        _logExLost(_localPatientsRef.current, _mg.rows, 'merge');
         setLocalPatients(_mg.rows);
         if (TABLE_ENABLED) syncLog('seed-merge-dirty', { kept: _mg.kept });
       } catch { if (TABLE_ENABLED) syncLog('seed-skip-dirty', {}); }
       return; // 編集中フラグ・月表示用の控えはそのまま(保存で反映)
     }
     _seedBaseRef.current = filtered;
+    _logExLost(_localPatientsRef.current, filtered, _dateChanged ? 'date' : 'seed');
     setLocalPatients(filtered);
     // 月全体表示用：選択月のレコードのみ保持してメモリ節約
     const selM2 = new Date(selectedDate).getMonth() + 1;
@@ -46891,7 +46899,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   {!(localPatient.costBurdenHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...(localPatient.costBurdenHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.costBurdenHistory||[]).findIndex(x=>x===h);return(<div key={si} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.value}</span></div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'costBurden',idx:ri,entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'costBurden',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden"><div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"/><span className="font-bold text-sm text-slate-700">ケアマネ 変更履歴</span></div>
-                  {!(localPatient.cmHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...(localPatient.cmHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.cmHistory||[]).findIndex(x=>x===h);return(<div key={si} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.office}</span>{h.name&&<span className="text-sm text-slate-600">{h.name}</span>}</div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'cm',idx:ri,entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'cm',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
+                  {!(localPatient.cmHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...(localPatient.cmHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.cmHistory||[]).findIndex(x=>x===h);return(<div key={si} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.office}</span>{h.name&&<span className="text-sm text-slate-600">{h.name}</span>}</div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button data-testid={`hist-edit-cm-${ri}`} onClick={()=>setEditHistModal({type:'cm',idx:ri,entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'cm',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
                 </div>
                 {/* 書類変更履歴 — 項目ごと (介護保険証/負担割合証/お薬手帳/その他書類) に過去アップロード分を表示 */}
                 {(() => {
@@ -48582,12 +48590,24 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
             <h3 className="text-base font-bold text-slate-800 mb-4 text-center">履歴を編集</h3>
             <div className="space-y-3 mb-5">
-              {editHistModal.type==='cm' ? (<>
+              {editHistModal.type==='cm' ? (() => { // ★ 2026-11-25 trial639(ユーザー「履歴の編集は担当者をプルダウンで選べるように」): 事業所→担当者を名簿から選ぶ。名簿に無い今の値もそのまま選べる
+                const _offs = [...(appData.systemSettings?.cmOffices||[])].sort((a,b)=>(a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja'));
+                const _curOff = editHistModal.entry.office||''; const _offNames = _offs.map(x=>x.name);
+                const _ppl = sortCareManagersByKana((appData.systemSettings?.careManagers||[]).filter(c => !_curOff || c.office===_curOff)); const _curNm = editHistModal.entry.name||'';
+                return (<>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">事業所</label>
-                  <input value={editHistModal.entry.office||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,office:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
+                  <select data-testid="hist-cm-office" value={_curOff} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,office:e.target.value,name:''}})} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none" style={{minHeight:44}}>
+                    <option value="">選んでください</option>
+                    {_curOff && !_offNames.includes(_curOff) && <option value={_curOff}>{_curOff}（名簿にありません）</option>}
+                    {_offs.map((x,i)=><option key={i} value={x.name}>{x.name}</option>)}
+                  </select></div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">担当者</label>
-                  <input value={editHistModal.entry.name||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,name:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
-              </>) : editHistModal.type==='changeLog' ? (
+                  <select data-testid="hist-cm-name" value={_curNm} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,name:e.target.value}})} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none" style={{minHeight:44}}>
+                    <option value="">選んでください</option>
+                    {_curNm && !_ppl.some(c=>c.name===_curNm) && <option value={_curNm}>{_curNm}（名簿にありません）</option>}
+                    {_ppl.map((c,i)=><option key={i} value={c.name}>{c.name}</option>)}
+                  </select></div>
+                </>); })() : editHistModal.type==='changeLog' ? (
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">変更内容</label>
                   <input value={editHistModal.entry.newValue||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,newValue:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
               ) : (
@@ -48595,9 +48615,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   <input value={editHistModal.entry.value||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,value:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
               )}
               <div><label className="block text-sm font-bold text-slate-600 mb-1.5">開始日</label>
-                <input type="date" value={editHistModal.entry.from||editHistModal.entry.date||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,from:e.target.value,date:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
+                <input type="date" data-testid="hist-from" style={{minHeight:44,display:'block',width:'100%',WebkitAppearance:'none',appearance:'none'}} value={editHistModal.entry.from||editHistModal.entry.date||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,from:e.target.value,date:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
               {editHistModal.type!=='changeLog'&&<div><label className="block text-sm font-bold text-slate-600 mb-1.5">終了日</label>
-                <input type="date" value={editHistModal.entry.to||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,to:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>}
+                <input type="date" data-testid="hist-to" style={{minHeight:44,display:'block',width:'100%',WebkitAppearance:'none',appearance:'none'}} value={editHistModal.entry.to||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,to:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>}
               <div><label className="block text-sm font-bold text-slate-600 mb-1.5">備考</label>
                 <input value={editHistModal.entry.note||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,note:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none"/></div>
             </div>
@@ -49894,7 +49914,8 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
       // 担当者の所属事業所名・FAXも更新
       const newPersons = cmPersons.map(c => c.office===orig.name ? { ...c, office:newName, fax:formatJpPhone(form.fax), ...(_renamedOff?{_addedAt:syncNow()}:{}) } : c);
       // 各利用者マスタの担当ケアマネ事業所・FAXを更新
-      const newPatients = (appData.patients||[]).map(p => p.cmOffice===orig.name ? { ...p, cmOffice:newName, cmFax:formatJpPhone(form.fax) } : p);
+      const _hOff = (p) => (_renamedOff && Array.isArray(p.cmHistory) && p.cmHistory.some(h => h && h.office===orig.name)) ? { cmHistory: p.cmHistory.map(h => (h && h.office===orig.name) ? { ...h, office: newName } : h) } : {}; // ★ trial639: 変更履歴の事業所名も
+      const newPatients = (appData.patients||[]).map(p => { const _hit = p.cmOffice===orig.name; const _hf = _hOff(p); return (_hit || Object.keys(_hf).length) ? { ...p, ...(_hit ? { cmOffice:newName, cmFax:formatJpPhone(form.fax) } : {}), ..._hf } : p; });
       setCmOffices(newOffices); setCmPersons(newPersons);
       // ★ 2026-09-18: 保存後は未保存判定の基準を更新(persistCmと同じ)。従来は残ったままで「未保存があります」が出続けていた
       _dirtyBaseRef.current = _sigOf({ cmOffices: newOffices, cmPersons: newPersons }); if (dirtyRef) dirtyRef.current = false;
@@ -49914,7 +49935,9 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
       const _isOrigCm = (c) => (c === orig || (c.office === orig.office && c.name === orig.name));
       const newPersons = cmPersons.map(c => _isOrigCm(c) ? { ...c, office:form.office, name:newName, kanaLast:_kl, kanaFirst:_kf, kana:`${_kl} ${_kf}`.trim(), phone:dir, phoneDirect:dir, fax:offFax, email:(form.email||'').trim(), ...(_renamedCm?{_addedAt:syncNow()}:{}) } : c);
       // 各利用者マスタの担当ケアマネ(旧 office+name 一致)を更新
-      const newPatients = (appData.patients||[]).map(p => (p.cmOffice===orig.office && p.cmName===orig.name) ? { ...p, cmOffice:form.office, cmName:newName, cmPhone:offPhone||p.cmPhone, cmFax:offFax } : p);
+      // ★ 2026-11-25 trial639(ユーザー「最初は姓だけで入れ、あとから名を足したときに変更履歴も更新されてほしい」): 変更履歴(cmHistory)の同じ事業所・同じ名前の行も新しい名前に
+      const _hFix = (p) => (_renamedCm && Array.isArray(p.cmHistory) && p.cmHistory.some(h => h && h.office===orig.office && h.name===orig.name)) ? { cmHistory: p.cmHistory.map(h => (h && h.office===orig.office && h.name===orig.name) ? { ...h, office: form.office, name: newName } : h) } : {};
+      const newPatients = (appData.patients||[]).map(p => { const _hit = (p.cmOffice===orig.office && p.cmName===orig.name); const _hf = _hFix(p); return (_hit || Object.keys(_hf).length) ? { ...p, ...(_hit ? { cmOffice:form.office, cmName:newName, cmPhone:offPhone||p.cmPhone, cmFax:offFax } : {}), ..._hf } : p; });
       setCmPersons(newPersons);
       _dirtyBaseRef.current = _sigOf({ cmOffices, cmPersons: newPersons }); if (dirtyRef) dirtyRef.current = false;
       _setBaseRef.current = _captureSetBase({ ...(appData.systemSettings||{}), cmOffices, careManagers: newPersons });
@@ -50316,8 +50339,15 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                     <option value="">所属事業所を選択...</option>
                     {cmOffices.map((o,i)=><option key={i} value={o.name}>{o.name}</option>)}
                   </select></div>
-                <div><label className="block text-xs font-bold text-slate-500 mb-1">担当者名</label>
-                  <input value={cmEditModal.form.name} onChange={e=>setCmEditModal(m=>({...m,form:{...m.form,name:e.target.value}}))} placeholder="例: 鈴木 一郎" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/></div>
+                {(() => { // ★ 2026-11-25 trial639(ユーザー「担当者名も姓と名で分けて。空白は残さないように」): 新規と同じ 2 欄。保存は trial532 の決まり(姓 名 を半角1つで)
+                  const _sp=(t)=>{const a=(t||'').split(/[\s　]+/).filter(Boolean);return{sn:a[0]||'',gn:a.slice(1).join('')||''};};
+                  const _jn=(sn,gn)=>{sn=(sn||'').replace(/[\s　]/g,'');gn=(gn||'').replace(/[\s　]/g,'');return sn&&gn?`${sn} ${gn}`:(sn||gn||'');};
+                  const sp=_sp(cmEditModal.form.name);
+                  return (<div><label className="block text-xs font-bold text-slate-500 mb-1">担当者名（姓 / 名）</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <ImeSafeInput data-testid="cm-edit-sei" value={sp.sn} onChange={e=>setCmEditModal(m=>({...m,form:{...m.form,name:_jn(e.target.value,_sp(m.form.name).gn)}}))} placeholder="姓 例: 鈴木" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                      <ImeSafeInput data-testid="cm-edit-mei" value={sp.gn} onChange={e=>setCmEditModal(m=>({...m,form:{...m.form,name:_jn(_sp(m.form.name).sn,e.target.value)}}))} placeholder="名 例: 一郎" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                    </div></div>); })()}
                 <div><label className="block text-xs font-bold text-slate-500 mb-1">フリガナ（姓 / 名）</label>
                   <div className="grid grid-cols-2 gap-2">
                     <KanaInput value={cmEditModal.form.kanaLast||''} onChangeText={v=>setCmEditModal(m=>({...m,form:{...m.form,kanaLast:v}}))} placeholder="スズキ" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
