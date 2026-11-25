@@ -62719,6 +62719,9 @@ const DEFAULT_PF_CATEGORIES = [
     note: '通所介護モニタリング表（作成・保管・閲覧）' },
   { id: 'cat_3', name: 'ケアプラン・担当者会議', emoji: '', isDefault: true, group: 'plan',
     note: '居宅サービス計画書 (ケアプラン) / サービス担当者会議の記録' },
+  // ★ 2026-11-25(ユーザー依頼「個人ファイルにサービス提供票のフォルダを。ケアマネから送られてきたサービス提供票を入れる」): 月ごとに届く提供票・別表を写真/PDF で入れる入れ物(全店の既定)
+  { id: 'cat_teikyohyo', name: 'サービス提供票', emoji: '', isDefault: true, group: 'plan',
+    note: 'ケアマネから届くサービス提供票 / サービス提供票別表（毎月）' },
   { id: 'cat_5', name: '計画書', emoji: '', isDefault: true, group: 'plan',
     note: '通所介護計画書 / 個別機能訓練計画書' },
   // ★ サービス提供記録 (月次スナップショット機能) は cat_6 に移動 (isServiceTab も cat_6 を参照)
@@ -64159,6 +64162,9 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 </div>
               )}
             </div>
+          )}
+          {activeCat === 'cat_teikyohyo' && (
+            <div className="tsu-hint-row mb-2" data-testid="pf-teikyohyo-hint"><TsuHint>ケアマネから届いたサービス提供票・別表を、月ごとにここへ入れます（写真か PDF）。下の「ファイルを追加」か、この枠へのドラッグ＆ドロップで入ります。日付を提供票の月の1日にしておくと、月ごとにまとまります。</TsuHint></div>
           )}
           {/* ファイル一覧 */}
           {/* ★ 初回ご利用報告タブでは、作成方法の選択中/手入力中はファイル欄を隠す(2026-08-30 店舗要望。
