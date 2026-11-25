@@ -37322,6 +37322,30 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave, sele
   );
 }
 
+// ★ 2026-11-25 trial636(候補2 連絡帳 スマホ・ユーザー 11/8「カレンダーのように見やすく」→候補2「一覧+下から出る紙」):
+//   1人分の紙を下から出す小窓。✕／幕／戻る(左端から右へ・useTsuBackEntry)／Escape で閉じる。小窓の上で横に動かすと 前の方／次の方(fixed の上は App のスワイプが無視するので自前で判定)。
+//   下に「連絡事項」(RenrakuModal)と前後の方。紙そのものは ContactBookCard のまま(印刷物は変えない)
+function TsuCbPaperSheet({ title, sub, onClose, onPrev, onNext, prevName, nextName, onRenraku, children }) {
+  useTsuBackEntry(true, onClose);
+  React.useEffect(() => { const h = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose]);
+  const st = React.useRef(null);
+  const onTS = (e) => { const t = e.touches && e.touches[0]; if (!t || e.touches.length !== 1 || t.clientX <= 24 || t.clientX >= window.innerWidth - 24) { st.current = null; return; } st.current = { x: t.clientX, y: t.clientY, t: Date.now() }; };
+  const onTE = (e) => { const s0 = st.current; st.current = null; if (!s0) return; const t = e.changedTouches && e.changedTouches[0]; if (!t) return;
+    const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return;
+    if (dx < 0) { if (onNext) onNext(); } else if (onPrev) onPrev(); };
+  return ReactDOM.createPortal(
+    <div className="tsu-cb-sheet-back no-print" data-testid="cb-sheet-back" onClick={onClose}>
+      <div className="tsu-cb-sheet" data-testid="cb-sheet" role="dialog" aria-label={title} onClick={e => e.stopPropagation()} onTouchStart={onTS} onTouchEnd={onTE}>
+        <div className="head"><span className="ttl">{title}</span><span className="sub">{sub}</span><button type="button" data-testid="cb-sheet-close" onClick={onClose} aria-label="閉じる"><X size={22} /></button></div>
+        <div className="body">{children}</div>
+        <div className="foot">
+          <button type="button" data-testid="cb-sheet-renraku" className="rn" onClick={onRenraku}>連絡事項</button>
+          <button type="button" data-testid="cb-sheet-prev" className="pv" disabled={!onPrev} onClick={onPrev || undefined}><ChevronLeft size={16} />{prevName ? `前（${prevName}）` : '前の方'}</button>
+          <button type="button" data-testid="cb-sheet-next" className="nx" disabled={!onNext} onClick={onNext || undefined}>{nextName ? `次（${nextName}）` : '次の方'}<ChevronRight size={16} /></button>
+        </div>
+      </div>
+    </div>, document.body);
+}
 function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirtyRef, onShowPrintPreview, sharedAmpm, setSharedAmpm, navigateTo }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
@@ -37330,6 +37354,11 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const [dropNoteOpen, setDropNoteOpen] = useState(false); // ★ 2026-10-21: 送り時間反映
   const [nextJumpOpen, setNextJumpOpen] = useState(false); // ★ 2026-10-21: 次回の日付(月間スケジュールへ)
   const _renPhone = useTsuIsPhoneDevice(); // ★ 2026-10-08: スマホ(縦・横)は用紙を画面幅に合わせて全員分を表示
+  // ★ 2026-11-25 trial636(候補2): スマホは 1人1行の一覧(既定)。押した人の紙を下から出す。'all'=今までどおり全員の紙を縦に並べる(この端末の設定 tsuCbPhoneMode)
+  const [cbPhoneMode, _setCbPhoneMode] = useState(() => { try { return localStorage.getItem('tsuCbPhoneMode') === 'all' ? 'all' : 'list'; } catch { return 'list'; } });
+  const setCbPhoneMode = (m) => { _setCbPhoneMode(m); try { localStorage.setItem('tsuCbPhoneMode', m); } catch {} setCbOpenId(null); };
+  const [cbOpenId, setCbOpenId] = useState(null);
+  React.useEffect(() => { setCbOpenId(null); }, [selectedDate, sharedAmpm]);
   // ★ 2026-10-22(ユーザー「10インチでも連絡帳をちょっと縮小すれば横2列でいけるのかな」): 一覧の幅から用紙の大きさ(倍率)を決める
   //   用紙(182mm≈688px)が等倍で2枚並ぶなら等倍。並ばないが 0.6倍以上で2枚入るなら縮めて2列。それ以外は等倍1列
   const _cbListRef = React.useRef(null); const [_cbS, _setCbS] = useState(1);
@@ -38221,6 +38250,12 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           {cbPdfBusy ? <><BusySpin/>作成中…</> : 'ダウンロード'}
         </button>
         {/* ★ 2026-10-05(ユーザー要望「ダウンロードが早いので連絡帳の印刷ボタンも不要」): 「印刷」ボタンは廃止。ダウンロードのPDFから印刷する */}
+        {_renPhone && <div className="flex items-center gap-2 shrink-0" data-testid="cb-phonemode">{/* ★ trial636: この端末の表示 一覧／全員の紙 */}
+          <span className="text-xs font-bold text-slate-500">表示</span>
+          <div className="flex rounded-xl overflow-hidden border border-slate-300">
+            {[['list','一覧'],['all','全員の紙']].map(([k,l]) => <button key={k} type="button" data-testid={`cb-phonemode-${k}`} onClick={()=>setCbPhoneMode(k)} className={`px-3 h-10 text-sm font-bold ${cbPhoneMode===k?'bg-emerald-600 text-white':'bg-white text-slate-600'}`}>{l}</button>)}
+          </div>
+        </div>}
       </div>
       </TsuPhoneFold>
       <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6 tsu-wide">{/* ★ 2026-10-21: パソコンでは用紙を横に並べる(index.css tsu-cb-list) */}
@@ -38558,6 +38593,42 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           // ★ スマホ(<768px)は重い連絡帳カードを全員分描画するとメモリ不足で落ちる(Safariが「問題が起きた」で再読込)。
           // ★ 2026-10-08(ユーザー要望): スマホでも連絡帳の全体を常に表示する。用紙は画面の幅にぴったり縮小(縦・横とも)、上下はスクロール。
           //   メモリ対策として、画面に近い用紙だけを描き、離れた用紙は片付ける(TsuLazyMount)。
+          if (_renPhone && cbPhoneMode !== 'all') { // ★ 2026-11-25 trial636(候補2): 1人1行。次回(日付・時間)と 連絡／送り／控え の印。押すと下から紙(TsuCbPaperSheet)
+            const _rowInR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until);
+            const _fmtD = (x) => { const m = String(x || '').match(/(\d+)月(\d+)日（(.)）/); return m ? `${m[1]}/${m[2]}(${m[3]})` : ''; };
+            const _fmtT = (x) => { const v = String(x || '').trim(); if (!/\d/.test(v)) return ''; const m = v.match(/^(\d{1,2})時(\d{1,2})分?$/); return (m ? `${+m[1]}:${m[2].padStart(2, '0')}` : v) + '頃'; }; // 「09時00分」→「9:00頃」
+            const _pOf = (r) => r ? (appData.patients||[]).find(x => x.id === r.patientId) : null;
+            const _idx = displayRecords.findIndex(r => r.patientId === cbOpenId);
+            const _oR = _idx >= 0 ? displayRecords[_idx] : null; const _oP = _pOf(_oR);
+            const _pv = _idx > 0 ? displayRecords[_idx - 1] : null, _nx = (_idx >= 0 && _idx < displayRecords.length - 1) ? displayRecords[_idx + 1] : null;
+            const _nm = (r) => { const q = _pOf(r); return q ? q.name : ''; };
+            return (<>
+              <div className="tsu-cb-rows" data-testid="cb-rows">
+                {displayRecords.length === 0 && <div className="text-center text-slate-500 font-bold py-12 w-full">選択された日付の出席記録がありません。</div>}
+                {displayRecords.map((record) => {
+                  const patient = _pOf(record); if (!patient) return null;
+                  const nx = tsuCbNextDisplay(record, patient, selectedDate, appData); const miss = _nextPlanMissing(record);
+                  const ren = renrakuHasText(patient.contactBookRenraku) && _rowInR(patient.contactBookRenraku); const iss = !!tsuCbIssuedOf(record, selectedDate);
+                  const _d = _fmtD(nx.d), _t = _fmtT(nx.t);
+                  return (
+                    <button key={record.id} type="button" data-testid={`cb-row-${record.patientId}`} className={`tsu-cb-row${miss ? ' is-miss' : ''}`} onClick={() => setCbOpenId(record.patientId)}>
+                      <span className="nm">{patient.name}</span>
+                      <span className="chips">{ren && <span className="ch ch-ren">連絡</span>}{record.renrakuDropAt === '1' && <span className="ch ch-drop">送り</span>}{iss && <span className="ch ch-iss">控え</span>}</span>
+                      <span className={`nx${miss ? ' is-miss' : ''}`}>{miss ? `次回 ${_d} 時間 未入力`.replace(/\s+/g, ' ') : `次回 ${_d} ${_t}`.trim()}</span>
+                      <ChevronRight size={18} className="ar" />
+                    </button>
+                  );
+                })}
+              </div>
+              {_oR && _oP && (
+                <TsuCbPaperSheet key={_oR.patientId} title={`${_oP.name} 様`} sub={`${_idx + 1} / ${displayRecords.length}`} onClose={() => setCbOpenId(null)}
+                  prevName={_nm(_pv)} nextName={_nm(_nx)} onPrev={_pv ? () => setCbOpenId(_pv.patientId) : null} onNext={_nx ? () => setCbOpenId(_nx.patientId) : null}
+                  onRenraku={() => setRenrakuModal({ patientId: _oP.id })}>
+                  <TsuFitWidth><ContactBookCard record={_oR} patient={_oP} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} onEditRenraku={(q)=>setRenrakuModal({ patientId: q.id })} /></TsuFitWidth>
+                </TsuCbPaperSheet>
+              )}
+            </>);
+          }
           if (_renPhone) {
             return (
               <div className="flex flex-col gap-3 px-1 pb-8" data-testid="renraku-phone-list">
@@ -38615,6 +38686,67 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   );
 }
 
+// ★ 2026-11-25 trial636(候補2 連絡帳 スマホ): 紙(ContactBookCard)の「次回利用日・お迎え時間」の計算を切り出し、スマホの1人1行の一覧でも同じ値を出す。
+//   中身は紙にあった計算そのまま(手入力の上書き・送迎表の時間・振替・前の日の控え tsuCbIssuedOf)。{ d: 日付の表示, t: 時間の表示 }
+const tsuCbNextDisplay = (record, patient, selectedDate, appData) => {
+  let nextDateDisplay = "　月　日（　）", nextTimeDisplay = "　時　分";
+
+  // ★ 空き面(2面印刷の余り)は「未定」等を出さず、月日・時分とも手書き用の空欄のまま(2026-09-09 店舗要望)
+  const _isBlankFace = patient && patient.id === '__blank__';
+  // 日付: 数字入りの実値(または「未定」)があればそれ、なければ自動計算。
+  //   ★ null/''/空白残骸(過去の消失バグの名残)は「値なし」として自動計算に落とす。
+  //     旧実装(undefined以外を全て採用)では、null残骸のある利用者だけ空欄表示になっていた。
+  if (_isBlankFace) {
+      // 手書き用: 空欄テンプレのまま
+  } else if (/\d|未定/.test(String(record.nextDateOverride ?? '')) && !tsuNextOverrideStale(patient, record.nextDateOverride, selectedDate, appData)) { // ★ 2026-10-23: 欠席・休止になった日の古い上書きは自動計算へ
+      nextDateDisplay = record.nextDateOverride;
+  } else {
+      const info = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
+      nextDateDisplay = info.date;
+  }
+  // ★ 2026-09-22(店舗指摘): 連絡帳には「未定」を印字しない。日付が決まっていない(未定・空)ときは手書き用の空欄「　月　日（　）」にする。
+  if (!_isBlankFace && (!nextDateDisplay || String(nextDateDisplay).trim() === '未定' || !/\d/.test(String(nextDateDisplay)))) nextDateDisplay = "　月　日（　）";
+  // 時間: 次回が【振替/臨時】の場合、過去の手入力残骸(通常日向けの時刻)は無視して自動計算(8時/13時)。
+  //   ★ 2026-09-08: ただし「この振替日向け」と分かる手入力(nextTimeOverrideForが表示中の次回日付と一致)は
+  //     表示に採用する(振替の方のお迎え時間を入力しても表示されなかった問題の修正)。
+  //   通常の次回は手入力(nextTimeOverride)を優先し、無ければ自動計算。
+  if (!_isBlankFace) {
+      const info2 = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
+      // ★ 2026-10-02(試験版・ユーザー決定): 優先順は 「未定(空欄で渡す)」 > 送迎表の時間 > 以前の手入力 > 自動計算。
+      //   送迎表だけで時間を変える運用にし、連絡帳の古い手入力が送迎表の時間より優先されないようにする
+      const _tpT = getTransportTimeFor(patient.id, nextDateDisplay, record.year, appData);
+      if (String(record.nextTimeOverride || '').trim() === '未定') {
+          nextTimeDisplay = "　時　分";
+      } else if (_tpT && _tpT !== '徒歩') {
+          nextTimeDisplay = _tpT;
+      } else if (info2.isFurikae) {
+          const _tf = String(record.nextTimeOverrideFor || '').trim();
+          if (/\d/.test(String(record.nextTimeOverride ?? '')) && _tf && _tf === String(nextDateDisplay || '').trim()) {
+              nextTimeDisplay = record.nextTimeOverride;
+          } else {
+              // ★ 2026-09-09(店舗要望): 振替の自動計算は出さない。
+              nextTimeDisplay = "　時　分";
+          }
+      } else if (/\d/.test(String(record.nextTimeOverride ?? ''))) {
+          nextTimeDisplay = record.nextTimeOverride;
+      } else {
+          // ★ 時間は「表示している次回日付」の曜日に連動(2026-08-17): 日付だけ手修正されている場合、
+          //   従来は自動候補日(例: 休止スキップ後の水曜AM)の時間が出てしまい「月曜なのに8時台」になっていた。
+          const _dm = String(nextDateDisplay || '').match(/(\d+)月(\d+)日/);
+          if (_dm) {
+              const _y = record.year || new Date(selectedDate).getFullYear();
+              const _dow = new Date(_y, parseInt(_dm[1],10)-1, parseInt(_dm[2],10)).getDay();
+              nextTimeDisplay = getPickupTimeForDow(patient, _dow, appData) || info2.time || "　時　分";
+          } else {
+              nextTimeDisplay = info2.time || "　時　分";
+          }
+      }
+  }
+  // ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの控え(次回利用日・お迎え時間・送りの時間)で出す(tsuCbIssuedOf)
+  const _cbIss = _isBlankFace ? null : tsuCbIssuedOf(record, selectedDate);
+  if (_cbIss) { if (typeof _cbIss.d === 'string') nextDateDisplay = _cbIss.d; if (typeof _cbIss.t === 'string') nextTimeDisplay = _cbIss.t; }
+  return { d: nextDateDisplay, t: nextTimeDisplay };
+};
 function ContactBookCard({ record, patient, selectedDate, config, appData, onOpenConfig, onEditPatientValue, onEditRenraku }) {
   // ★ 血圧の表示(2026-09-30 ユーザー指示):
   //   開始時＋終了時(end)   … 開始/終了とも最新の値(再測定後の値)
@@ -38676,62 +38808,9 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
     ? `令和${warekiYear}年　月　日（　）`
     : `令和${warekiYear}年${d.getMonth() + 1}月${d.getDate()}日（${dayNames[d.getDay()]}）`;
 
-  let nextDateDisplay = "　月　日（　）", nextTimeDisplay = "　時　分";
-
-  // ★ 空き面(2面印刷の余り)は「未定」等を出さず、月日・時分とも手書き用の空欄のまま(2026-09-09 店舗要望)
+  let { d: nextDateDisplay, t: nextTimeDisplay } = tsuCbNextDisplay(record, patient, selectedDate, appData); // ★ trial636: 計算は tsuCbNextDisplay(スマホの一覧と共通)
   const _isBlankFace = patient && patient.id === '__blank__';
-  // 日付: 数字入りの実値(または「未定」)があればそれ、なければ自動計算。
-  //   ★ null/''/空白残骸(過去の消失バグの名残)は「値なし」として自動計算に落とす。
-  //     旧実装(undefined以外を全て採用)では、null残骸のある利用者だけ空欄表示になっていた。
-  if (_isBlankFace) {
-      // 手書き用: 空欄テンプレのまま
-  } else if (/\d|未定/.test(String(record.nextDateOverride ?? '')) && !tsuNextOverrideStale(patient, record.nextDateOverride, selectedDate, appData)) { // ★ 2026-10-23: 欠席・休止になった日の古い上書きは自動計算へ
-      nextDateDisplay = record.nextDateOverride;
-  } else {
-      const info = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
-      nextDateDisplay = info.date;
-  }
-  // ★ 2026-09-22(店舗指摘): 連絡帳には「未定」を印字しない。日付が決まっていない(未定・空)ときは手書き用の空欄「　月　日（　）」にする。
-  if (!_isBlankFace && (!nextDateDisplay || String(nextDateDisplay).trim() === '未定' || !/\d/.test(String(nextDateDisplay)))) nextDateDisplay = "　月　日（　）";
-  // 時間: 次回が【振替/臨時】の場合、過去の手入力残骸(通常日向けの時刻)は無視して自動計算(8時/13時)。
-  //   ★ 2026-09-08: ただし「この振替日向け」と分かる手入力(nextTimeOverrideForが表示中の次回日付と一致)は
-  //     表示に採用する(振替の方のお迎え時間を入力しても表示されなかった問題の修正)。
-  //   通常の次回は手入力(nextTimeOverride)を優先し、無ければ自動計算。
-  if (!_isBlankFace) {
-      const info2 = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
-      // ★ 2026-10-02(試験版・ユーザー決定): 優先順は 「未定(空欄で渡す)」 > 送迎表の時間 > 以前の手入力 > 自動計算。
-      //   送迎表だけで時間を変える運用にし、連絡帳の古い手入力が送迎表の時間より優先されないようにする
-      const _tpT = getTransportTimeFor(patient.id, nextDateDisplay, record.year, appData);
-      if (String(record.nextTimeOverride || '').trim() === '未定') {
-          nextTimeDisplay = "　時　分";
-      } else if (_tpT && _tpT !== '徒歩') {
-          nextTimeDisplay = _tpT;
-      } else if (info2.isFurikae) {
-          const _tf = String(record.nextTimeOverrideFor || '').trim();
-          if (/\d/.test(String(record.nextTimeOverride ?? '')) && _tf && _tf === String(nextDateDisplay || '').trim()) {
-              nextTimeDisplay = record.nextTimeOverride;
-          } else {
-              // ★ 2026-09-09(店舗要望): 振替の自動計算は出さない。
-              nextTimeDisplay = "　時　分";
-          }
-      } else if (/\d/.test(String(record.nextTimeOverride ?? ''))) {
-          nextTimeDisplay = record.nextTimeOverride;
-      } else {
-          // ★ 時間は「表示している次回日付」の曜日に連動(2026-08-17): 日付だけ手修正されている場合、
-          //   従来は自動候補日(例: 休止スキップ後の水曜AM)の時間が出てしまい「月曜なのに8時台」になっていた。
-          const _dm = String(nextDateDisplay || '').match(/(\d+)月(\d+)日/);
-          if (_dm) {
-              const _y = record.year || new Date(selectedDate).getFullYear();
-              const _dow = new Date(_y, parseInt(_dm[1],10)-1, parseInt(_dm[2],10)).getDay();
-              nextTimeDisplay = getPickupTimeForDow(patient, _dow, appData) || info2.time || "　時　分";
-          } else {
-              nextTimeDisplay = info2.time || "　時　分";
-          }
-      }
-  }
-  // ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの控え(次回利用日・お迎え時間・送りの時間)で出す(tsuCbIssuedOf)
   const _cbIss = _isBlankFace ? null : tsuCbIssuedOf(record, selectedDate);
-  if (_cbIss) { if (typeof _cbIss.d === 'string') nextDateDisplay = _cbIss.d; if (typeof _cbIss.t === 'string') nextTimeDisplay = _cbIss.t; }
   const _cbDropAt = (record.renrakuDropAt === '1' && !_isBlankFace) ? ((_cbIss && typeof _cbIss.drop === 'string') ? _cbIss.drop : getTransportDropAtFor(patient.id, nextDateDisplay, selectedDate, appData)) : '';
   // ★ 2026-10-29(ユーザー要望「連絡事項もこちらも渡した時のままに」): 連絡事項(全員あて・個別)も、前の日は控えの中身で出す(控えに無い古い控えは今の中身)
   const _cbInR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until); // 表示期間(from〜until)外は出さない
