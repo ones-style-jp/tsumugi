@@ -554,3 +554,28 @@ describe('起動直後の控えを見せてよいか bootCacheKeepable(2026-11-2
     expect(pushEmptyGuard('store_a', { ...ok, _sbStoreId: null, _bootCache: true }, { patients: [{ id: 1 }, { id: 2 }] })).toEqual({ reason: 'not-loaded', lp: 1, cp: 2 });
   });
 });
+
+import { mergeObjKeys, pickObjNewer } from './logic.js';
+describe('1125d 運動の○×の合成(mergeObjKeys / pickObjNewer)', () => {
+  it('別端末が後に保存した記録の空欄(キーあり・空)で、こちらの○が消えない(項目の時刻はこちらが新しい)', () => {
+    // A(こちら): ○を付けて exercises の時刻 T4 / B(別端末): 体温だけ保存(記録全体は新しいが exercises の時刻は古い T1)
+    const a = { k1: '○', k2: '○' }, b = { k1: '○', k2: '' };
+    const pk = pickObjNewer(false /* 記録全体では B が新しい */, true, 4000, 1000);
+    expect(pk).toEqual({ aNewer: true, strict: true });
+    expect(mergeObjKeys(pk.aNewer ? b : a, pk.aNewer ? a : b, pk.strict)).toEqual({ k1: '○', k2: '○' });
+  });
+  it('こちらで○を消した(厳密に新しい空)は相手に反映される', () => {
+    const a = { k1: '' }, b = { k1: '○' };
+    const pk = pickObjNewer(true, true, 5000, 1000);
+    expect(mergeObjKeys(pk.aNewer ? b : a, pk.aNewer ? a : b, pk.strict)).toEqual({ k1: '' });
+  });
+  it('項目の時刻がどちらにも無いときは従来どおり記録全体の時刻で決める', () => {
+    expect(pickObjNewer(true, false, 0, 0)).toEqual({ aNewer: true, strict: false });
+    const a = { k1: '○' }, b = { k1: '', k2: '×' };
+    const pk = pickObjNewer(true, false, 0, 0);
+    expect(mergeObjKeys(pk.aNewer ? b : a, pk.aNewer ? a : b, pk.strict)).toEqual({ k1: '○', k2: '×' }); // 同点の空は消さない
+  });
+  it('触っていない項目はキーが無いので相手の値が残る', () => {
+    expect(mergeObjKeys({ k1: '○', k2: '×' }, { k3: '○' }, true)).toEqual({ k1: '○', k2: '×', k3: '○' });
+  });
+});
