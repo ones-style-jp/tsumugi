@@ -2338,6 +2338,40 @@ const CharCount = ({ value, max, style, c }) => { const n = tsuNlLen(value, c); 
 // 日本の電話番号フォーマッタ: ハイフン無しの数字 → 自動でハイフン付与 (実装は下部 formatJpPhone)
 // ★ 稼働率/出席率の「予定(分母)」判定。 振替=出席扱い。 振替済みの欠席(tokkiに「へ振替」)は相殺で分母から除外。
 const isPlannedRec = (r) => !!r && (r.status==='出席'||r.status==='振替'||r.status==='臨時'||r.status==='休止'||(r.status==='欠席'&&!(r.tokki||'').includes('へ振替')));
+// ★ 2026-11-26 1126b(ユーザー「モニタリングの『計画何回につき何回通所』の数字が合っていない」): 利用者1人の月の通所回数を、
+//   利用者実績(JissekiView)と同じ決まりで数える。従来のモニタリングは「月だけ(年なし)で絞る・休止も予定に入れる・基本利用日でない日の
+//   記録(データなしの出席・欠席)も数える・先の日に入れた欠席/休止も数える」ため、実績と食い違っていた。
+//   ・年月で絞る(年の無い古い記録は月だけ)・利用開始前/終了後の記録は除く・同じ日に複数あれば 出席>振替>臨時>欠席 を採る
+//   ・出席: 基本利用日か、記録に実データがあるか、月間スケジュールに振替/臨時の印があるときだけ数える(自動でできた空の記録は数えない)
+//   ・振替/臨時: 予定・通所とも数える  ・欠席: 基本利用日だけ予定に数える(振替元「へ振替」は分母から外す)
+//   ・休止/休業: 予定に入れない(休止は「休みの状況」としてだけ返す)  ・今月は きょうまで(先の日に入れた記録は数えない)
+//   戻り値 { planned, attended, absent, kyushi, rate(null=予定なし), absRecs(欠席と休止の記録) }
+const tsuMonthAttendance = (appData, patient, y, m) => {
+  const out = { planned: 0, attended: 0, absent: 0, kyushi: 0, rate: null, absRecs: [] };
+  try {
+    if (!patient || !y || !m) return out;
+    const dim = new Date(y, m, 0).getDate(); const now = new Date(); const cur = (y === now.getFullYear() && m === now.getMonth() + 1); const today = now.getDate();
+    const rank = (x) => x.status==='出席'?0:x.status==='振替'?1:x.status==='臨時'?2:x.status==='欠席'?3:4;
+    const byDay = new Map();
+    (appData.ticketRecords || []).forEach(r => {
+      if (!r || r.patientId !== patient.id) return; const mm = String(r.date || '').match(/^(\d+)月(\d+)日$/); if (!mm || parseInt(mm[1]) !== m) return;
+      if (r.year != null && String(r.year) !== '' && Number(r.year) !== y) return; const d = parseInt(mm[2]); if (!(d >= 1 && d <= dim)) return; if (cur && d > today) return;
+      const ex = byDay.get(d); if (!ex || rank(r) < rank(ex)) byDay.set(d, r);
+    });
+    const mk = `${y}-${String(m).padStart(2, '0')}`; const sh = ((appData.monthlyShifts || {})[mk] || {})[patient.id] || {};
+    byDay.forEach((r, d) => {
+      const ds = `${mk}-${String(d).padStart(2, '0')}`; if (!isPatientActiveOnDate(patient, ds)) return;
+      const dow = new Date(y, m - 1, d).getDay(); const base = (getScheduleOnDate(patient, ds) || {})[dow] || ''; const isBase = base === 'AM' || base === 'PM' || base === '1日';
+      const ovA = String(sh[`${d}_AM`] || ''), ovP = String(sh[`${d}_PM`] || '');
+      if (r.status === '振替' || r.status === '臨時') { out.planned++; out.attended++; return; }
+      if (r.status === '出席') { if (isBase || ticketHasClinicalData(r) || ovA.startsWith('振') || ovP.startsWith('振') || ovA === '臨時' || ovP === '臨時') { out.planned++; out.attended++; } return; }
+      if (r.status === '欠席') { if (isBase && !(r.tokki || '').includes('へ振替')) { out.planned++; out.absent++; out.absRecs.push(r); } return; }
+      if (r.status === '休止') { if (isBase) { out.kyushi++; out.absRecs.push(r); } return; }
+    });
+    out.rate = out.planned ? Math.round(out.attended / out.planned * 100) : null;
+  } catch {}
+  return out;
+};
 // ★ 提供記録が「臨床データ(バイタル/気分/運動/整体)を持っているか」。 振替/欠席の取り消し時に、
 //   データのある記録を誤って削除して消さないためのガードに使う(tokkiは振替の目印なので判定に含めない)。
 const ticketHasClinicalData = (r) => !!(r && (
@@ -59538,13 +59572,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
   // 全利用中患者を通所有無で分類
   // ★ 2026-09-28(ユーザー指摘): 退所済みが「一度も来ていない」欄に残っていた → 退所済み・利用開始前は対象外(休止は従来どおり対象外)
-  const hasAttendance = (patient) => {
-    return (appData.ticketRecords||[]).some(r => {
-      const m = r.date?.match(/(\d+)月/);
-      return r.patientId === patient.id && m && parseInt(m[1]) === tM && (!r.year || Number(r.year) === tY) &&
-        (r.status==='出席'||r.status==='振替'||r.status==='臨時');
-    });
-  };
+  // ★ 2026-11-26 1126b: 「通所あり／なし」の仕分けも利用者実績と同じ数え方(基本利用日でない日の空の出席や先の日の記録は通所に数えない)
+  const hasAttendance = (patient) => tsuMonthAttendance(appData, patient, tY, tM).attended > 0;
   // ★ 2026-09-30(店舗報告: 休止にした成田さん等が出ない): 休止中などの方も、その月に1回でも通所していれば対象に含める
   //   (その月のモニタリングは必要なため)。退所済み・利用開始前は従来どおり対象外。
   // ★ 2026-09-30 追加(ユーザー指示: 茂木さんのように休止中で今月来ていない方も「通所なし」に表示): 休止中の方は通所の有無にかかわらず対象
@@ -59591,11 +59620,11 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const buildPatientData = (patient) => {
     const recs = (appData.ticketRecords||[]).filter(r => {
       const m = r.date?.match(/(\d+)月/);
-      return r.patientId === patient.id && m && parseInt(m[1]) === tM;
+      return r.patientId === patient.id && m && parseInt(m[1]) === tM && (r.year == null || String(r.year) === '' || Number(r.year) === tY); // ★ 1126b: 年も見る(別の年の同じ月を混ぜない)
     });
-    const attended = recs.filter(r => r.status==='出席'||r.status==='振替'||r.status==='臨時');
-    const planned  = recs.filter(r => ['出席','振替','休止'].includes(r.status) || (r.status==='欠席'&&!(r.tokki||'').includes('へ振替')));
-    const rate = planned.length ? Math.round(attended.length/planned.length*100) : null;
+    const attended = recs.filter(r => r.status==='出席'||r.status==='振替'||r.status==='臨時'); // バイタル・特記などの材料(通所した日の記録)
+    const _att = tsuMonthAttendance(appData, patient, tY, tM); // ★ 1126b: 回数は利用者実績と同じ数え方
+    const rate = _att.rate;
 
     const bpVals = attended.filter(r=>r.bpUpSt).map(r=>parseInt(r.bpUpSt));
     const avgBp  = bpVals.length ? Math.round(bpVals.reduce((a,b)=>a+b,0)/bpVals.length) : null;
@@ -59623,11 +59652,10 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     const prevY = tM===1 ? tY-1 : tY;
     const prevRecs = (appData.ticketRecords||[]).filter(r => {
       const m = r.date?.match(/(\d+)月/);
-      return r.patientId === patient.id && m && parseInt(m[1]) === prevM;
+      return r.patientId === patient.id && m && parseInt(m[1]) === prevM && (r.year == null || String(r.year) === '' || Number(r.year) === prevY); // ★ 1126b: 年も見る
     });
     const prevAttended = prevRecs.filter(r=>r.status==='出席'||r.status==='振替'||r.status==='臨時');
-    const prevPlanned  = prevRecs.filter(r=>isPlannedRec(r));
-    const prevRate = prevPlanned.length ? Math.round(prevAttended.length/prevPlanned.length*100) : null;
+    const prevRate = tsuMonthAttendance(appData, patient, prevY, prevM).rate; // ★ 1126b
     const prevBpVals = prevAttended.filter(r=>r.bpUpSt).map(r=>parseInt(r.bpUpSt));
     const prevAvgBp  = prevBpVals.length ? Math.round(prevBpVals.reduce((a,b)=>a+b,0)/prevBpVals.length) : null;
 
@@ -59661,8 +59689,9 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       careLevel: patient.careLevel,
       month: `${tY}年${tM}月`,
       prevMonth: `${prevY}年${prevM}月`,
-      attended: attended.length,
-      planned: planned.length,
+      attended: _att.attended,
+      planned: _att.planned,
+      absent: _att.absent, kyushi: _att.kyushi,
       rate,
       prevRate,
       avgBp, maxBp, minBp, avgBpDn, highBpDays, avgPulse, avgBp2, prevAvgBp,
@@ -59861,7 +59890,7 @@ ${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項�
     const sel = buildAutoSel(patient); const noAtt = !hasAttendance(patient);
     return { implDate: tsuTodayIso(), recorder: getActiveRecorderName()||'',
       s1:{sel: sel.s1||(noAtt?'実施できなかった':'実施できた'), text: buildAutoStatus(patient)},
-      goal:{sel: sel.goal||'', text: noAtt?'当月は通所がなく評価が困難。':''},
+      goal:{sel: sel.goal||'', text: noAtt?'当月はご利用がなかったため、評価が難しい状況です。':''},
       s2:{sel:'',text:''}, s3:{sel:'変化なし',text: buildAutoChange(patient)}, s4:{sel:'このまま継続',text:''} };
   };
   // ★ シートを保存。 confirmedFlag=省略時は既存の確定状態を維持(=自動で確定済みにしない)。
@@ -60175,12 +60204,13 @@ ${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項�
     // ①サービスの実施状況: (計画書があれば)計画通りに提供できたか + 通所実績
     try {
       const d = buildPatientData(patient); const hp = _monHasPlan(patient.id);
+      // ★ 2026-11-26 1126b(ユーザー「文が硬すぎるので、もう少しやわらかく」): です・ます調で、ケアマネに読みやすく
       if (!d.attended) {
-        return `${d.month}は通所(利用)がなかったため、${hp ? '通所介護計画に基づく' : ''}サービスを実施できなかった。`;
+        return `${d.month}はご利用がなかったため、${hp ? '通所介護計画に沿った' : ''}サービスの提供はありませんでした。`;
       }
-      const parts = [`${hp ? '通所介護計画に基づき、' : ''}個別機能訓練（運動プログラム）・健康チェック（バイタル測定）・送迎を提供。`];
-      if (d.planned!=null) parts.push(`${d.month}は予定${d.planned}回中${d.attended}回参加（出席率${d.rate!=null?d.rate+'%':'—'}）。`);
-      parts.push(hp ? '概ね計画どおりサービスを実施できた。' : '概ね予定どおりサービスを実施できた。');
+      const parts = [`${hp ? '通所介護計画に沿って、' : ''}個別機能訓練（運動プログラム）・健康チェック（バイタル測定）・送迎を行いました。`];
+      if (d.planned!=null) parts.push(`${d.month}は予定${d.planned}回のうち${d.attended}回ご利用いただきました（出席率${d.rate!=null?d.rate+'%':'—'}）。`);
+      parts.push(hp ? 'おおむね計画どおりにサービスを行うことができました。' : 'おおむね予定どおりにサービスを行うことができました。');
       return parts.join('');
     } catch { return ''; }
   };
@@ -60202,11 +60232,11 @@ ${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項�
       const vit = [];
       if (d.avgBp!=null) vit.push(`血圧平均${d.avgBp}mmHg${d.prevAvgBp!=null?`（前月${d.prevAvgBp}）`:''}`);
       if (d.avgTemp!=null) vit.push(`体温平均${d.avgTemp}℃`);
-      if (vit.length) parts.push(`バイタルは${vit.join('、')}。`);
-      if (d.avgMoodLabel) parts.push(`通所時の体調は概ね「${d.avgMoodLabel}」。`);
-      if (d.fitnessRecs && d.fitnessRecs.length) parts.push('体力測定を実施し経過を確認。');
+      if (vit.length) parts.push(`バイタルは${vit.join('、')}でした。`);
+      if (d.avgMoodLabel) parts.push(`通所時の体調はおおむね「${d.avgMoodLabel}」でした。`);
+      if (d.fitnessRecs && d.fitnessRecs.length) parts.push('体力測定を行い、経過を確認しました。');
       if (d.tokki) parts.push(`特記事項: ${d.tokki}。`);
-      parts.push('心身の状況に大きな変化は見られない。');
+      parts.push('心身の状況に大きな変化は見られませんでした。');
       return parts.join('');
     } catch { return ''; }
   };
@@ -60249,7 +60279,7 @@ ${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項�
     const _kkGoal = _kk.length ? [_kk[0].shortKinou&&`短期(機能): ${_kk[0].shortKinou}`, _kk[0].shortKatsudo&&`短期(活動): ${_kk[0].shortKatsudo}`, _kk[0].longKinou&&`長期(機能): ${_kk[0].longKinou}`].filter(Boolean).join(' / ') : '';
     const _goalText = [_tkGoal, _kkGoal].filter(Boolean).join('\n');
     // ★ 欠席・休みの状況(回数・理由) → 休みが多い場合の④⑤判断に使う
-    const _absRecs = (appData.ticketRecords||[]).filter(r => { const _m=r.date?.match(/(\d+)月/); return r.patientId===patient.id && _m && parseInt(_m[1])===tM && (r.status==='欠席'||r.status==='休止'||r.status==='休業'); });
+    const _absRecs = tsuMonthAttendance(appData, patient, tY, tM).absRecs; // ★ 1126b: 欠席(基本利用日)と休止だけ・年月で・きょうまで(利用者実績と同じ)
     const _absCount = _absRecs.length;
     const _absReasons = [...new Set(_absRecs.map(r=>(r.tokki||'').trim()).filter(Boolean))].join('、') || '理由の記録なし';
     const optionsDesc = MON_ITEMS.map(it=>`${it.key}（${it.no}${it.title}）: 選択肢=[${it.options.join(' / ')}]`).join('\n');
@@ -60258,7 +60288,7 @@ ${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項�
 ■ 文体・観点（重要）
 ・当事業所は医療機関ではありません。診断・医学的判断・治療的表現（病名・治療効果の評価 等）は使わないでください。
 ・機能訓練（運動）と生活機能・生活の様子の観点で、利用者本位にやさしく記述してください。
-・所見は「〜の様子がみられた」「今後も見守りが必要」「継続して支援していく」等の、見守り・支援の語調にしてください。
+・文末は【です・ます調】で、やわらかい語り口にしてください（例:「〜の様子がみられました」「今後も見守っていきます」「継続して支援していきます」）。硬い言い切り(「〜であった」「〜できた。」)は使わない。
 ・評価は【厳しすぎず、やわらかく前向き】に。できていない点を断定・否定しすぎず、良い面や意欲にも触れてください。
 ・【分量・優先順位（重要）】変化・気づき・特筆すべき点（血圧が高めの日・体調の変化・特記の出来事・運動や体力の変化 等）を優先して記載し、変化のない項目は「大きな変化なし」程度に簡潔にまとめてよい。全項目を細かく埋めようとせず、ケアマネが2分程度でサッと読める分量に。各項目のtextは原則1〜3文以内。
 ・ただし機能訓練・生活支援の【専門用語を適度に】交え、専門職らしい所見にしてください（例: 下肢筋力の維持、立位・歩行バランス、関節可動域、活動意欲、生活リハビリ、離床機会、転倒予防 等を文脈に応じて自然に）。専門用語の多用や堅すぎる表現は避け、読みやすさを保つこと。
@@ -60272,7 +60302,7 @@ ${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項�
 
 利用者: ${d.name}（${d.careLevel||''}）
 対象月: ${d.month}
-通所実績: 計画${d.planned}回中${d.attended}回参加（出席率${d.rate!=null?d.rate+'%':'不明'}）${d.attended===0?'　※当月は一度も通所なし':''}
+通所実績: 予定${d.planned}回のうち${d.attended}回ご利用（出席率${d.rate!=null?d.rate+'%':'不明'}）${d.attended===0?'　※当月は一度も通所なし':''}（この回数は利用者実績と同じ数え方。文中で回数に触れるときはこの数字をそのまま使う）
 欠席・休みの状況: 当月 欠席/休み ${_absCount}回。 理由: ${_absReasons}
 取り組んだ運動メニュー: ${exerciseNowText}
 運動メニューの変化: ${exerciseChangeText}
