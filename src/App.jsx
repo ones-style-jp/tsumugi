@@ -10969,6 +10969,32 @@ const tsuPauseRecStale = (p, iso) => { const d = String(iso || '').slice(0, 10);
 const tsuPauseAppend = (hist, entry) => { const f = String(entry && entry.fromDate || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return [...(Array.isArray(hist) ? hist : []), entry];
   const d = new Date(`${f}T00:00:00`); d.setDate(d.getDate() - 1); const prev = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return [...tsuPauseClose(hist, prev), entry]; };
+// ★ 2026-11-26 1126d: 分析(個人)の休止一覧で、休止の記録を「休止の期間」ごとにまとめる。
+//   期間は休止の履歴(getPauseReasonOnDate の fromDate で同じ履歴)・理由も履歴から(無ければまとまりの中の特記。末尾の「（2026/08/03〜）」は外す)。
+//   履歴に無い休止の記録は、前の記録から14日以内なら同じまとまり。戻り値 [{ key, label, reason, recs }](日付の古い順)
+const tsuPauseGroups = (p, recs) => {
+  const fmt = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); return m ? `${+m[2]}月${+m[3]}日` : ''; };
+  const rows = (recs || []).map(r => ({ r, iso: recIsoOf(r) })).sort((a, b) => String(a.iso || '').localeCompare(String(b.iso || '')));
+  const groups = []; const byKey = new Map();
+  rows.forEach(({ r, iso }) => {
+    const pr = iso ? getPauseReasonOnDate(p, iso) : null;
+    let key; let h = null;
+    if (pr) { h = ((p && p.pauseHistory) || []).find(x => x && x.fromDate === pr.fromDate) || null; key = 'h:' + pr.fromDate; }
+    else {
+      const last = groups[groups.length - 1];
+      if (last && !last.h && last.lastIso && iso && (new Date(iso) - new Date(last.lastIso)) / 86400000 <= 14) key = last.key; else key = 'n:' + (iso || r.id);
+    }
+    let g = byKey.get(key);
+    if (!g) { g = { key, h, reason: (pr && pr.reason) ? String(pr.reason).trim() : '', from: pr ? String(pr.fromDate || '') : iso, to: (h && h.toDate) ? String(h.toDate) : '', recs: [], lastIso: '' }; byKey.set(key, g); groups.push(g); }
+    g.recs.push(r); if (iso) g.lastIso = iso;
+  });
+  groups.forEach(g => {
+    if (!g.reason) { const t = g.recs.map(r => String(r.tokki || '').trim()).find(Boolean); if (t) g.reason = t.replace(/\s*[（(]\d{4}\/\d{1,2}\/\d{1,2}〜(\d{4}\/\d{1,2}\/\d{1,2})?[）)]\s*$/, '').trim() || t; }
+    const first = g.recs[0], lastR = g.recs[g.recs.length - 1];
+    g.label = g.h ? `${fmt(g.from)}〜${g.to ? fmt(g.to) : ''}` : (g.recs.length > 1 ? `${first.date}〜${lastR.date}` : first.date);
+  });
+  return groups;
+};
 
 // ★ 2026-10-23(ユーザー報告「しばらく休みの方の次回が、欠席になっている10/28のまま・時間が未入力」): 連絡帳の次回の上書き(nextDateOverride)が、
 //   その後に欠席・休止(記録／月間表のシフト／休止期間)になった日を指している=古い上書きなら、自動計算(次の来所日)に戻す
@@ -33998,21 +34024,28 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               {records.filter(r=>r.status==='休止').length}件
             </span>
           </div>
-          {records.filter(r=>r.status==='休止').length > 0 ? (
+          {/* ★ 1126d: 休止の期間ごとに1行(期間・理由・回数)＋その期間の日付を横に並べる。理由は休止の履歴から */}
+          {(() => { const _kr = records.filter(r=>r.status==='休止'); if (!_kr.length) return (
+            <div style={{padding:'24px',textAlign:'center',color:'#000',fontSize:14,fontWeight:'bold'}}>休止の記録はありません</div>);
+            const _grp = tsuPauseGroups(selectedPatient, _kr);
+            return (
             <div style={{padding:'8px 0'}}>
-              {records.filter(r=>r.status==='休止').map((r,i)=>(
-                <div key={r.id} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'8px 20px',borderBottom:'1px solid #fff7ed',backgroundColor:i%2===0?'white':'#fffcf9'}}>
-                  <div style={{fontWeight:'bold',color:'#475569',whiteSpace:'nowrap',minWidth:60,fontSize:14}}>{r.date}</div>
-                  <span style={{fontSize:14,fontWeight:'bold',padding:'2px 8px',borderRadius:6,backgroundColor:'#ffedd5',color:'#c2410c',whiteSpace:'nowrap',flexShrink:0}}>休止</span>
-                  <div style={{fontSize:14,color:r.tokki?'#475569':'#cbd5e1',flex:1}}>
-                    {r.tokki||<span style={{fontStyle:'italic',color:'#000'}}>理由の記載なし</span>}
+              {_grp.map((g,i)=>(
+                <div key={g.key} data-testid="kyushi-group" style={{padding:'10px 20px',borderBottom:'1px solid #fff7ed',backgroundColor:i%2===0?'white':'#fffcf9'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',justifyContent:'flex-start'}}>
+                    <span style={{fontSize:14,fontWeight:'bold',padding:'2px 8px',borderRadius:6,backgroundColor:'#ffedd5',color:'#c2410c',whiteSpace:'nowrap',flexShrink:0}}>休止</span>
+                    <span data-testid="kyushi-period" style={{fontWeight:'bold',color:'#475569',whiteSpace:'nowrap',fontSize:14}}>{g.label}</span>
+                    <span data-testid="kyushi-reason" style={{fontSize:14,color:g.reason?'#475569':'#000',fontStyle:g.reason?'normal':'italic'}}>{g.reason||'理由の記載なし'}</span>
+                    <span style={{fontSize:14,color:'#64748b',whiteSpace:'nowrap'}}>{g.recs.length}回</span>
+                  </div>
+                  <div data-testid="kyushi-dates" style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:6,justifyContent:'flex-start'}}>
+                    {g.recs.map(r=>(
+                      <span key={r.id} style={{fontSize:14,padding:'2px 8px',borderRadius:6,border:'1px solid #fed7aa',background:'#fff',color:'#475569',whiteSpace:'nowrap'}}>{r.date}{r.dayOfWeek?`（${r.dayOfWeek}）`:''}</span>
+                    ))}
                   </div>
                 </div>
               ))}
-            </div>
-          ) : (
-            <div style={{padding:'24px',textAlign:'center',color:'#000',fontSize:14,fontWeight:'bold'}}>休止の記録はありません</div>
-          )}
+            </div>); })()}
         </div>}
 
         {/* 家族向けの「日々の記録」セクションは削除 (特記は「今回の記録」に最新分が表示される) */}
