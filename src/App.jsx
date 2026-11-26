@@ -1602,6 +1602,11 @@ const tsuSearchNorm = (s) => toKatakana(String(s ?? '')).toLowerCase().replace(/
 const tsuSearchHit = (q, ...fields) => { const nq = tsuSearchNorm(q); if (!nq) return true;
   if ([...nq].length === 1 && /^[ァ-ヶー]$/.test(nq)) return fields.some(f => f != null && String(f).split(/[\s\u3000・／/()（）「」【】]+/).some(t => tsuSearchNorm(t).startsWith(nq)));
   return fields.some(f => f != null && tsuSearchNorm(f).includes(nq)); };
+// ★ 2026-11-25 trial637(ユーザー「ケアマネの担当者が来月から変更のとき、変更履歴には予定として入っているが、分かりやすいところに『ケアマネ変更予定』と出ると同じ入力をしなくて済む」):
+//   変更履歴(cmHistory)の「開始日が今日より先」の一番近い予定 { office, name, from, note }。開始日になると App の自動切替(cmOffice/cmName)で反映される
+const tsuCmPlanned = (p, todayIso) => { try { const t = todayIso || tsuTodayIso(); const l = (Array.isArray(p && p.cmHistory) ? p.cmHistory : []).filter(h => h && h.from && String(h.from) > t && !h.to).sort((x, y) => String(x.from).localeCompare(String(y.from))); return l[0] || null; } catch { return null; } };
+const tsuCmPlannedDay = (h) => String((h && h.from) || '').replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, '$2/$3');
+const tsuCmPlannedLabel = (h) => h ? `${tsuCmPlannedDay(h)}〜 ${[h.office, h.name].filter(Boolean).join(' ')}` : '';
 
 // ★ 候補表示つき検索入力: 入力に応じて候補(利用者名など)をドロップダウン表示し、選ぶと確定できる。
 //   options: [{key, label, sub}] / onSelect(option) で選択時の挙動を指定 (省略時は label を入力欄へ)。
@@ -15624,11 +15629,13 @@ function FamilyAdminView({ appData, onSave }) {
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
   });
-  const handleFilesPicked = (e) => {
+  const handleFilesPicked = async (e) => {
     const files = rejectVideos(e.target.files);
     if (files.length === 0) { e.target.value=''; return; }
+    const _rot = await tsumugiAskRotations(files); if (!_rot) { e.target.value=''; return; } // ★ 2026-11-26 trial640: お知らせの写真も向きの確認・切り抜き
     Promise.all(files.map(async f => {
-      const compressed = await compressImage(f);
+      const _r = _rot.get(f) || 0; const _c = _tsuCropMap.get(f);
+      const compressed = (_r || _c) ? (await processUploadFile(f, 1600, 0.7, _r)).dataUrl : await compressImage(f);
       return { url: compressed || '', name: f.name };
     })).then(items => {
       const valid = items.filter(it => it.url);
@@ -27965,16 +27972,24 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       const _dup = Object.values(_byPid).filter(c=>c>1).length;
       syncLog('seed', { n: filtered.length, rec: _dayRecs.length, dat: _dat, ex: _ex, dup: _dup });
     } catch { syncLog('seed', { n: filtered.length }); } }
+    // ★ 2026-11-25 trial639 診断(ユーザー「○×を付けると一瞬ついて消えることがたまにある」・2台の再現試験では出ず): 画面の作り直しで、
+    //   直前まで画面にあった運動の○×が空になったら ex-lost を診断に残す(どの方・どの項目・編集中か・直近の編集の経過秒)。原因の切り分け用で表示には影響しない
+    const _logExLost = (prevRows, nextRows, tag) => { try { const nm = new Map((nextRows||[]).map(r => [String(r.id), r])); const lost = []; let obAge = -1;
+      (prevRows||[]).forEach(pr => { const nr = nm.get(String(pr.id)); if (!nr) return; const pe = pr.exercises || {}, ne = nr.exercises || {}; const val = (v) => (v && typeof v === 'object') ? String(v.value ?? '') : String(v ?? '');
+        Object.keys(pe).forEach(k => { if (val(pe[k]) !== '' && val(ne[k]) === '') { lost.push(`${pr.id}:${k}`); const ob = _recEditObs.map.get(`${pr.id}|${new Date(selectedDate).getMonth()+1}月${new Date(selectedDate).getDate()}日|${new Date(selectedDate).getFullYear()}`) || {}; if (ob.exercises) obAge = Math.round((Date.now() - ob.exercises) / 1000); } }); });
+      if (lost.length) syncLog('ex-lost', { tag, n: lost.length, ex: lost.slice(0, 3).join(','), dirty: !!(dirtyRef && dirtyRef.current), obAge }); } catch {} };
     if (_mergeDirty) {
       try {
         const _mg = mergeDraftRows(filtered, _localPatientsRef.current, _seedBaseRef.current);
         _seedBaseRef.current = _mg.base;
+        _logExLost(_localPatientsRef.current, _mg.rows, 'merge');
         setLocalPatients(_mg.rows);
         if (TABLE_ENABLED) syncLog('seed-merge-dirty', { kept: _mg.kept });
       } catch { if (TABLE_ENABLED) syncLog('seed-skip-dirty', {}); }
       return; // 編集中フラグ・月表示用の控えはそのまま(保存で反映)
     }
     _seedBaseRef.current = filtered;
+    _logExLost(_localPatientsRef.current, filtered, _dateChanged ? 'date' : 'seed');
     setLocalPatients(filtered);
     // 月全体表示用：選択月のレコードのみ保持してメモリ節約
     const selM2 = new Date(selectedDate).getMonth() + 1;
@@ -37328,6 +37343,30 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave, sele
   );
 }
 
+// ★ 2026-11-25 trial636(候補2 連絡帳 スマホ・ユーザー 11/8「カレンダーのように見やすく」→候補2「一覧+下から出る紙」):
+//   1人分の紙を下から出す小窓。✕／幕／戻る(左端から右へ・useTsuBackEntry)／Escape で閉じる。小窓の上で横に動かすと 前の方／次の方(fixed の上は App のスワイプが無視するので自前で判定)。
+//   下に「連絡事項」(RenrakuModal)と前後の方。紙そのものは ContactBookCard のまま(印刷物は変えない)
+function TsuCbPaperSheet({ title, sub, onClose, onPrev, onNext, prevName, nextName, onRenraku, children }) {
+  useTsuBackEntry(true, onClose);
+  React.useEffect(() => { const h = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose]);
+  const st = React.useRef(null);
+  const onTS = (e) => { const t = e.touches && e.touches[0]; if (!t || e.touches.length !== 1 || t.clientX <= 24 || t.clientX >= window.innerWidth - 24) { st.current = null; return; } st.current = { x: t.clientX, y: t.clientY, t: Date.now() }; };
+  const onTE = (e) => { const s0 = st.current; st.current = null; if (!s0) return; const t = e.changedTouches && e.changedTouches[0]; if (!t) return;
+    const dx = t.clientX - s0.x, dy = t.clientY - s0.y; if (Date.now() - s0.t > 900 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return;
+    if (dx < 0) { if (onNext) onNext(); } else if (onPrev) onPrev(); };
+  return ReactDOM.createPortal(
+    <div className="tsu-cb-sheet-back no-print" data-testid="cb-sheet-back" onClick={onClose}>
+      <div className="tsu-cb-sheet" data-testid="cb-sheet" role="dialog" aria-label={title} onClick={e => e.stopPropagation()} onTouchStart={onTS} onTouchEnd={onTE}>
+        <div className="head"><span className="ttl">{title}</span><span className="sub">{sub}</span><button type="button" data-testid="cb-sheet-close" onClick={onClose} aria-label="閉じる"><X size={22} /></button></div>
+        <div className="body">{children}</div>
+        <div className="foot">
+          <button type="button" data-testid="cb-sheet-renraku" className="rn" onClick={onRenraku}>連絡事項</button>
+          <button type="button" data-testid="cb-sheet-prev" className="pv" disabled={!onPrev} onClick={onPrev || undefined}><ChevronLeft size={16} />{prevName ? `前（${prevName}）` : '前の方'}</button>
+          <button type="button" data-testid="cb-sheet-next" className="nx" disabled={!onNext} onClick={onNext || undefined}>{nextName ? `次（${nextName}）` : '次の方'}<ChevronRight size={16} /></button>
+        </div>
+      </div>
+    </div>, document.body);
+}
 function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirtyRef, onShowPrintPreview, sharedAmpm, setSharedAmpm, navigateTo }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
@@ -37336,6 +37375,11 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const [dropNoteOpen, setDropNoteOpen] = useState(false); // ★ 2026-10-21: 送り時間反映
   const [nextJumpOpen, setNextJumpOpen] = useState(false); // ★ 2026-10-21: 次回の日付(月間スケジュールへ)
   const _renPhone = useTsuIsPhoneDevice(); // ★ 2026-10-08: スマホ(縦・横)は用紙を画面幅に合わせて全員分を表示
+  // ★ 2026-11-25 trial636(候補2): スマホは 1人1行の一覧(既定)。押した人の紙を下から出す。'all'=今までどおり全員の紙を縦に並べる(この端末の設定 tsuCbPhoneMode)
+  const [cbPhoneMode, _setCbPhoneMode] = useState(() => { try { return localStorage.getItem('tsuCbPhoneMode') === 'all' ? 'all' : 'list'; } catch { return 'list'; } });
+  const setCbPhoneMode = (m) => { _setCbPhoneMode(m); try { localStorage.setItem('tsuCbPhoneMode', m); } catch {} setCbOpenId(null); };
+  const [cbOpenId, setCbOpenId] = useState(null);
+  React.useEffect(() => { setCbOpenId(null); }, [selectedDate, sharedAmpm]);
   // ★ 2026-10-22(ユーザー「10インチでも連絡帳をちょっと縮小すれば横2列でいけるのかな」): 一覧の幅から用紙の大きさ(倍率)を決める
   //   用紙(182mm≈688px)が等倍で2枚並ぶなら等倍。並ばないが 0.6倍以上で2枚入るなら縮めて2列。それ以外は等倍1列
   const _cbListRef = React.useRef(null); const [_cbS, _setCbS] = useState(1);
@@ -38227,6 +38271,12 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           {cbPdfBusy ? <><BusySpin/>作成中…</> : 'ダウンロード'}
         </button>
         {/* ★ 2026-10-05(ユーザー要望「ダウンロードが早いので連絡帳の印刷ボタンも不要」): 「印刷」ボタンは廃止。ダウンロードのPDFから印刷する */}
+        {_renPhone && <div className="flex items-center gap-2 shrink-0" data-testid="cb-phonemode">{/* ★ trial636: この端末の表示 一覧／全員の紙 */}
+          <span className="text-xs font-bold text-slate-500">表示</span>
+          <div className="flex rounded-xl overflow-hidden border border-slate-300">
+            {[['list','一覧'],['all','全員の紙']].map(([k,l]) => <button key={k} type="button" data-testid={`cb-phonemode-${k}`} onClick={()=>setCbPhoneMode(k)} className={`px-3 h-10 text-sm font-bold ${cbPhoneMode===k?'bg-emerald-600 text-white':'bg-white text-slate-600'}`}>{l}</button>)}
+          </div>
+        </div>}
       </div>
       </TsuPhoneFold>
       <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6 tsu-wide">{/* ★ 2026-10-21: パソコンでは用紙を横に並べる(index.css tsu-cb-list) */}
@@ -38564,6 +38614,42 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           // ★ スマホ(<768px)は重い連絡帳カードを全員分描画するとメモリ不足で落ちる(Safariが「問題が起きた」で再読込)。
           // ★ 2026-10-08(ユーザー要望): スマホでも連絡帳の全体を常に表示する。用紙は画面の幅にぴったり縮小(縦・横とも)、上下はスクロール。
           //   メモリ対策として、画面に近い用紙だけを描き、離れた用紙は片付ける(TsuLazyMount)。
+          if (_renPhone && cbPhoneMode !== 'all') { // ★ 2026-11-25 trial636(候補2): 1人1行。次回(日付・時間)と 連絡／送り／控え の印。押すと下から紙(TsuCbPaperSheet)
+            const _rowInR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until);
+            const _fmtD = (x) => { const m = String(x || '').match(/(\d+)月(\d+)日（(.)）/); return m ? `${m[1]}/${m[2]}(${m[3]})` : ''; };
+            const _fmtT = (x) => { const v = String(x || '').trim(); if (!/\d/.test(v)) return ''; const m = v.match(/^(\d{1,2})時(\d{1,2})分?$/); return (m ? `${+m[1]}:${m[2].padStart(2, '0')}` : v) + '頃'; }; // 「09時00分」→「9:00頃」
+            const _pOf = (r) => r ? (appData.patients||[]).find(x => x.id === r.patientId) : null;
+            const _idx = displayRecords.findIndex(r => r.patientId === cbOpenId);
+            const _oR = _idx >= 0 ? displayRecords[_idx] : null; const _oP = _pOf(_oR);
+            const _pv = _idx > 0 ? displayRecords[_idx - 1] : null, _nx = (_idx >= 0 && _idx < displayRecords.length - 1) ? displayRecords[_idx + 1] : null;
+            const _nm = (r) => { const q = _pOf(r); return q ? q.name : ''; };
+            return (<>
+              <div className="tsu-cb-rows" data-testid="cb-rows">
+                {displayRecords.length === 0 && <div className="text-center text-slate-500 font-bold py-12 w-full">選択された日付の出席記録がありません。</div>}
+                {displayRecords.map((record) => {
+                  const patient = _pOf(record); if (!patient) return null;
+                  const nx = tsuCbNextDisplay(record, patient, selectedDate, appData); const miss = _nextPlanMissing(record);
+                  const ren = renrakuHasText(patient.contactBookRenraku) && _rowInR(patient.contactBookRenraku); const iss = !!tsuCbIssuedOf(record, selectedDate);
+                  const _d = _fmtD(nx.d), _t = _fmtT(nx.t);
+                  return (
+                    <button key={record.id} type="button" data-testid={`cb-row-${record.patientId}`} className={`tsu-cb-row${miss ? ' is-miss' : ''}`} onClick={() => setCbOpenId(record.patientId)}>
+                      <span className="nm">{patient.name}</span>
+                      <span className="chips">{ren && <span className="ch ch-ren">連絡</span>}{record.renrakuDropAt === '1' && <span className="ch ch-drop">送り</span>}{iss && <span className="ch ch-iss">控え</span>}</span>
+                      <span className={`nx${miss ? ' is-miss' : ''}`}>{miss ? `次回 ${_d} 時間 未入力`.replace(/\s+/g, ' ') : `次回 ${_d} ${_t}`.trim()}</span>
+                      <ChevronRight size={18} className="ar" />
+                    </button>
+                  );
+                })}
+              </div>
+              {_oR && _oP && (
+                <TsuCbPaperSheet key={_oR.patientId} title={`${_oP.name} 様`} sub={`${_idx + 1} / ${displayRecords.length}`} onClose={() => setCbOpenId(null)}
+                  prevName={_nm(_pv)} nextName={_nm(_nx)} onPrev={_pv ? () => setCbOpenId(_pv.patientId) : null} onNext={_nx ? () => setCbOpenId(_nx.patientId) : null}
+                  onRenraku={() => setRenrakuModal({ patientId: _oP.id })}>
+                  <TsuFitWidth><ContactBookCard record={_oR} patient={_oP} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} onEditRenraku={(q)=>setRenrakuModal({ patientId: q.id })} /></TsuFitWidth>
+                </TsuCbPaperSheet>
+              )}
+            </>);
+          }
           if (_renPhone) {
             return (
               <div className="flex flex-col gap-3 px-1 pb-8" data-testid="renraku-phone-list">
@@ -38621,6 +38707,67 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   );
 }
 
+// ★ 2026-11-25 trial636(候補2 連絡帳 スマホ): 紙(ContactBookCard)の「次回利用日・お迎え時間」の計算を切り出し、スマホの1人1行の一覧でも同じ値を出す。
+//   中身は紙にあった計算そのまま(手入力の上書き・送迎表の時間・振替・前の日の控え tsuCbIssuedOf)。{ d: 日付の表示, t: 時間の表示 }
+const tsuCbNextDisplay = (record, patient, selectedDate, appData) => {
+  let nextDateDisplay = "　月　日（　）", nextTimeDisplay = "　時　分";
+
+  // ★ 空き面(2面印刷の余り)は「未定」等を出さず、月日・時分とも手書き用の空欄のまま(2026-09-09 店舗要望)
+  const _isBlankFace = patient && patient.id === '__blank__';
+  // 日付: 数字入りの実値(または「未定」)があればそれ、なければ自動計算。
+  //   ★ null/''/空白残骸(過去の消失バグの名残)は「値なし」として自動計算に落とす。
+  //     旧実装(undefined以外を全て採用)では、null残骸のある利用者だけ空欄表示になっていた。
+  if (_isBlankFace) {
+      // 手書き用: 空欄テンプレのまま
+  } else if (/\d|未定/.test(String(record.nextDateOverride ?? '')) && !tsuNextOverrideStale(patient, record.nextDateOverride, selectedDate, appData)) { // ★ 2026-10-23: 欠席・休止になった日の古い上書きは自動計算へ
+      nextDateDisplay = record.nextDateOverride;
+  } else {
+      const info = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
+      nextDateDisplay = info.date;
+  }
+  // ★ 2026-09-22(店舗指摘): 連絡帳には「未定」を印字しない。日付が決まっていない(未定・空)ときは手書き用の空欄「　月　日（　）」にする。
+  if (!_isBlankFace && (!nextDateDisplay || String(nextDateDisplay).trim() === '未定' || !/\d/.test(String(nextDateDisplay)))) nextDateDisplay = "　月　日（　）";
+  // 時間: 次回が【振替/臨時】の場合、過去の手入力残骸(通常日向けの時刻)は無視して自動計算(8時/13時)。
+  //   ★ 2026-09-08: ただし「この振替日向け」と分かる手入力(nextTimeOverrideForが表示中の次回日付と一致)は
+  //     表示に採用する(振替の方のお迎え時間を入力しても表示されなかった問題の修正)。
+  //   通常の次回は手入力(nextTimeOverride)を優先し、無ければ自動計算。
+  if (!_isBlankFace) {
+      const info2 = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
+      // ★ 2026-10-02(試験版・ユーザー決定): 優先順は 「未定(空欄で渡す)」 > 送迎表の時間 > 以前の手入力 > 自動計算。
+      //   送迎表だけで時間を変える運用にし、連絡帳の古い手入力が送迎表の時間より優先されないようにする
+      const _tpT = getTransportTimeFor(patient.id, nextDateDisplay, record.year, appData);
+      if (String(record.nextTimeOverride || '').trim() === '未定') {
+          nextTimeDisplay = "　時　分";
+      } else if (_tpT && _tpT !== '徒歩') {
+          nextTimeDisplay = _tpT;
+      } else if (info2.isFurikae) {
+          const _tf = String(record.nextTimeOverrideFor || '').trim();
+          if (/\d/.test(String(record.nextTimeOverride ?? '')) && _tf && _tf === String(nextDateDisplay || '').trim()) {
+              nextTimeDisplay = record.nextTimeOverride;
+          } else {
+              // ★ 2026-09-09(店舗要望): 振替の自動計算は出さない。
+              nextTimeDisplay = "　時　分";
+          }
+      } else if (/\d/.test(String(record.nextTimeOverride ?? ''))) {
+          nextTimeDisplay = record.nextTimeOverride;
+      } else {
+          // ★ 時間は「表示している次回日付」の曜日に連動(2026-08-17): 日付だけ手修正されている場合、
+          //   従来は自動候補日(例: 休止スキップ後の水曜AM)の時間が出てしまい「月曜なのに8時台」になっていた。
+          const _dm = String(nextDateDisplay || '').match(/(\d+)月(\d+)日/);
+          if (_dm) {
+              const _y = record.year || new Date(selectedDate).getFullYear();
+              const _dow = new Date(_y, parseInt(_dm[1],10)-1, parseInt(_dm[2],10)).getDay();
+              nextTimeDisplay = getPickupTimeForDow(patient, _dow, appData) || info2.time || "　時　分";
+          } else {
+              nextTimeDisplay = info2.time || "　時　分";
+          }
+      }
+  }
+  // ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの控え(次回利用日・お迎え時間・送りの時間)で出す(tsuCbIssuedOf)
+  const _cbIss = _isBlankFace ? null : tsuCbIssuedOf(record, selectedDate);
+  if (_cbIss) { if (typeof _cbIss.d === 'string') nextDateDisplay = _cbIss.d; if (typeof _cbIss.t === 'string') nextTimeDisplay = _cbIss.t; }
+  return { d: nextDateDisplay, t: nextTimeDisplay };
+};
 function ContactBookCard({ record, patient, selectedDate, config, appData, onOpenConfig, onEditPatientValue, onEditRenraku }) {
   // ★ 血圧の表示(2026-09-30 ユーザー指示):
   //   開始時＋終了時(end)   … 開始/終了とも最新の値(再測定後の値)
@@ -38682,62 +38829,9 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
     ? `令和${warekiYear}年　月　日（　）`
     : `令和${warekiYear}年${d.getMonth() + 1}月${d.getDate()}日（${dayNames[d.getDay()]}）`;
 
-  let nextDateDisplay = "　月　日（　）", nextTimeDisplay = "　時　分";
-
-  // ★ 空き面(2面印刷の余り)は「未定」等を出さず、月日・時分とも手書き用の空欄のまま(2026-09-09 店舗要望)
+  let { d: nextDateDisplay, t: nextTimeDisplay } = tsuCbNextDisplay(record, patient, selectedDate, appData); // ★ trial636: 計算は tsuCbNextDisplay(スマホの一覧と共通)
   const _isBlankFace = patient && patient.id === '__blank__';
-  // 日付: 数字入りの実値(または「未定」)があればそれ、なければ自動計算。
-  //   ★ null/''/空白残骸(過去の消失バグの名残)は「値なし」として自動計算に落とす。
-  //     旧実装(undefined以外を全て採用)では、null残骸のある利用者だけ空欄表示になっていた。
-  if (_isBlankFace) {
-      // 手書き用: 空欄テンプレのまま
-  } else if (/\d|未定/.test(String(record.nextDateOverride ?? '')) && !tsuNextOverrideStale(patient, record.nextDateOverride, selectedDate, appData)) { // ★ 2026-10-23: 欠席・休止になった日の古い上書きは自動計算へ
-      nextDateDisplay = record.nextDateOverride;
-  } else {
-      const info = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
-      nextDateDisplay = info.date;
-  }
-  // ★ 2026-09-22(店舗指摘): 連絡帳には「未定」を印字しない。日付が決まっていない(未定・空)ときは手書き用の空欄「　月　日（　）」にする。
-  if (!_isBlankFace && (!nextDateDisplay || String(nextDateDisplay).trim() === '未定' || !/\d/.test(String(nextDateDisplay)))) nextDateDisplay = "　月　日（　）";
-  // 時間: 次回が【振替/臨時】の場合、過去の手入力残骸(通常日向けの時刻)は無視して自動計算(8時/13時)。
-  //   ★ 2026-09-08: ただし「この振替日向け」と分かる手入力(nextTimeOverrideForが表示中の次回日付と一致)は
-  //     表示に採用する(振替の方のお迎え時間を入力しても表示されなかった問題の修正)。
-  //   通常の次回は手入力(nextTimeOverride)を優先し、無ければ自動計算。
-  if (!_isBlankFace) {
-      const info2 = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
-      // ★ 2026-10-02(試験版・ユーザー決定): 優先順は 「未定(空欄で渡す)」 > 送迎表の時間 > 以前の手入力 > 自動計算。
-      //   送迎表だけで時間を変える運用にし、連絡帳の古い手入力が送迎表の時間より優先されないようにする
-      const _tpT = getTransportTimeFor(patient.id, nextDateDisplay, record.year, appData);
-      if (String(record.nextTimeOverride || '').trim() === '未定') {
-          nextTimeDisplay = "　時　分";
-      } else if (_tpT && _tpT !== '徒歩') {
-          nextTimeDisplay = _tpT;
-      } else if (info2.isFurikae) {
-          const _tf = String(record.nextTimeOverrideFor || '').trim();
-          if (/\d/.test(String(record.nextTimeOverride ?? '')) && _tf && _tf === String(nextDateDisplay || '').trim()) {
-              nextTimeDisplay = record.nextTimeOverride;
-          } else {
-              // ★ 2026-09-09(店舗要望): 振替の自動計算は出さない。
-              nextTimeDisplay = "　時　分";
-          }
-      } else if (/\d/.test(String(record.nextTimeOverride ?? ''))) {
-          nextTimeDisplay = record.nextTimeOverride;
-      } else {
-          // ★ 時間は「表示している次回日付」の曜日に連動(2026-08-17): 日付だけ手修正されている場合、
-          //   従来は自動候補日(例: 休止スキップ後の水曜AM)の時間が出てしまい「月曜なのに8時台」になっていた。
-          const _dm = String(nextDateDisplay || '').match(/(\d+)月(\d+)日/);
-          if (_dm) {
-              const _y = record.year || new Date(selectedDate).getFullYear();
-              const _dow = new Date(_y, parseInt(_dm[1],10)-1, parseInt(_dm[2],10)).getDay();
-              nextTimeDisplay = getPickupTimeForDow(patient, _dow, appData) || info2.time || "　時　分";
-          } else {
-              nextTimeDisplay = info2.time || "　時　分";
-          }
-      }
-  }
-  // ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの控え(次回利用日・お迎え時間・送りの時間)で出す(tsuCbIssuedOf)
   const _cbIss = _isBlankFace ? null : tsuCbIssuedOf(record, selectedDate);
-  if (_cbIss) { if (typeof _cbIss.d === 'string') nextDateDisplay = _cbIss.d; if (typeof _cbIss.t === 'string') nextTimeDisplay = _cbIss.t; }
   const _cbDropAt = (record.renrakuDropAt === '1' && !_isBlankFace) ? ((_cbIss && typeof _cbIss.drop === 'string') ? _cbIss.drop : getTransportDropAtFor(patient.id, nextDateDisplay, selectedDate, appData)) : '';
   // ★ 2026-10-29(ユーザー要望「連絡事項もこちらも渡した時のままに」): 連絡事項(全員あて・個別)も、前の日は控えの中身で出す(控えに無い古い控えは今の中身)
   const _cbInR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until); // 表示期間(from〜until)外は出さない
@@ -46124,6 +46218,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <div className="flex flex-col items-end shrink-0 min-w-0" style={{maxWidth:'38%'}}>
                 {p.cmOffice && <span className="text-[10px] font-bold text-slate-900 truncate text-right w-full">{p.cmOffice}</span>}
                 {p.cmName && <span className="text-[10px] font-bold text-slate-600 truncate text-right w-full">{p.cmName}</span>}
+                {(() => { const _pl = tsuCmPlanned(p); return _pl ? <span data-testid={`cm-planned-chip-${p.id}`} className="text-[9px] font-bold text-orange-700 bg-orange-50 border border-orange-200 rounded px-1 truncate max-w-full">CM変更予定 {tsuCmPlannedDay(_pl)}〜</span> : null; })()}
               </div>
             </button>); })}{dPats.length === 0 && <div className="text-center text-slate-400 text-[10px] font-bold py-6">該当なし</div>}</div>
         </>)}
@@ -46266,6 +46361,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   const _ro = (v)=><div className="px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm font-bold text-slate-700">{v||'ー'}</div>;
                   return (
                   <div>
+                    {(() => { const _pl = tsuCmPlanned(localPatient); if (!_pl) return null; return (<div data-testid="cm-planned-note" className="mb-2 px-3 py-2 rounded-xl border border-orange-300 bg-orange-50 text-sm font-bold text-orange-800">ケアマネ変更予定: {tsuCmPlannedLabel(_pl)}{_pl.note ? `（${_pl.note}）` : ''}<span className="block text-[11px] font-normal text-orange-700 mt-0.5">変更履歴に登録済みです。開始日になると自動で切り替わります（同じ内容をもう一度入れる必要はありません）。</span></div>); })()}
                     {!isOff && <div className="flex justify-end mb-2"><button type="button" onClick={()=>setCmChangeModal({office: localPatient.cmOffice||'', name: localPatient.cmName||'', from: new Date().toISOString().split('T')[0], note:''})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95">担当を変更</button></div>}
                     <div className="border border-slate-200 rounded-lg overflow-hidden">
                       <InfoRow label="事業所名">{localPatient.cmOffice}</InfoRow>
@@ -46805,7 +46901,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   {!(localPatient.costBurdenHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...(localPatient.costBurdenHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.costBurdenHistory||[]).findIndex(x=>x===h);return(<div key={si} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.value}</span></div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'costBurden',idx:ri,entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'costBurden',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden"><div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"/><span className="font-bold text-sm text-slate-700">ケアマネ 変更履歴</span></div>
-                  {!(localPatient.cmHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...(localPatient.cmHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.cmHistory||[]).findIndex(x=>x===h);return(<div key={si} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.office}</span>{h.name&&<span className="text-sm text-slate-600">{h.name}</span>}</div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'cm',idx:ri,entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'cm',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
+                  {!(localPatient.cmHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...(localPatient.cmHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.cmHistory||[]).findIndex(x=>x===h);return(<div key={si} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.office}</span>{h.name&&<span className="text-sm text-slate-600">{h.name}</span>}</div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button data-testid={`hist-edit-cm-${ri}`} onClick={()=>setEditHistModal({type:'cm',idx:ri,entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'cm',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
                 </div>
                 {/* 書類変更履歴 — 項目ごと (介護保険証/負担割合証/お薬手帳/その他書類) に過去アップロード分を表示 */}
                 {(() => {
@@ -48428,6 +48524,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
             <h3 className="text-base font-bold text-slate-800 mb-4 text-center">ケアマネジャーの変更</h3>
+            {(() => { const _pl = localPatient ? tsuCmPlanned(localPatient) : null; return _pl ? <div data-testid="cm-planned-modal-note" className="mb-3 px-3 py-2 rounded-xl border border-orange-300 bg-orange-50 text-xs font-bold text-orange-800">すでに {tsuCmPlannedLabel(_pl)} の変更予定があります（変更履歴）。同じ内容なら、ここで入れ直す必要はありません。</div> : null; })()}
             <div className="space-y-3 mb-5">
               <div>
                 <label className="block text-sm font-bold text-slate-600 mb-1.5">事業所</label>
@@ -48495,12 +48592,24 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
             <h3 className="text-base font-bold text-slate-800 mb-4 text-center">履歴を編集</h3>
             <div className="space-y-3 mb-5">
-              {editHistModal.type==='cm' ? (<>
+              {editHistModal.type==='cm' ? (() => { // ★ 2026-11-25 trial639(ユーザー「履歴の編集は担当者をプルダウンで選べるように」): 事業所→担当者を名簿から選ぶ。名簿に無い今の値もそのまま選べる
+                const _offs = [...(appData.systemSettings?.cmOffices||[])].sort((a,b)=>(a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja'));
+                const _curOff = editHistModal.entry.office||''; const _offNames = _offs.map(x=>x.name);
+                const _ppl = sortCareManagersByKana((appData.systemSettings?.careManagers||[]).filter(c => !_curOff || c.office===_curOff)); const _curNm = editHistModal.entry.name||'';
+                return (<>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">事業所</label>
-                  <input value={editHistModal.entry.office||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,office:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
+                  <select data-testid="hist-cm-office" value={_curOff} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,office:e.target.value,name:''}})} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none" style={{minHeight:44}}>
+                    <option value="">選んでください</option>
+                    {_curOff && !_offNames.includes(_curOff) && <option value={_curOff}>{_curOff}（名簿にありません）</option>}
+                    {_offs.map((x,i)=><option key={i} value={x.name}>{x.name}</option>)}
+                  </select></div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">担当者</label>
-                  <input value={editHistModal.entry.name||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,name:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
-              </>) : editHistModal.type==='changeLog' ? (
+                  <select data-testid="hist-cm-name" value={_curNm} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,name:e.target.value}})} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none" style={{minHeight:44}}>
+                    <option value="">選んでください</option>
+                    {_curNm && !_ppl.some(c=>c.name===_curNm) && <option value={_curNm}>{_curNm}（名簿にありません）</option>}
+                    {_ppl.map((c,i)=><option key={i} value={c.name}>{c.name}</option>)}
+                  </select></div>
+                </>); })() : editHistModal.type==='changeLog' ? (
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">変更内容</label>
                   <input value={editHistModal.entry.newValue||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,newValue:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
               ) : (
@@ -48508,9 +48617,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   <input value={editHistModal.entry.value||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,value:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
               )}
               <div><label className="block text-sm font-bold text-slate-600 mb-1.5">開始日</label>
-                <input type="date" value={editHistModal.entry.from||editHistModal.entry.date||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,from:e.target.value,date:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
+                <input type="date" data-testid="hist-from" style={{minHeight:44,display:'block',width:'100%',WebkitAppearance:'none',appearance:'none'}} value={editHistModal.entry.from||editHistModal.entry.date||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,from:e.target.value,date:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>
               {editHistModal.type!=='changeLog'&&<div><label className="block text-sm font-bold text-slate-600 mb-1.5">終了日</label>
-                <input type="date" value={editHistModal.entry.to||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,to:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>}
+                <input type="date" data-testid="hist-to" style={{minHeight:44,display:'block',width:'100%',WebkitAppearance:'none',appearance:'none'}} value={editHistModal.entry.to||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,to:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/></div>}
               <div><label className="block text-sm font-bold text-slate-600 mb-1.5">備考</label>
                 <input value={editHistModal.entry.note||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,note:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none"/></div>
             </div>
@@ -49807,7 +49916,8 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
       // 担当者の所属事業所名・FAXも更新
       const newPersons = cmPersons.map(c => c.office===orig.name ? { ...c, office:newName, fax:formatJpPhone(form.fax), ...(_renamedOff?{_addedAt:syncNow()}:{}) } : c);
       // 各利用者マスタの担当ケアマネ事業所・FAXを更新
-      const newPatients = (appData.patients||[]).map(p => p.cmOffice===orig.name ? { ...p, cmOffice:newName, cmFax:formatJpPhone(form.fax) } : p);
+      const _hOff = (p) => (_renamedOff && Array.isArray(p.cmHistory) && p.cmHistory.some(h => h && h.office===orig.name)) ? { cmHistory: p.cmHistory.map(h => (h && h.office===orig.name) ? { ...h, office: newName } : h) } : {}; // ★ trial639: 変更履歴の事業所名も
+      const newPatients = (appData.patients||[]).map(p => { const _hit = p.cmOffice===orig.name; const _hf = _hOff(p); return (_hit || Object.keys(_hf).length) ? { ...p, ...(_hit ? { cmOffice:newName, cmFax:formatJpPhone(form.fax) } : {}), ..._hf } : p; });
       setCmOffices(newOffices); setCmPersons(newPersons);
       // ★ 2026-09-18: 保存後は未保存判定の基準を更新(persistCmと同じ)。従来は残ったままで「未保存があります」が出続けていた
       _dirtyBaseRef.current = _sigOf({ cmOffices: newOffices, cmPersons: newPersons }); if (dirtyRef) dirtyRef.current = false;
@@ -49827,7 +49937,9 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
       const _isOrigCm = (c) => (c === orig || (c.office === orig.office && c.name === orig.name));
       const newPersons = cmPersons.map(c => _isOrigCm(c) ? { ...c, office:form.office, name:newName, kanaLast:_kl, kanaFirst:_kf, kana:`${_kl} ${_kf}`.trim(), phone:dir, phoneDirect:dir, fax:offFax, email:(form.email||'').trim(), ...(_renamedCm?{_addedAt:syncNow()}:{}) } : c);
       // 各利用者マスタの担当ケアマネ(旧 office+name 一致)を更新
-      const newPatients = (appData.patients||[]).map(p => (p.cmOffice===orig.office && p.cmName===orig.name) ? { ...p, cmOffice:form.office, cmName:newName, cmPhone:offPhone||p.cmPhone, cmFax:offFax } : p);
+      // ★ 2026-11-25 trial639(ユーザー「最初は姓だけで入れ、あとから名を足したときに変更履歴も更新されてほしい」): 変更履歴(cmHistory)の同じ事業所・同じ名前の行も新しい名前に
+      const _hFix = (p) => (_renamedCm && Array.isArray(p.cmHistory) && p.cmHistory.some(h => h && h.office===orig.office && h.name===orig.name)) ? { cmHistory: p.cmHistory.map(h => (h && h.office===orig.office && h.name===orig.name) ? { ...h, office: form.office, name: newName } : h) } : {};
+      const newPatients = (appData.patients||[]).map(p => { const _hit = (p.cmOffice===orig.office && p.cmName===orig.name); const _hf = _hFix(p); return (_hit || Object.keys(_hf).length) ? { ...p, ...(_hit ? { cmOffice:form.office, cmName:newName, cmPhone:offPhone||p.cmPhone, cmFax:offFax } : {}), ..._hf } : p; });
       setCmPersons(newPersons);
       _dirtyBaseRef.current = _sigOf({ cmOffices, cmPersons: newPersons }); if (dirtyRef) dirtyRef.current = false;
       _setBaseRef.current = _captureSetBase({ ...(appData.systemSettings||{}), cmOffices, careManagers: newPersons });
@@ -50229,8 +50341,15 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                     <option value="">所属事業所を選択...</option>
                     {cmOffices.map((o,i)=><option key={i} value={o.name}>{o.name}</option>)}
                   </select></div>
-                <div><label className="block text-xs font-bold text-slate-500 mb-1">担当者名</label>
-                  <input value={cmEditModal.form.name} onChange={e=>setCmEditModal(m=>({...m,form:{...m.form,name:e.target.value}}))} placeholder="例: 鈴木 一郎" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/></div>
+                {(() => { // ★ 2026-11-25 trial639(ユーザー「担当者名も姓と名で分けて。空白は残さないように」): 新規と同じ 2 欄。保存は trial532 の決まり(姓 名 を半角1つで)
+                  const _sp=(t)=>{const a=(t||'').split(/[\s　]+/).filter(Boolean);return{sn:a[0]||'',gn:a.slice(1).join('')||''};};
+                  const _jn=(sn,gn)=>{sn=(sn||'').replace(/[\s　]/g,'');gn=(gn||'').replace(/[\s　]/g,'');return sn&&gn?`${sn} ${gn}`:(sn||gn||'');};
+                  const sp=_sp(cmEditModal.form.name);
+                  return (<div><label className="block text-xs font-bold text-slate-500 mb-1">担当者名（姓 / 名）</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <ImeSafeInput data-testid="cm-edit-sei" value={sp.sn} onChange={e=>setCmEditModal(m=>({...m,form:{...m.form,name:_jn(e.target.value,_sp(m.form.name).gn)}}))} placeholder="姓 例: 鈴木" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                      <ImeSafeInput data-testid="cm-edit-mei" value={sp.gn} onChange={e=>setCmEditModal(m=>({...m,form:{...m.form,name:_jn(_sp(m.form.name).sn,e.target.value)}}))} placeholder="名 例: 一郎" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                    </div></div>); })()}
                 <div><label className="block text-xs font-bold text-slate-500 mb-1">フリガナ（姓 / 名）</label>
                   <div className="grid grid-cols-2 gap-2">
                     <KanaInput value={cmEditModal.form.kanaLast||''} onChangeText={v=>setCmEditModal(m=>({...m,form:{...m.form,kanaLast:v}}))} placeholder="スズキ" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
@@ -51177,8 +51296,10 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                                 let loaded=0;
                                 // ★ 2026-10-07(メモリ不足で落ちる対策): 名刺の写真を元の大きさのまま店舗データに入れていた(1枚数MB)。
                                 //   他の写真と同じく縮小(長辺1600px・JPEG)してから保存する。PDFはそのまま
+                                // ★ 2026-11-26 trial640: 名刺も向きの確認・切り抜きを通す
+                                (async()=>{ const _rot = await tsumugiAskRotations(files); if (!_rot) { e.target.value=''; return; }
                                 files.forEach(f=>{
-                                  processUploadFile(f, 1600, 0.7).then(res=>{
+                                  processUploadFile(f, 1600, 0.7, _rot.get(f) || 0).then(res=>{
                                     cur.push({id:Date.now()+Math.random(),data:res.dataUrl,name:f.name,type:res.contentType||f.type||'image/jpeg',uploadedAt:today});
                                     loaded++;
                                     if(loaded===files.length) {
@@ -51187,7 +51308,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                                       persistCm(null, newPersons, '✓ 名刺を保存しました'); // ★ 2026-10-29: その場で保存(保存ボタンをなくしたため)
                                     }
                                   });
-                                });
+                                }); })();
                                 e.target.value='';
                               }}/>
                             </label>
@@ -62378,8 +62499,13 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 // ★ アップロード用にファイルを準備:
 //   画像は長辺 maxDim 以内・JPEG品質 quality に圧縮し、 { blob(保存用), dataUrl(フォールバック), contentType } を返す。
 //   PDF 等はそのまま。 Supabase Storage には blob を、 未接続/失敗時は dataUrl(base64) を保存する。
-const processUploadFile = (file, maxDim = 1600, quality = 0.7, rotateDeg = 0) => new Promise((resolve) => {
+// ★ 2026-11-26 trial640(ユーザー「写真を載せるところ全部で回転とトリミングを」): 切り抜き(crop={x,y,w,h} 0〜1・回転後の画像の座標)。
+//   向きの確認画面で決めた切り抜きは _tsuCropMap(File→crop)に控え、processUploadFile が自動で使う(呼び出し側 6 か所は変えない)。登録済みの画像は _tsuLastCrops('one')
+const _tsuCropMap = new WeakMap(); const _tsuLastCrops = new Map();
+const processUploadFile = (file, maxDim = 1600, quality = 0.7, rotateDeg = 0, crop = undefined) => new Promise((resolve) => {
   const _rot = ((Number(rotateDeg) || 0) % 360 + 360) % 360;
+  const _crop = (crop && typeof crop === 'object') ? crop : ((file && typeof file === 'object') ? (_tsuCropMap.get(file) || null) : null);
+  try { if (file && typeof file === 'object') _tsuCropMap.delete(file); } catch {}
   const isImage = /^image\//.test(file.type || '');
   const reader = new FileReader();
   reader.onerror = () => resolve({ blob: file, dataUrl: null, contentType: file.type || 'application/octet-stream' });
@@ -62403,10 +62529,17 @@ const processUploadFile = (file, maxDim = 1600, quality = 0.7, rotateDeg = 0) =>
         // ★ 2026-10-07: 登録前に選んだ向き(90度単位)で回転して保存
         if (_rot) { ctx.translate(canvas.width / 2, canvas.height / 2); ctx.rotate(_rot * Math.PI / 180); ctx.drawImage(img, -width / 2, -height / 2, width, height); }
         else ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        canvas.toBlob((blob) => {
-          // 回転したときは元の画像(srcDataUrl)に戻さない
-          resolve({ blob: blob || file, dataUrl: (dataUrl && (_rot || dataUrl.length < srcDataUrl.length)) ? dataUrl : srcDataUrl, contentType: 'image/jpeg' });
+        // ★ trial640: 切り抜き(回転後の座標)。小さすぎる枠は無視
+        let out = canvas, _cropped = false;
+        if (_crop && Number(_crop.w) > 0 && Number(_crop.h) > 0 && !(Number(_crop.x) <= 0 && Number(_crop.y) <= 0 && Number(_crop.w) >= 0.999 && Number(_crop.h) >= 0.999)) {
+          const sx = Math.max(0, Math.round(Number(_crop.x) * canvas.width)), sy = Math.max(0, Math.round(Number(_crop.y) * canvas.height));
+          const sw = Math.min(canvas.width - sx, Math.max(8, Math.round(Number(_crop.w) * canvas.width))), sh = Math.min(canvas.height - sy, Math.max(8, Math.round(Number(_crop.h) * canvas.height)));
+          if (sw >= 8 && sh >= 8) { const c2 = document.createElement('canvas'); c2.width = sw; c2.height = sh; c2.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh); out = c2; _cropped = true; }
+        }
+        const dataUrl = out.toDataURL('image/jpeg', quality);
+        out.toBlob((blob) => {
+          // 回転・切り抜きしたときは元の画像(srcDataUrl)に戻さない
+          resolve({ blob: blob || file, dataUrl: (dataUrl && (_rot || _cropped || dataUrl.length < srcDataUrl.length)) ? dataUrl : srcDataUrl, contentType: 'image/jpeg' });
         }, 'image/jpeg', quality);
       } catch { resolve({ blob: file, dataUrl: srcDataUrl, contentType: file.type }); }
     };
@@ -62427,8 +62560,9 @@ const tsumugiRotateDialog = (items, opts = {}) => new Promise((resolve) => {
   host.style.cssText = 'position:fixed;inset:0;z-index:2000003;background:rgba(15,23,42,0.6);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto;font-family:-apple-system,"Hiragino Sans","Meiryo",sans-serif;';
   const panel = document.createElement('div');
   panel.style.cssText = 'background:#fff;border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,0.35);width:100%;max-width:760px;padding:18px;box-sizing:border-box;';
-  const title = opts.title || '写真の向きを確認';
-  const note = opts.note || '書類が横向き・逆さまのときは回転してから保存してください。そのままでよければ「' + (opts.okLabel || 'この向きで登録') + '」を押してください。';
+  const crops = new Map(); // ★ trial640: key → 切り抜き {x,y,w,h}(0〜1・回転後の座標) | null
+  const title = opts.title || '写真の向きと範囲を確認';
+  const note = opts.note || '横向き・逆さまのときは回転、余計な部分があれば「切り抜き」で残す範囲を決めてから保存してください。そのままでよければ「' + (opts.okLabel || 'この向きで登録') + '」を押してください。';
   panel.innerHTML = `<div style="font-weight:bold;font-size:16px;color:#1e293b;margin-bottom:4px;">${title}</div><div style="font-size:12px;color:#475569;margin-bottom:12px;line-height:1.6;">${note}</div>`;
   const grid = document.createElement('div');
   grid.style.cssText = `display:grid;grid-template-columns:repeat(auto-fill,minmax(${list.length === 1 ? 300 : 170}px,1fr));gap:12px;max-height:62vh;overflow:auto;`;
@@ -62450,7 +62584,14 @@ const tsumugiRotateDialog = (items, opts = {}) => new Promise((resolve) => {
     const mk = (label, delta, tid) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.style.cssText = btnCss; b.setAttribute('data-testid', tid);
       b.onclick = () => { deg.set(it.key, (((deg.get(it.key) || 0) + delta) % 360 + 360) % 360); apply(); }; return b; };
     row.appendChild(mk('左に回転', -90, 'tsu-rotate-left')); row.appendChild(mk('右に回転', 90, 'tsu-rotate-right'));
-    card.appendChild(row); apply();
+    // ★ trial640: 切り抜き(残す範囲を枠で決める)。回転後の画像に対して決めるので、回転を変えたら枠は外す
+    const badge = document.createElement('div'); badge.setAttribute('data-testid', 'tsu-crop-badge'); badge.style.cssText = 'font-size:11px;font-weight:bold;color:#c2410c;display:none;';
+    const showBadge = () => { const c = crops.get(it.key); badge.textContent = c ? `切り抜きあり（${Math.round(c.w * 100)}%×${Math.round(c.h * 100)}%）` : ''; badge.style.display = c ? 'block' : 'none'; };
+    const cb = document.createElement('button'); cb.type = 'button'; cb.textContent = '切り抜き'; cb.style.cssText = btnCss; cb.setAttribute('data-testid', 'tsu-crop-open');
+    cb.onclick = () => { tsuCropEditor(it.src, deg.get(it.key) || 0, crops.get(it.key) || null).then(c => { if (c === undefined) return; if (c) crops.set(it.key, c); else crops.delete(it.key); showBadge(); }); };
+    row.appendChild(cb); card.appendChild(row); card.appendChild(badge);
+    row.querySelectorAll('button').forEach(b => { if (b !== cb) { const prev = b.onclick; b.onclick = () => { prev(); if (crops.has(it.key)) { crops.delete(it.key); showBadge(); } }; } });
+    apply();
     grid.appendChild(card);
   });
   panel.appendChild(grid);
@@ -62461,9 +62602,56 @@ const tsumugiRotateDialog = (items, opts = {}) => new Promise((resolve) => {
   cancel.onclick = () => done(null);
   const ok = document.createElement('button'); ok.type = 'button'; ok.textContent = opts.okLabel || 'この向きで登録'; ok.setAttribute('data-testid', 'tsu-rotate-ok');
   ok.style.cssText = 'padding:10px 22px;border-radius:12px;border:none;background:#2563eb;color:#fff;font-weight:bold;font-size:14px;cursor:pointer;';
-  ok.onclick = () => done(deg);
+  ok.onclick = () => { _tsuLastCrops.clear(); crops.forEach((c, k) => { if (!c) return; _tsuLastCrops.set(k, c); try { if (k && typeof k === 'object') _tsuCropMap.set(k, c); } catch {} }); done(deg); }; // ★ trial640: 切り抜きを控えて返す
   foot.appendChild(cancel); foot.appendChild(ok); panel.appendChild(foot);
   host.appendChild(panel); document.body.appendChild(host);
+});
+// ★ 2026-11-26 trial640: 切り抜きの画面。src(画像)を rotDeg で回した絵の上に枠を出し、枠を動かす(中)・角をつまんで大きさを変える。
+//   戻り値: {x,y,w,h}(0〜1・回転後の座標) / null=全体(切り抜きなし) / undefined=やめる
+const tsuCropEditor = (src, rotDeg, init) => new Promise((resolve) => {
+  const img = new Image();
+  img.onerror = () => resolve(undefined);
+  img.onload = () => {
+    const rot = ((Number(rotDeg) || 0) % 360 + 360) % 360, side = rot === 90 || rot === 270;
+    const nw = img.naturalWidth || img.width, nh = img.naturalHeight || img.height; const rw = side ? nh : nw, rh = side ? nw : nh;
+    const vw = Math.max(240, Math.min(window.innerWidth - 24, 900)), vh = Math.max(200, window.innerHeight - 190);
+    const sc = Math.min(vw / rw, vh / rh); const W = Math.max(24, Math.round(rw * sc)), H = Math.max(24, Math.round(rh * sc));
+    const host = document.createElement('div'); host.setAttribute('data-testid', 'tsu-crop-editor');
+    host.style.cssText = 'position:fixed;inset:0;z-index:2000004;background:rgba(15,23,42,0.88);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:12px;box-sizing:border-box;font-family:-apple-system,"Hiragino Sans","Meiryo",sans-serif;touch-action:none;';
+    const note = document.createElement('div'); note.textContent = '枠の中が残ります。枠を動かす／角をつまんで大きさを変える。'; note.style.cssText = 'color:#e2e8f0;font-size:13px;font-weight:bold;';
+    const wrap = document.createElement('div'); wrap.style.cssText = `position:relative;width:${W}px;height:${H}px;overflow:hidden;background:#000;border-radius:6px;`;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H; cv.style.cssText = 'display:block;width:100%;height:100%;';
+    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    if (rot) { ctx.translate(W / 2, H / 2); ctx.rotate(rot * Math.PI / 180); ctx.drawImage(img, -nw * sc / 2, -nh * sc / 2, nw * sc, nh * sc); } else ctx.drawImage(img, 0, 0, W, H);
+    wrap.appendChild(cv);
+    const rect = document.createElement('div'); rect.setAttribute('data-testid', 'tsu-crop-rect');
+    rect.style.cssText = 'position:absolute;border:2px solid #ea7a1f;box-sizing:border-box;box-shadow:0 0 0 9999px rgba(0,0,0,0.55);cursor:move;touch-action:none;';
+    const hs = {}; ['nw', 'ne', 'sw', 'se'].forEach(k => { const h = document.createElement('div'); h.setAttribute('data-testid', 'tsu-crop-h-' + k); h.dataset.h = k;
+      h.style.cssText = `position:absolute;width:30px;height:30px;border-radius:50%;background:#fff;border:3px solid #ea7a1f;box-sizing:border-box;touch-action:none;${k[0] === 'n' ? 'top:-15px;' : 'bottom:-15px;'}${k[1] === 'w' ? 'left:-15px;' : 'right:-15px;'}cursor:${k}-resize;`;
+      rect.appendChild(h); hs[k] = h; });
+    wrap.appendChild(rect);
+    const MIN = 24; let r = init && init.w > 0 && init.h > 0 ? { x: init.x * W, y: init.y * H, w: init.w * W, h: init.h * H } : { x: 0, y: 0, w: W, h: H };
+    const clamp = () => { r.w = Math.max(MIN, Math.min(W, r.w)); r.h = Math.max(MIN, Math.min(H, r.h)); r.x = Math.max(0, Math.min(W - r.w, r.x)); r.y = Math.max(0, Math.min(H - r.h, r.y)); };
+    const draw = () => { clamp(); rect.style.left = r.x + 'px'; rect.style.top = r.y + 'px'; rect.style.width = r.w + 'px'; rect.style.height = r.h + 'px'; };
+    draw();
+    let drag = null;
+    const pos = (ev) => { const b = wrap.getBoundingClientRect(); return { x: ev.clientX - b.left, y: ev.clientY - b.top }; };
+    const down = (ev) => { const t = ev.target; const k = t && t.dataset && t.dataset.h; if (!k && t !== rect) return; ev.preventDefault(); const p0 = pos(ev); drag = { k: k || 'move', p0, r0: { ...r } }; try { host.setPointerCapture(ev.pointerId); } catch {} };
+    const move = (ev) => { if (!drag) return; ev.preventDefault(); const p = pos(ev); const dx = p.x - drag.p0.x, dy = p.y - drag.p0.y; const a = drag.r0;
+      if (drag.k === 'move') { r = { ...a, x: a.x + dx, y: a.y + dy }; }
+      else { let x1 = a.x, y1 = a.y, x2 = a.x + a.w, y2 = a.y + a.h; if (drag.k[1] === 'w') x1 = Math.min(x2 - MIN, Math.max(0, a.x + dx)); else x2 = Math.max(x1 + MIN, Math.min(W, a.x + a.w + dx)); if (drag.k[0] === 'n') y1 = Math.min(y2 - MIN, Math.max(0, a.y + dy)); else y2 = Math.max(y1 + MIN, Math.min(H, a.y + a.h + dy)); r = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }; }
+      draw(); };
+    const up = () => { drag = null; };
+    host.addEventListener('pointerdown', down); host.addEventListener('pointermove', move); host.addEventListener('pointerup', up); host.addEventListener('pointercancel', up);
+    const foot = document.createElement('div'); foot.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;justify-content:center;';
+    const mkb = (label, tid, bg, fg, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('data-testid', tid); b.style.cssText = `padding:10px 18px;border-radius:12px;border:none;background:${bg};color:${fg};font-weight:bold;font-size:14px;cursor:pointer;min-height:44px;`; b.onclick = fn; return b; };
+    const done = (v) => { try { host.remove(); } catch {} resolve(v); };
+    foot.appendChild(mkb('やめる', 'tsu-crop-cancel', '#f1f5f9', '#475569', () => done(undefined)));
+    foot.appendChild(mkb('全体に戻す', 'tsu-crop-reset', '#fff', '#334155', () => { r = { x: 0, y: 0, w: W, h: H }; draw(); }));
+    foot.appendChild(mkb('この範囲にする', 'tsu-crop-ok', '#3c8d47', '#fff', () => { clamp(); const full = r.x <= 0.5 && r.y <= 0.5 && r.w >= W - 1 && r.h >= H - 1; done(full ? null : { x: +(r.x / W).toFixed(4), y: +(r.y / H).toFixed(4), w: +(r.w / W).toFixed(4), h: +(r.h / H).toFixed(4) }); }));
+    host.appendChild(note); host.appendChild(wrap); host.appendChild(foot); document.body.appendChild(host);
+  };
+  img.src = src;
 });
 // 選んだファイルのうち画像の向きを確認 → Map(File→度)。 画像が無ければ確認なしで空の Map。キャンセルは null
 const tsumugiAskRotations = async (files) => {
@@ -62474,14 +62662,14 @@ const tsumugiAskRotations = async (files) => {
   finally { setTimeout(() => urls.forEach(u => { try { u && URL.revokeObjectURL(u); } catch {} }), 1000); }
 };
 // 登録済みの画像(storagePath / data / url)を回転した新しい画像にする → { patch, oldPath } (失敗は null)
-const tsumugiRotateStoredImage = async (file, deg, prefix) => {
-  const r = ((Number(deg) || 0) % 360 + 360) % 360; if (!r || !file) return null;
+const tsumugiRotateStoredImage = async (file, deg, prefix, crop = null) => {
+  const r = ((Number(deg) || 0) % 360 + 360) % 360; if ((!r && !crop) || !file) return null; // ★ trial640: 切り抜きだけでも保存
   let src = file.data || file.url || '';
   if (file.storagePath && isSupabaseEnabled) src = (await supabaseGetSignedUrl(file.storagePath)) || supabaseGetPublicUrl(file.storagePath) || src;
   if (!src) return null;
   const blob0 = await (await fetch(src)).blob();
   const f = new File([blob0], file.name || 'image.jpg', { type: blob0.type || 'image/jpeg' });
-  const { blob, dataUrl, contentType } = await processUploadFile(f, 2000, 0.85, r);
+  const { blob, dataUrl, contentType } = await processUploadFile(f, 2000, 0.85, r, crop);
   let stored = null;
   if (isSupabaseEnabled) { try { stored = await supabaseUploadFile(blob, { name: (file.name || 'image').replace(/\.[^.]+$/, '') + '.jpg', contentType, prefix }); } catch {} }
   const patch = { mimeType: contentType, rotatedAt: new Date().toISOString() };
@@ -62495,11 +62683,11 @@ const tsumugiRotateExisting = async (file, prefix) => {
   let src = file.data || file.url || '';
   if (file.storagePath && isSupabaseEnabled) src = (await supabaseGetSignedUrl(file.storagePath)) || supabaseGetPublicUrl(file.storagePath) || src;
   if (!src) { alert('画像を読み込めませんでした。'); return null; }
-  const m = await tsumugiRotateDialog([{ key: 'one', src, name: file.title || file.name || '' }], { title: '画像を回転', okLabel: '回転して保存', note: '向きを選んで「回転して保存」を押してください。回転前の画像はゴミ箱に移ります（7日間は元に戻せます）。' });
-  const d = m && m.get('one'); if (!d) return null;
-  try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '回転して保存しています…' } })); } catch {}
-  try { const res = await tsumugiRotateStoredImage(file, d, prefix); if (!res) alert('回転できませんでした。通信状態をご確認のうえ、もう一度お試しください。'); return res; }
-  catch (e) { alert('回転できませんでした: ' + (e && e.message || e)); return null; }
+  const m = await tsumugiRotateDialog([{ key: 'one', src, name: file.title || file.name || '' }], { title: '画像を回転・切り抜き', okLabel: '保存', note: '向きを変える、または「切り抜き」で残す範囲を決めてから「保存」を押してください。元の画像はゴミ箱に移ります（7日間は元に戻せます）。' });
+  if (!m) return null; const d = m.get('one') || 0; const c = _tsuLastCrops.get('one') || null; if (!d && !c) return null; // ★ trial640: 切り抜きだけでも保存
+  try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '保存しています…' } })); } catch {}
+  try { const res = await tsumugiRotateStoredImage(file, d, prefix, c); if (!res) alert('保存できませんでした。通信状態をご確認のうえ、もう一度お試しください。'); return res; }
+  catch (e) { alert('保存できませんでした: ' + (e && e.message || e)); return null; }
 };
 // ★ 2026-11-05: 写真の置き場所(storagePath)が、ゴミ箱の外でまだ使われているか。ゴミ箱(個人ファイル・お知らせ)を除いた店舗データの文字で調べる
 const tsuStorageRefText = (data) => { try { return JSON.stringify({ ...(data || {}), trashedAnnouncements: [], patients: ((data && data.patients) || []).map(p => (p && p.personalFile && p.personalFile.trash) ? { ...p, personalFile: { ...p.personalFile, trash: [] } } : p) }); } catch { return ''; } };
@@ -63142,7 +63330,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
       updatePatient({
         files: cur.map(x => x.id === f.id ? { ...x, ...res.patch } : x),
         trash: [...(personalFile.trash || []), { ...f, id: `${f.id}_rot${Date.now()}`, title: `${f.title ?? f.name ?? ''}（回転前）`, _deletedAt: new Date().toISOString(), _kind: 'file', _rotatedOriginal: true }],
-      }, { manual: true, message: '✓ 画像を回転して保存しました' });
+      }, { manual: true, message: '✓ 画像を保存しました（元の画像はゴミ箱に移しました）' });
     } finally { setRotatingId(null); }
   };
 
@@ -64151,7 +64339,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                           {/* 操作 */}
                           <div className="flex flex-col gap-1 shrink-0">
                             <StoredFileLink file={f} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold text-center">開く</StoredFileLink>
-                            {f.type === 'image' && <button type="button" data-testid="pf-rotate" disabled={!!rotatingId} onClick={()=>rotateFile(f)} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-bold disabled:opacity-50">{rotatingId === f.id ? '保存中…' : '回転'}</button>}
+                            {f.type === 'image' && <button type="button" data-testid="pf-rotate" disabled={!!rotatingId} onClick={()=>rotateFile(f)} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-bold disabled:opacity-50">{rotatingId === f.id ? '保存中…' : '回転・切抜'}</button>}
                             <button onClick={()=>handleDeleteFile(f.id)} className="whitespace-nowrap px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
                           </div>
                         </div>
@@ -65189,7 +65377,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               </StoredFileLink>
               <button type="button" onClick={()=>removeAttach(fieldKey, att.id)}
                 className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-600 text-white rounded-full text-[10px] font-bold flex items-center justify-center">×</button>
-              {att.type === 'image' && <button type="button" data-testid="fs-rotate" disabled={!!fsRotating} onClick={()=>rotateAttach(fieldKey, att)} className="w-full py-0.5 text-[10px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border-t border-slate-200 disabled:opacity-50">{fsRotating === att.id ? '保存中…' : '回転'}</button>}
+              {att.type === 'image' && <button type="button" data-testid="fs-rotate" disabled={!!fsRotating} onClick={()=>rotateAttach(fieldKey, att)} className="w-full py-0.5 text-[10px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border-t border-slate-200 disabled:opacity-50">{fsRotating === att.id ? '保存中…' : '回転・切抜'}</button>}
             </div>
           ))}
         </div>
@@ -65558,7 +65746,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                         {att.type==='image' ? <StoredImage file={att} alt={att.name} className="w-20 h-20 object-cover"/> : <div className="w-20 h-20 flex flex-col items-center justify-center"><div className="text-[9px] font-bold text-slate-500">PDF</div></div>}
                       </StoredFileLink>
                       <div className="text-[8px] text-center text-slate-500 px-0.5 truncate" title={att.label||''}>{att.label||''}</div>
-                      {att.type==='image' && <button type="button" data-testid="fs-rotate" disabled={!!fsRotating} onClick={()=>rotateAttach('labeledFiles', att)} className="w-full py-0.5 text-[10px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border-t border-slate-200 disabled:opacity-50">{fsRotating === att.id ? '保存中…' : '回転'}</button>}
+                      {att.type==='image' && <button type="button" data-testid="fs-rotate" disabled={!!fsRotating} onClick={()=>rotateAttach('labeledFiles', att)} className="w-full py-0.5 text-[10px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border-t border-slate-200 disabled:opacity-50">{fsRotating === att.id ? '保存中…' : '回転・切抜'}</button>}
                       <button type="button" onClick={()=>removeAttach('labeledFiles', att.id)} className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-600 text-white rounded-full text-[10px] font-bold flex items-center justify-center">×</button>
                     </div>
                   ))}
