@@ -2338,34 +2338,54 @@ const CharCount = ({ value, max, style, c }) => { const n = tsuNlLen(value, c); 
 // 日本の電話番号フォーマッタ: ハイフン無しの数字 → 自動でハイフン付与 (実装は下部 formatJpPhone)
 // ★ 稼働率/出席率の「予定(分母)」判定。 振替=出席扱い。 振替済みの欠席(tokkiに「へ振替」)は相殺で分母から除外。
 const isPlannedRec = (r) => !!r && (r.status==='出席'||r.status==='振替'||r.status==='臨時'||r.status==='休止'||(r.status==='欠席'&&!(r.tokki||'').includes('へ振替')));
-// ★ 2026-11-26 1126b(ユーザー「モニタリングの『計画何回につき何回通所』の数字が合っていない」): 利用者1人の月の通所回数を、
-//   利用者実績(JissekiView)と同じ決まりで数える。従来のモニタリングは「月だけ(年なし)で絞る・休止も予定に入れる・基本利用日でない日の
-//   記録(データなしの出席・欠席)も数える・先の日に入れた欠席/休止も数える」ため、実績と食い違っていた。
-//   ・年月で絞る(年の無い古い記録は月だけ)・利用開始前/終了後の記録は除く・同じ日に複数あれば 出席>振替>臨時>欠席 を採る
-//   ・出席: 基本利用日か、記録に実データがあるか、月間スケジュールに振替/臨時の印があるときだけ数える(自動でできた空の記録は数えない)
-//   ・振替/臨時: 予定・通所とも数える  ・欠席: 基本利用日だけ予定に数える(振替元「へ振替」は分母から外す)
-//   ・休止/休業: 予定に入れない(休止は「休みの状況」としてだけ返す)  ・今月は きょうまで(先の日に入れた記録は数えない)
-//   戻り値 { planned, attended, absent, kyushi, rate(null=予定なし), absRecs(欠席と休止の記録) }
+// ★ 2026-11-26 1126b→1126c(ユーザー「モニタリングの『計画何回につき何回通所』の数字が合っていない」→ 決定「予定は休業を除いた基本利用日の
+//   その月の数。休止や振替元・欠席も予定に入れてよい(ケアマネから見れば欠席)。予定は月間スケジュールから。利用は 出席・振替・臨時」):
+//   ・予定(planned): その月の毎日について、利用期間内(isPatientActiveOnDate)・定休日でない・基本利用日(getScheduleOnDate)・施設休業日でふさがらない日の数。
+//     記録の有無・休止・振替元・欠席に関係なく数える(月の全部。今月でも先の日を含む)。半日休業は、来る時間帯が全部ふさがる日だけ除く
+//   ・利用(attended): 出席(shukseki)・振替(furikae)・臨時(rinji)の回数。同じ日に複数あれば 出席>振替>臨時>欠席。
+//     出席は 基本利用日か、記録に実データがあるか、月間スケジュールに振替/臨時の印があるときだけ(自動でできた空の記録は数えない)。今月は先の日の空の記録を数えない
+//   ・absRecs: 欠席(基本利用日・振替元「へ振替」は除く)と休止の記録(AI に渡す休みの理由)
+//   戻り値 { planned, attended, shukseki, furikae, rinji, absent, kyushi, rate(null=予定なし), absRecs }
 const tsuMonthAttendance = (appData, patient, y, m) => {
-  const out = { planned: 0, attended: 0, absent: 0, kyushi: 0, rate: null, absRecs: [] };
+  const out = { planned: 0, attended: 0, shukseki: 0, furikae: 0, rinji: 0, absent: 0, kyushi: 0, rate: null, absRecs: [] };
   try {
     if (!patient || !y || !m) return out;
     const dim = new Date(y, m, 0).getDate(); const now = new Date(); const cur = (y === now.getFullYear() && m === now.getMonth() + 1); const today = now.getDate();
+    const mk = `${y}-${String(m).padStart(2, '0')}`;
+    const closed = (appData.systemSettings && appData.systemSettings.facilityInfo && appData.systemSettings.facilityInfo.closedDays) || [0];
+    const baseOf = (d) => { const ds = `${mk}-${String(d).padStart(2, '0')}`; const dow = new Date(y, m - 1, d).getDay(); const b = (getScheduleOnDate(patient, ds) || {})[dow] || ''; return { ds, dow, b, isBase: b === 'AM' || b === 'PM' || b === '1日' }; };
+    // 予定: 月間スケジュールの基本利用日(休業日を除く)
+    for (let d = 1; d <= dim; d++) {
+      const { ds, dow, b, isBase } = baseOf(d); if (!isBase) continue;
+      if (!isPatientActiveOnDate(patient, ds)) continue;
+      if (closed.includes(dow)) continue;
+      const ap = holidayAmpmOn(appData.holidays, ds); if (ap && holidayClosesSlots(ap, b === 'AM' || b === '1日', b === 'PM' || b === '1日')) continue;
+      out.planned++;
+    }
+    // 利用: 提供記録の 出席・振替・臨時
     const rank = (x) => x.status==='出席'?0:x.status==='振替'?1:x.status==='臨時'?2:x.status==='欠席'?3:4;
     const byDay = new Map();
     (appData.ticketRecords || []).forEach(r => {
       if (!r || r.patientId !== patient.id) return; const mm = String(r.date || '').match(/^(\d+)月(\d+)日$/); if (!mm || parseInt(mm[1]) !== m) return;
-      if (r.year != null && String(r.year) !== '' && Number(r.year) !== y) return; const d = parseInt(mm[2]); if (!(d >= 1 && d <= dim)) return; if (cur && d > today) return;
+      if (r.year != null && String(r.year) !== '' && Number(r.year) !== y) return; const d = parseInt(mm[2]); if (!(d >= 1 && d <= dim)) return;
       const ex = byDay.get(d); if (!ex || rank(r) < rank(ex)) byDay.set(d, r);
     });
-    const mk = `${y}-${String(m).padStart(2, '0')}`; const sh = ((appData.monthlyShifts || {})[mk] || {})[patient.id] || {};
+    const sh = ((appData.monthlyShifts || {})[mk] || {})[patient.id] || {};
     byDay.forEach((r, d) => {
-      const ds = `${mk}-${String(d).padStart(2, '0')}`; if (!isPatientActiveOnDate(patient, ds)) return;
-      const dow = new Date(y, m - 1, d).getDay(); const base = (getScheduleOnDate(patient, ds) || {})[dow] || ''; const isBase = base === 'AM' || base === 'PM' || base === '1日';
+      const { ds, isBase } = baseOf(d); if (!isPatientActiveOnDate(patient, ds)) return;
+      const future = cur && d > today; const hasData = ticketHasClinicalData(r);
       const ovA = String(sh[`${d}_AM`] || ''), ovP = String(sh[`${d}_PM`] || '');
-      if (r.status === '振替' || r.status === '臨時') { out.planned++; out.attended++; return; }
-      if (r.status === '出席') { if (isBase || ticketHasClinicalData(r) || ovA.startsWith('振') || ovP.startsWith('振') || ovA === '臨時' || ovP === '臨時') { out.planned++; out.attended++; } return; }
-      if (r.status === '欠席') { if (isBase && !(r.tokki || '').includes('へ振替')) { out.planned++; out.absent++; out.absRecs.push(r); } return; }
+      if (r.status === '振替') { if (!future || hasData) { out.furikae++; out.attended++; } return; }
+      if (r.status === '臨時') { if (!future || hasData) { out.rinji++; out.attended++; } return; }
+      if (r.status === '出席') {
+        if (future && !hasData) return;
+        if (isBase || hasData) { out.shukseki++; out.attended++; return; }
+        if (ovA.startsWith('振') || ovP.startsWith('振')) { out.furikae++; out.attended++; return; }
+        if (ovA === '臨時' || ovP === '臨時') { out.rinji++; out.attended++; return; }
+        return;
+      }
+      if (future) return;
+      if (r.status === '欠席') { if (isBase && !(r.tokki || '').includes('へ振替')) { out.absent++; out.absRecs.push(r); } return; }
       if (r.status === '休止') { if (isBase) { out.kyushi++; out.absRecs.push(r); } return; }
     });
     out.rate = out.planned ? Math.round(out.attended / out.planned * 100) : null;
@@ -59691,6 +59711,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       prevMonth: `${prevY}年${prevM}月`,
       attended: _att.attended,
       planned: _att.planned,
+      shukseki: _att.shukseki, furikae: _att.furikae, rinji: _att.rinji,
       absent: _att.absent, kyushi: _att.kyushi,
       rate,
       prevRate,
@@ -60209,7 +60230,9 @@ ${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項�
         return `${d.month}はご利用がなかったため、${hp ? '通所介護計画に沿った' : ''}サービスの提供はありませんでした。`;
       }
       const parts = [`${hp ? '通所介護計画に沿って、' : ''}個別機能訓練（運動プログラム）・健康チェック（バイタル測定）・送迎を行いました。`];
-      if (d.planned!=null) parts.push(`${d.month}は予定${d.planned}回のうち${d.attended}回ご利用いただきました（出席率${d.rate!=null?d.rate+'%':'—'}）。`);
+      // ★ 1126c: 予定=基本利用日の数(休業を除く)・利用=出席+振替+臨時(内訳つき)。臨時があると予定より多くなるので出席率は書かない
+      if (d.planned!=null) { const _bd = [d.shukseki?`出席${d.shukseki}回`:'', d.furikae?`振替${d.furikae}回`:'', d.rinji?`臨時${d.rinji}回`:''].filter(Boolean).join('・');
+        parts.push(`${d.month}は予定${d.planned}回のうち${d.attended}回ご利用いただきました${_bd ? `（${_bd}）` : ''}。`); }
       parts.push(hp ? 'おおむね計画どおりにサービスを行うことができました。' : 'おおむね予定どおりにサービスを行うことができました。');
       return parts.join('');
     } catch { return ''; }
@@ -60302,7 +60325,7 @@ ${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項�
 
 利用者: ${d.name}（${d.careLevel||''}）
 対象月: ${d.month}
-通所実績: 予定${d.planned}回のうち${d.attended}回ご利用（出席率${d.rate!=null?d.rate+'%':'不明'}）${d.attended===0?'　※当月は一度も通所なし':''}（この回数は利用者実績と同じ数え方。文中で回数に触れるときはこの数字をそのまま使う）
+通所実績: 予定${d.planned}回（基本利用日の数・休業日を除く）のうち${d.attended}回ご利用（出席${d.shukseki||0}回・振替${d.furikae||0}回・臨時${d.rinji||0}回）${d.attended===0?'　※当月は一度も通所なし':''}（文中で回数に触れるときはこの数字をそのまま使う。出席率は書かない）
 欠席・休みの状況: 当月 欠席/休み ${_absCount}回。 理由: ${_absReasons}
 取り組んだ運動メニュー: ${exerciseNowText}
 運動メニューの変化: ${exerciseChangeText}

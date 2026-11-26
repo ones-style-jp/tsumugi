@@ -1,4 +1,4 @@
-// 2026-11-26 1126b: モニタリングの「予定○回のうち○回」が利用者実績と同じ数え方(基本利用日・休止や先の日・別の年・基本日でない空の記録は数えない)・文がです・ます
+// 2026-11-26 1126b→1126c: モニタリングの「予定○回のうち○回」。予定=その月の基本利用日の数(休業日を除く・休止/欠席/先の日も数える)・利用=出席+振替+臨時(内訳)・別の年や基本日でない空の記録は数えない・文がです・ます
 //   使い方: node chk/chk_1126mon.mjs 4175
 import { chromium } from 'playwright';
 const PORT = process.argv[2] || '4175'; const BASE = `http://localhost:${PORT}`;
@@ -21,10 +21,14 @@ const seed = await page.evaluate(() => {
   if (nonBase[0]) recs.push(rec(nonBase[0], '出席'));           // 基本日でない日の空の出席(自動でできた記録)
   if (nonBase[1]) recs.push(rec(nonBase[1], '欠席', { tokki: '用事' })); // 基本日でない日の欠席
   if (future[0]) recs.push(rec(future[0], '欠席', { tokki: '通院予定' })); // 先の日に入れた欠席
+  if (nonBase[2]) recs.push(rec(nonBase[2], '振替', { temp_AM: '36.3', furikaeAmpm: 'AM' })); // 振替で来た日
+  const holDay = baseDays[7] || null; d.holidays = holDay ? [{ date: `${Y}-${String(M).padStart(2, '0')}-${String(holDay).padStart(2, '0')}`, name: '見本の休業日' }] : []; // 基本利用日の 1 日を施設休業日に(予定から外れる)
+  d.systemSettings = d.systemSettings || {}; d.systemSettings.facilityInfo = { ...(d.systemSettings.facilityInfo || {}), closedDays: [0] };
+  if (baseDows.includes(0)) return { err: 'base on sunday' };
   recs.push(rec(baseDays[0], '出席', { temp_AM: '36.7' }, Y - 1)); // 去年の同じ月
   d.ticketRecords.push(...recs); localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0');
   sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'monitoring', pid: null, t: Date.now() }));
-  return { A: A.name, baseDays, nonBase: nonBase.slice(0, 2), future: future.slice(0, 1), kyushi: !!baseDays[4] };
+  return { A: A.name, baseDays, nonBase: nonBase.slice(0, 3), future, kyushi: !!baseDays[4], expPlanned: baseDays.length + future.length - (baseDays[7] ? 1 : 0), holiday: baseDays[7] || null, furi: !!nonBase[2] };
 });
 console.log('seed', JSON.stringify(seed)); if (seed.err) { console.log('FAIL seed'); await b.close(); process.exit(1); }
 await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {});
@@ -32,7 +36,8 @@ await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500)
 await page.locator('button:visible', { hasText: /^✓ 確定$/ }).first().click(); await page.waitForTimeout(2000);
 const texts = await page.locator('.tsu-mon-text').allInnerTexts(); const s1 = texts[0] || '', s3 = texts[3] || '';
 ok('1 確定すると①に自動の文(予定○回のうち○回)が入る', /予定\d+回のうち/.test(s1), s1.slice(0, 120));
-ok('2 予定は 基本利用日の 出席3+欠席1 = 4 回(休止・基本日でない日・先の日・去年は数えない)', /予定4回のうち3回ご利用いただきました（出席率75%）/.test(s1), s1.slice(0, 120));
+const expRe = new RegExp(`予定${seed.expPlanned}回のうち${seed.furi ? 4 : 3}回ご利用いただきました（出席3回${seed.furi ? '・振替1回' : ''}）`);
+ok('2 予定はその月の基本利用日の数(休業日は除く・休止・欠席・先の日は数える)・利用は 出席3+振替1(基本日でない空の出席・去年は数えない)', expRe.test(s1), { exp: String(expRe), got: s1.slice(0, 140) });
 ok('3 文は です・ます(「行いました」「できました」)で硬い言い切りがない', /行いました/.test(s1) && /できました/.test(s1) && !/できた。|提供。/.test(s1));
 ok('4 ④の文も です・ます', /見られませんでした|でした。/.test(s3), s3.slice(0, 80));
 await b.close();
