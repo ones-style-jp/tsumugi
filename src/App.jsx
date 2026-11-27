@@ -2436,6 +2436,10 @@ const POLICY_DEFAULT_OFFICE_TEXT = `つむぎ ご利用にあたっての重要�
 let _globalPolicyCache = null;
 function setGlobalPolicyCache(p) { _globalPolicyCache = (p && typeof p === 'object') ? p : null; }
 function getGlobalPolicyCache() { return _globalPolicyCache; }
+// ★ 2026-11-27 trial650(ユーザー「柴又店の今月分の AI 要約を、利用者分 追加で使えるように」): 本部(管理局)が店舗・月ごとに足す AI 下書きの回数。
+//   全店共通の予約キー policies.aiBonus = { [店舗ID]: { 'YYYY-MM': 回数 } }。店舗は読むだけ(上限=利用中の人数×2回+この回数)
+const tsuAiBonusOf = (storeId, ym) => { try { const n = Number((((_globalPolicyCache || {}).aiBonus || {})[String(storeId == null ? '' : storeId)] || {})[ym]); return n > 0 ? Math.floor(n) : 0; } catch { return 0; } };
+const _tsuGpMock = () => (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.__tsumugiE2E && window.__tsumugiE2E.globalPolicies) || null; // 自動テスト(本番では空)
 // 有効ポリシー: ①全店共通(管理局) → ②事業所の上書き(systemSettings.policies[kind]) → ③既定
 //   notify = { announce:改定時にお知らせ公開 / login:ログイン時に再同意を求める } (未設定は両方ON=従来動作)。
 // ★ 2026-11-22 trial609(ユーザー決定「1か月の猶予のあとは自動で PIN だけに」): 一人ずつのログイン(PIN)の期限。全店共通(管理局)→店舗の上書き(security.pinDeadline)の順。空なら期限なし
@@ -11181,8 +11185,13 @@ const tsuNotStarted = (p, appData) => !!p && !String(p.startDate || '').trim() &
 //   (終了日の当日も利用中=isPatientActiveOnDate と同じ)。利用開始日がその月より後の方は対象外
 const tsuMonListable = (p, y, m) => { if (!p) return false; const mm = String(m).padStart(2, '0'); const ms = `${y}-${mm}-01`, me = `${y}-${mm}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
   if (p.startDate && String(p.startDate).slice(0, 10) > me) return false;
+  const ed = tsuMonEndIso(p); if (ed && ed < ms) return false; // ★ 2026-11-27 trial650: 利用終了日の月が終わった次の月からは対象外(終了日がまだ先の日付でも)
   if (isPatientListable(p)) return true;
-  return !!p.endDate && String(p.endDate).slice(0, 10) >= ms; };
+  return !!ed && ed >= ms; };
+// ★ 2026-11-27 trial650(ユーザー「月の途中で退所した方も最後のモニタリングを作って送る。その月が終わった次から対象外」):
+//   利用終了日(読める形に直したもの)と、その月(y年m月)の中で利用終了になる方かどうか。通所が無くてもその月の一覧(通所なし)に残す
+const tsuMonEndIso = (p) => { const v = p && p.endDate; if (!v) return ''; const sv = String(v); return /^\d{4}-\d{2}-\d{2}/.test(sv) ? sv.slice(0, 10) : (dateIsoAny(sv) || ''); };
+const tsuMonEndsIn = (p, y, m) => { const ed = tsuMonEndIso(p); if (!ed) return false; const mm = String(m).padStart(2, '0'); return ed >= `${y}-${mm}-01` && ed <= `${y}-${mm}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`; };
 // その月に1回でも通所(出席・振替・臨時)したか
 const tsuMonAttendedIn = (appData, p, y, m) => (appData?.ticketRecords || []).some(r => { const mt = r && r.date && String(r.date).match(/(\d+)月/); return !!mt && r.patientId === p.id && parseInt(mt[1]) === m && (!r.year || Number(r.year) === y) && (r.status === '出席' || r.status === '振替' || r.status === '臨時'); });
 const isPatientStartedByToday = (p) => { if (!p || !p.startDate) return true; const t = new Date(); const today = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; return String(p.startDate).slice(0,10) <= today; };
@@ -20627,6 +20636,55 @@ function DiseaseMasterPanel() {
 //   版(バージョン)を上げると、全店の管理局お知らせ(system_notices)に改定通知を自動掲載(I5)。
 // ★ 2026-10-26(ユーザー決定「計画書の定型文は本部で管理」): 全店共通の定型文(app_state の予約キー policies.kkPresets)。各店は読むだけ
 // ★ 2026-11-22 trial609: 管理局 → 一人ずつのログイン(PIN)の期限(全店共通)。この日から本人登録(PIN)が済んでいない職員は担当者として選べない
+// ★ 2026-11-27 trial650: 管理局 → AI 下書きの追加回数(店舗・月ごと)。全店共通の予約キー policies.aiBonus に保存(店舗のデータには書かない)
+function GlobalAiBonusPanel({ stores }) {
+  const _now = new Date(); const ymNow = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`;
+  const [map, setMap] = React.useState({}); const [sid, setSid] = React.useState(''); const [ym, setYm] = React.useState(ymNow); const [n, setN] = React.useState(''); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
+  const load = async () => (_tsuGpMock() || (await supabaseLoadGlobalPolicies()) || {});
+  React.useEffect(() => { let alive = true; (async () => { try { const gp = await load(); if (alive) setMap((gp && gp.aiBonus && typeof gp.aiBonus === 'object') ? gp.aiBonus : {}); } catch {} })(); return () => { alive = false; }; }, []);
+  const nameOf = (id) => { const st = (stores || []).find(x => String(x.id) === String(id)); return st ? (st.name || st.short_name || String(id)) : String(id); };
+  // 保存の直前に読み直して、その店舗・月だけ書き換える(ほかの設定を古い内容で上書きしない)
+  const put = async (storeId, month, count, text) => {
+    setBusy(true); setMsg('');
+    try { const cur = await load(); const bonus = { ...((cur && cur.aiBonus && typeof cur.aiBonus === 'object') ? cur.aiBonus : {}) }; const one = { ...(bonus[String(storeId)] || {}) };
+      if (count > 0) one[month] = count; else delete one[month];
+      if (Object.keys(one).length) bonus[String(storeId)] = one; else delete bonus[String(storeId)];
+      const policies = { ...cur, aiBonus: bonus };
+      const ok = _tsuGpMock() ? ((window.__tsumugiE2E.globalPolicies = policies), true) : await supabaseSaveGlobalPolicies(policies);
+      if (!ok) { alert('保存に失敗しました(通信エラー)'); setBusy(false); return; }
+      setGlobalPolicyCache(policies); setMap(bonus); setMsg(text); }
+    catch (e) { alert('保存に失敗: ' + ((e && e.message) || '')); }
+    setBusy(false);
+  };
+  const cnt = Math.floor(Number(n)); const canSave = !!sid && /^\d{4}-\d{2}$/.test(ym) && cnt > 0 && cnt <= 2000;
+  const rows = Object.entries(map || {}).flatMap(([id, o]) => Object.entries(o || {}).filter(([, v]) => Number(v) > 0).map(([m, v]) => ({ id, m, v: Number(v) }))).sort((a, b) => a.m === b.m ? nameOf(a.id).localeCompare(nameOf(b.id), 'ja') : (a.m < b.m ? 1 : -1));
+  const ymLabel = (m) => `${Number(m.slice(0, 4))}年${Number(m.slice(5, 7))}月`;
+  return (
+    <div data-testid="hq-ai-bonus" style={{background:'white',border:'1px solid #94c456',borderRadius:14,padding:'14px 16px',marginTop:14}}>
+      <div style={{fontSize:15,fontWeight:'bold',color:'#3d5021',marginBottom:6}}>AI下書きの追加回数（店舗・月ごと）</div>
+      <div className="tsu-hint-row" style={{marginBottom:10}}><TsuHint>モニタリングの AI下書きは、店舗ごとに「利用中の人数×2回」までです。ここで入れた回数が、その店舗・その月の上限に足されます。店舗の端末は、モニタリングの画面を開き直すと反映されます。</TsuHint></div>
+      <div style={{display:'flex',flexWrap:'wrap',gap:8,alignItems:'center'}}>
+        <select data-testid="hq-ai-bonus-store" value={sid} onChange={e => setSid(e.target.value)} style={{padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,minWidth:160}}>
+          <option value="">店舗を選ぶ</option>{(stores || []).map(st => <option key={st.id} value={st.id}>{st.name || st.short_name || st.id}</option>)}
+        </select>
+        <input data-testid="hq-ai-bonus-month" type="month" value={ym} onChange={e => setYm(e.target.value)} style={{padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14}}/>
+        <span style={{fontSize:13,color:'#334155'}}>追加</span>
+        <input data-testid="hq-ai-bonus-n" type="number" inputMode="numeric" min="1" max="2000" value={n} onChange={e => setN(e.target.value)} placeholder="回数" style={{padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,width:90}}/>
+        <span style={{fontSize:13,color:'#334155'}}>回</span>
+        <button data-testid="hq-ai-bonus-save" disabled={busy || !canSave} onClick={() => put(sid, ym, cnt, `✓ 保存しました（${nameOf(sid)}・${ymLabel(ym)}分に ${cnt}回 追加）`)} style={{padding:'8px 16px',background:'#5e8030',color:'white',border:'none',borderRadius:8,fontSize:13,fontWeight:'bold',cursor:'pointer',opacity:(busy || !canSave) ? 0.5 : 1}}>{busy ? '保存中…' : '保存'}</button>
+        {msg && <span data-testid="hq-ai-bonus-msg" style={{fontSize:12,color:'#166534',fontWeight:'bold'}}>{msg}</span>}
+      </div>
+      {rows.length > 0 && (
+        <div data-testid="hq-ai-bonus-list" style={{marginTop:10,display:'flex',flexDirection:'column',gap:4}}>
+          {rows.map(x => (
+            <div key={`${x.id}_${x.m}`} style={{display:'flex',alignItems:'center',gap:10,fontSize:13,color:'#334155',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px',flexWrap:'wrap'}}>
+              <b>{nameOf(x.id)}</b><span>{ymLabel(x.m)}分</span><span>追加 {x.v}回</span>
+              <button disabled={busy} onClick={() => { if (window.confirm(`${nameOf(x.id)}・${ymLabel(x.m)}分の追加（${x.v}回）を取り消します。よろしいですか？`)) put(x.id, x.m, 0, `取り消しました（${nameOf(x.id)}・${ymLabel(x.m)}分）`); }} style={{marginLeft:'auto',padding:'4px 10px',background:'white',color:'#b45309',border:'1px solid #f59e0b',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>取り消す</button>
+            </div>))}
+        </div>)}
+    </div>
+  );
+}
 function GlobalPinDeadlinePanel() {
   const [val, setVal] = React.useState(''); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
   React.useEffect(() => { let alive = true; (async () => { try { const gp = await supabaseLoadGlobalPolicies(); if (alive) setVal(String((gp && gp.pinDeadline) || '')); } catch {} })(); return () => { alive = false; }; }, []);
@@ -21863,6 +21921,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         {/* ★ J: 全店共通ポリシー編集 (折りたたみ) */}
         <div ref={_secAi} style={{scrollMarginTop:56}}>
         <GlobalAiPanel staffSession={staffSession}/>
+        <GlobalAiBonusPanel stores={stores}/>{/* ★ 2026-11-27 trial650 */}
         </div>
         <div ref={_secPolicy} style={{scrollMarginTop:56}}>
         <GlobalPolicyPanel staffSession={staffSession}/>
@@ -25915,6 +25974,9 @@ export default function App() {
   }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#hqservices') { // ★ 2026-11-23 trial620 自動テスト: 外部サービス設定(控えの最後の実行)
     return <div style={{padding:24,background:'#f0f7e0',minHeight:'100vh'}}><GlobalAiPanel staffSession={{ username: 'e2e' }}/></div>;
+  }
+  if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#hqaibonus') { // ★ 2026-11-27 trial650 自動テスト: AI下書きの追加回数(本番では空)
+    return <div style={{padding:24,background:'#f0f7e0',minHeight:'100vh'}}><GlobalAiBonusPanel stores={(window.__tsumugiE2E && window.__tsumugiE2E.stores) || []}/></div>;
   }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#hqdevices') {
     return <div style={{padding:24,background:'#f0f7e0',minHeight:'100vh'}}><HqDevicePanel stores={(window.__tsumugiE2E && window.__tsumugiE2E.stores) || []}/></div>;
@@ -59666,7 +59728,12 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   //   (上限に達していない月は、いつ開いてもAIを使える)。
   const _aiMonthKey = `${tY}-${String(tM).padStart(2,'0')}`;
   const _aiActiveCount = (appData.patients||[]).filter(p => p.status === '利用中' && (isPatientListable(p) && !tsuNotStarted(p, appData))).length;
-  const _aiLimit = _aiActiveCount * 2;
+  // ★ 2026-11-27 trial650: 本部が足した回数(店舗・月ごと)を上限に足す。画面を開いたときに読み直す(本部が足したあと、開き直せば反映)
+  const _aiStoreId = staffSession?.storeId || appData._sbStoreId || '';
+  const [, _setAiGpTick] = React.useState(0);
+  React.useEffect(() => { let alive = true; (async () => { try { const gp = _tsuGpMock() || await supabaseLoadGlobalPolicies(); if (alive && gp) { setGlobalPolicyCache(gp); _setAiGpTick(t => t + 1); } } catch {} })(); return () => { alive = false; }; }, []);
+  const _aiBonus = tsuAiBonusOf(_aiStoreId, _aiMonthKey);
+  const _aiLimit = _aiActiveCount * 2 + _aiBonus;
   const _aiUsed = (appData.systemSettings?.aiUsage?.[_aiMonthKey]) || 0;
   const _aiRemaining = Math.max(0, _aiLimit - _aiUsed);
   // systemSettings に AI使用回数を n 加算した新しい systemSettings を返す
@@ -59681,7 +59748,12 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 2026-09-30 追加(ユーザー指示: 茂木さんのように休止中で今月来ていない方も「通所なし」に表示): 休止中の方は通所の有無にかかわらず対象
   const _monPaused = (p) => getPatientDisplayStatus(p) === '休止'; // ★ 2026-10-14: 休止予定(開始日が未来)は含めない
   // ★ 2026-10-28(ユーザー「月の途中で退所してもモニタリングは送る」): 選んだ月の途中で退所した方も、その月に通所していれば対象に残す
-  const allActive = (appData.patients||[]).filter(p => tsuMonListable(p, tY, tM) && isPatientStartedByToday(p) && ((isPatientListable(p) && !tsuNotStarted(p, appData)) ? (p.status === '利用中' || _monPaused(p) || hasAttendance(p)) : hasAttendance(p)));
+  const allActive = (appData.patients||[]).filter(p => tsuMonListable(p, tY, tM) && isPatientStartedByToday(p) && ((isPatientListable(p) && !tsuNotStarted(p, appData)) ? (p.status === '利用中' || _monPaused(p) || hasAttendance(p)) : (hasAttendance(p) || (tsuMonEndsIn(p, tY, tM) && !tsuNotStarted(p, appData))))); // ★ 2026-11-27 trial650: その月の中で利用終了の方は通所が無くても残す(休止のまま退所した方など)
+  // ★ 2026-11-27 1127e(ユーザー報告「確定しているのに上の 確定 がずっと0名」): 確定・入力済みは、保存された記録(その月のモニタリング)で数える。
+  //   画面の一時の状態(results)は、1人ずつ「確定」を押すと確定の印が落ちて 0名 になっていた(行の「確定済」は記録を見ていたので食い違い)
+  const _monRecMap = new Map((appData.monitoringRecords||[]).filter(r => r && r.period === `${tY}年${tM}月`).map(r => [r.patientId, r]));
+  const _monConfOf = (pid) => !!(_monRecMap.get(pid) && _monRecMap.get(pid).confirmed);
+  const _monTextOf = (pid) => !!((results[pid] && results[pid].text) || (_monRecMap.get(pid) && _monRecMap.get(pid).summary));
   const careLevelOrd = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const dowStr = ['日','月','火','水','木','金','土'];
   // ★ 利用曜日は月曜起点で統一(表示・並び替えとも月→日の順)
@@ -59701,8 +59773,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const filterBySearch = (p) => tsuSearchHit(searchQuery, p.name, p.kana);
   const filterByDow = (p) => monitorDowFilter.length===0 || monitorDowFilter.some(i => (p.scheduleAmPm||[])[i]);
   const filterByStatus = (p) => monitorStatusFilter==='all' ? true
-    : monitorStatusFilter==='unentered' ? !results[p.id]?.text
-    : !results[p.id]?.confirmed;
+    : monitorStatusFilter==='unentered' ? !_monTextOf(p.id)
+    : !_monConfOf(p.id);
   const _monFilter = (p) => filterBySearch(p) && filterByDow(p) && filterByStatus(p);
   const attendedPats = sortPats(allActive.filter(p => hasAttendance(p) && _monFilter(p)));
   const absentPats   = sortPats(allActive.filter(p => !hasAttendance(p) && _monFilter(p)));
@@ -59713,8 +59785,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   });
   const checkAll = () => setCheckedIds(new Set([...attendedPats, ...absentPats].map(p=>p.id)));
   const uncheckAll = () => setCheckedIds(new Set());
-  const checkUnentered = () => setCheckedIds(new Set(attendedPats.filter(p=>!results[p.id]?.text).map(p=>p.id)));
-  const checkUnconfirmed = () => setCheckedIds(new Set(attendedPats.filter(p=>!results[p.id]?.confirmed).map(p=>p.id)));
+  const checkUnentered = () => setCheckedIds(new Set(attendedPats.filter(p=>!_monTextOf(p.id)).map(p=>p.id)));
+  const checkUnconfirmed = () => setCheckedIds(new Set(attendedPats.filter(p=>!_monConfOf(p.id)).map(p=>p.id)));
   const checkAbsent = () => setCheckedIds(new Set(absentPats.map(p=>p.id)));
   const allChecked = attendedPats.length > 0 && attendedPats.every(p => checkedIds.has(p.id));
 
@@ -60696,18 +60768,18 @@ ${optionsDesc}
       {/* ★ 確定サマリ＋締切＋AI残数を1行に統合(2026-08-30 店舗要望)。 上限到達時は「上限に達しました。」まで表示 */}
       {(() => {
         const _lastDay = new Date(tY, tM, 0).getDate();
-        const _confN = attendedPats.filter(p => results[p.id]?.confirmed).length;
+        const _confN = attendedPats.filter(p => _monConfOf(p.id)).length; // ★ 1127e: 記録の確定で数える
         const _todoN = attendedPats.length - _confN;
         return (
           <div className="no-print" style={{flexShrink:0,background:'#f8fafc',borderBottom:'1px solid #e2e8f0',padding:'7px 16px',fontSize:12,fontWeight:'bold',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
             {attendedPats.length > 0 && (<>
-              <span style={{color:'#059669'}}>✓ 確定 {_confN}名</span>
-              <span style={{color:_todoN>0?'#d97706':'#94a3b8'}}>● 未確定 {_todoN}名</span>
+              <span data-testid="mon-conf-n" style={{color:'#059669'}}>✓ 確定 {_confN}名</span>
+              <span data-testid="mon-todo-n" style={{color:_todoN>0?'#d97706':'#94a3b8'}}>● 未確定 {_todoN}名</span>
               <span style={{color:'#475569',fontWeight:'normal'}}>締切: {tM}月{_lastDay}日 18:00（過ぎると記入済みは自動で確定）</span>
               <span style={{borderLeft:'1px solid #e2e8f0',height:16}}/>
             </>)}
             <span style={{color:_aiRemaining>0?'#1e40af':'#b91c1c',fontWeight:'normal'}}>
-              AI下書き：<strong>残り{_aiRemaining}回</strong>（上限{_aiLimit}回／{_aiUsed}回使用済み）{_aiRemaining<=0 && <strong>— 上限に達しました。</strong>}
+              <span data-testid="mon-ai-quota">AI下書き：<strong>残り{_aiRemaining}回</strong>（上限{_aiLimit}回{_aiBonus > 0 ? `・本部の追加${_aiBonus}回を含む` : ''}／{_aiUsed}回使用済み）</span>{_aiRemaining<=0 && <strong>— 上限に達しました。</strong>}
             </span>
           </div>
         );
@@ -60736,6 +60808,7 @@ ${optionsDesc}
                   <div style={{fontWeight:'bold',fontSize:12,color:isAbsent?'#94a3b8':'#1e293b',lineHeight:1.3,wordBreak:'keep-all'}}>
                     {patient.name}
                     {_monPaused(patient) && <span title="休止中の方" style={{fontSize:9,fontWeight:"bold",color:"#9a3412",background:"#ffedd5",border:"1px solid #fed7aa",borderRadius:4,padding:"0 4px",marginLeft:2}}>休止中</span>}
+                    {tsuMonEndsIn(patient, tY, tM) && (() => { const _e = tsuMonEndIso(patient); return <span data-testid={`mon-end-${patient.id}`} title="この月で利用終了の方（最後のモニタリング）" style={{fontSize:9,fontWeight:"bold",color:"#9a3412",background:"#ffedd5",border:"1px solid #fed7aa",borderRadius:4,padding:"0 4px",marginLeft:2,whiteSpace:"nowrap"}}>{Number(_e.slice(5, 7))}/{Number(_e.slice(8, 10))} 利用終了</span>; })()}{/* ★ 2026-11-27 trial650 */}
                     {isBdayMonth(patient) && <span title="今月が誕生月" style={{fontSize:9,fontWeight:"bold",color:"#a16207",background:"#fefce8",border:"1px solid #fde68a",borderRadius:4,padding:"0 4px"}}>誕生月</span>}
                   </div>
                   <div style={{fontSize:10,color:'#64748b',marginTop:2}}>{patient.careLevel||''}</div>
