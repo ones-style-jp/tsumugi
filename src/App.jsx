@@ -1634,6 +1634,103 @@ function KanaInput({ value, onChangeText, ...rest }) {
   );
 }
 
+// ★ 2026-11-27 trial654(ユーザー「カレンダーの予定で利用者を選ぶプルダウンや、ケアマネ事業所を選ぶプルダウンに、ほかの所のような検索欄とあいうえおの区切りを」):
+//   検索欄＋あ行〜わ行の見出しつきの選ぶ欄。候補は body に固定位置で描く(1109b の決まり: 枠の overflow で切れない・後ろを少し暗く)。今の選択は太字＋チェック・1行 44px
+//   options: [{ value, label, kana, sub, note, pin }]  pin=行に分けず上に出す(名簿にない今の値など) / noneLabel=値なしの行 / tail=いちばん下の行(新規作成など)
+//   スマホ(幅640未満)は下からの紙。指で使う端末では検索欄へ自動で入らない(キーボードで一覧が隠れるため・KeikakuPatientSelect と同じ)
+const TSU_PICK_ROWS = ['あ', 'か', 'さ', 'た', 'な', 'は', 'ま', 'や', 'ら', 'わ', 'その他'];
+const tsuPickKey = (o) => String((o && (o.kana || o.label)) || '').trim();
+const tsuOfficePickOpts = (offices) => (Array.isArray(offices) ? offices : []).filter(x => x && String(x.name || '').trim()).map(x => ({ value: x.name, label: x.name, kana: x.kana || '', sub: x.corporateName || '' }));
+function TsuSearchPick({ value, options, onChange, noneLabel, tail, title = '選ぶ', searchPh = 'ふりがな・漢字で検索', unit = '件', testid = 'tsu-pick', className, style, disabled }) {
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState('');
+  const [rect, setRect] = React.useState(null);
+  const btnRef = React.useRef(null); const inRef = React.useRef(null); const listRef = React.useRef(null);
+  const sv = String(value ?? '');
+  const list = Array.isArray(options) ? options : []; const tails = Array.isArray(tail) ? tail : [];
+  const cur = sv === '' ? null : (list.find(x => String(x.value) === sv) || tails.find(x => String(x.value) === sv) || null);
+  const close = React.useCallback(() => { setOpen(false); setQ(''); }, []);
+  useTsuBackEntry(open, close); // スマホの「戻る」でまずこの一覧を閉じる
+  React.useEffect(() => {
+    if (!open) return;
+    // 後ろの小窓(予定の入力など)が Esc で閉じて入力が消えないよう、先に受けて止める
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(); } };
+    window.addEventListener('keydown', onKey, true);
+    const t = tsuTouchDev() ? null : setTimeout(() => { try { if (inRef.current) inRef.current.focus(); } catch {} }, 30);
+    const t2 = setTimeout(() => { try { const b = listRef.current; const el = b && b.querySelector('[aria-selected="true"]'); if (b && el) b.scrollTop = Math.max(0, el.offsetTop - 88); } catch {} }, 0);
+    return () => { window.removeEventListener('keydown', onKey, true); if (t) clearTimeout(t); clearTimeout(t2); };
+  }, [open, close]);
+  const openIt = () => { if (disabled) return; try { setRect(btnRef.current ? btnRef.current.getBoundingClientRect() : null); } catch { setRect(null); } setQ(''); setOpen(true); };
+  const pick = (v) => { close(); if (String(v ?? '') !== sv) onChange(v); };
+  const nq = q.trim();
+  const hits = nq ? list.filter(x => tsuSearchHit(nq, x.label, x.kana, x.sub)) : list;
+  const pins = hits.filter(x => x.pin);
+  const sorted = hits.filter(x => !x.pin).slice().sort((a, b) => tsuPickKey(a).localeCompare(tsuPickKey(b), 'ja'));
+  const groups = TSU_PICK_ROWS.map(r => ({ r, items: sorted.filter(x => getRowFromKana(tsuPickKey(x)) === r) })).filter(g => g.items.length);
+  const jump = (r) => { try { const b = listRef.current; const el = b && b.querySelector(`[data-pick-row="${r}"]`); if (b && el) b.scrollTop = el.offsetTop; } catch {} };
+  const rowEl = (x, key) => { const on = String(x.value ?? '') === sv; return (
+    <button key={key} type="button" role="option" aria-selected={on} data-testid={`${testid}-opt`} data-value={String(x.value ?? '')} onClick={() => pick(x.value)}
+      className={`w-full flex items-center gap-2 px-3 py-1 min-h-[44px] text-left text-[15px] border-b border-slate-100 hover:bg-slate-100 active:bg-slate-200 ${on ? 'font-extrabold text-emerald-800' : 'font-bold text-slate-800'}`}>
+      <span aria-hidden="true" className={`w-4 shrink-0 text-center text-[14px] ${on ? 'text-emerald-700' : 'text-transparent'}`}>✓</span>
+      <span className="flex-1 min-w-0 break-all leading-tight">{x.label}{x.sub ? <span className="block text-[11px] font-normal text-slate-500 leading-tight mt-0.5">{x.sub}</span> : null}</span>
+      {x.note ? <span className="shrink-0 text-[11px] font-bold text-orange-700 whitespace-nowrap">{x.note}</span> : null}
+    </button>); };
+  let phone = false, slim = false, pos = {};
+  if (open) {
+    let vw = 1024, vh = 768; try { vw = window.innerWidth; vh = window.innerHeight; } catch {}
+    phone = vw < 640; slim = !phone && !tsuTouchDev(); // マウスの端末: 行へ飛ぶボタンを1段に
+    if (phone || !rect) pos = phone ? { left: 0, right: 0, bottom: 0, top: '10%' } : { left: 8, top: 8, width: Math.min(360, vw - 16), maxHeight: vh - 16 };
+    else {
+      const w = Math.min(Math.max(rect.width, 340), vw - 16); const left = Math.max(8, Math.min(rect.left, vw - w - 8));
+      const below = vh - rect.bottom - 12, above = rect.top - 12;
+      // 中身のおおよその高さ(検索で候補が減っても場所が動かないよう、全部の候補で見積もる)。欄の下→上の順に、入る側へ。どちらにも入らなければ、入るところまで上へずらして重ねる
+      const nRows = new Set(list.filter(x => !x.pin).map(x => getRowFromKana(tsuPickKey(x)))).size;
+      const est = 44 + 56 + (nRows > 1 && list.length > 8 ? (slim ? 42 : 100) : 0) + (list.length + tails.length + (noneLabel != null ? 1 : 0)) * 45 + nRows * 27 + 4;
+      const need = Math.min(560, vh - 16, est);
+      if (below >= need) pos = { left, top: rect.bottom + 4, width: w, maxHeight: Math.min(640, below) };
+      else if (above >= need) pos = { left, bottom: vh - rect.top + 4, width: w, maxHeight: Math.min(640, above) };
+      else { const top = Math.max(8, vh - 8 - need); pos = { left, top, width: w, maxHeight: vh - 8 - top }; }
+    }
+  }
+  const text = cur ? `${cur.label}${cur.note ? `（${cur.note}）` : ''}` : (noneLabel != null ? noneLabel : '選んでください');
+  return (<>
+    <button ref={btnRef} type="button" data-testid={testid} data-value={sv} disabled={disabled} aria-haspopup="listbox" aria-expanded={open} onClick={openIt} className={className}
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, textAlign: 'left', cursor: disabled ? 'default' : 'pointer', ...(style || {}) }}>
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</span>
+      <ChevronDown size={14} className="shrink-0 text-slate-400" aria-hidden="true"/>
+    </button>
+    {open && ReactDOM.createPortal((<>
+      <div className="fixed inset-0 bg-slate-900/25" style={{ zIndex: 2000060 }} onClick={close} aria-hidden="true"/>
+      <div data-testid={`${testid}-pop`} role="dialog" aria-label={title} className={`fixed bg-white border border-slate-300 shadow-2xl flex flex-col overflow-hidden ${phone ? 'rounded-t-2xl' : 'rounded-xl'}`} style={{ zIndex: 2000061, ...pos, ...(phone ? { paddingBottom: 'env(safe-area-inset-bottom)' } : {}) }}>
+        <div className="flex items-center gap-2 pl-3 pr-1 pt-1 shrink-0">
+          <div className="flex-1 min-w-0 text-[13px] font-bold text-slate-600 truncate">{title}</div>
+          <button type="button" onClick={close} aria-label="閉じる" data-testid={`${testid}-close`} className="shrink-0 w-11 h-11 flex items-center justify-center text-slate-500 rounded-full hover:bg-slate-100"><X size={18} aria-hidden="true"/></button>
+        </div>
+        <div className="px-3 pb-2 shrink-0">
+          <input {...TSU_NOFILL} ref={inRef} type="text" value={q} onChange={e => setQ(e.target.value)} data-testid={`${testid}-q`} placeholder={searchPh}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && nq) { const f = pins[0] || sorted[0]; if (f) { e.preventDefault(); pick(f.value); } } }}
+            className="w-full px-3 bg-slate-50 border border-slate-300 rounded-lg text-[16px] outline-none focus:border-emerald-500" style={{ minHeight: 44 }}/>
+        </div>
+        {!nq && groups.length > 1 && sorted.length > 8 && (
+          <div data-testid={`${testid}-chips`} className={`px-3 pb-2 shrink-0 flex gap-1 border-b border-slate-100 ${slim ? '' : 'flex-wrap'}`} style={{ justifyContent: 'flex-start' }}>
+            {groups.map(g => <button key={g.r} type="button" data-testid={`${testid}-chip`} data-row={g.r} onClick={() => jump(g.r)} className={`${slim ? 'flex-1 min-w-0 h-8 px-0 text-[13px]' : 'min-w-[44px] h-11 px-2 text-[14px]'} rounded-lg border border-emerald-300 bg-white text-emerald-800 font-bold hover:bg-emerald-50 active:bg-emerald-100`}>{g.r === 'その他' ? '他' : g.r}</button>)}
+          </div>)}
+        <div ref={listRef} role="listbox" aria-label={title} className="flex-1 min-h-0 overflow-y-auto overscroll-contain relative border-t border-slate-100">
+          {!nq && noneLabel != null && rowEl({ value: '', label: noneLabel }, '__none')}
+          {pins.map((x, i) => rowEl(x, `p${i}`))}
+          {groups.map(g => (
+            <div key={g.r} data-pick-row={g.r}>
+              <div className="sticky top-0 z-[1] px-3 py-1 bg-slate-100 text-[12px] font-bold text-slate-600 border-b border-slate-200">{g.r === 'その他' ? 'その他' : `${g.r}行`}<span className="ml-1.5 font-normal text-slate-500">{g.items.length}{unit}</span></div>
+              {g.items.map((x, i) => rowEl(x, `${g.r}${i}`))}
+            </div>))}
+          {nq && !pins.length && !sorted.length && <div data-testid={`${testid}-empty`} className="px-3 py-4 text-[13px] text-slate-500">「{nq}」に当てはまるものがありません</div>}
+          {tails.map((x, i) => rowEl(x, `t${i}`))}
+        </div>
+      </div>
+    </>), document.body)}
+  </>);
+}
+
 // ★ 郵便番号 → 住所 自動補完 (zipcloud API)
 //   郵便番号 (7桁) を渡すと {prefecture, city, address} を返す
 //   失敗時は null を返す (ネットワークエラー等)
@@ -14335,10 +14432,10 @@ function TsuMemoEditor({ appData, onSave, init, onClose }) {
         <div>
           <div style={lab}>利用者（選ばなくても書けます）</div>
           {/* 利用者IDは数字の店もある → 選んだ文字から元のIDに戻す(名前・提供記録の印と結び付けるため) */}
-          <select data-testid="memo-pt" value={d.patientId === '' || d.patientId == null ? '' : String(d.patientId)} onChange={e => { const v = e.target.value; const pid = v ? ((pts.find(p => String(p.id) === v) || {}).id ?? v) : ''; setD(x => ({ ...x, patientId: pid, toSupport: pid !== '' ? x.toSupport : false })); }} style={{ ...field, height: hh }}>{/* iPhone の選択欄は minHeight が効かない → height */}
-            <option value="">全体への連絡（利用者を選ばない）</option>
-            {pts.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-          </select>
+          {/* ★ 2026-11-27 trial654: 検索とあいうえおの区切り(番号は元のまま渡す) */}
+          <TsuSearchPick testid="memo-pt" title="利用者を選ぶ" unit="名" value={d.patientId === '' || d.patientId == null ? '' : d.patientId} noneLabel="全体への連絡（利用者を選ばない）"
+            options={pts.map(p => ({ value: p.id, label: p.name, kana: p.kana || '' }))}
+            onChange={v => { const pid = (v === '' || v == null) ? '' : v; setD(x => ({ ...x, patientId: pid, toSupport: pid !== '' ? x.toSupport : false })); }} style={{ ...field, height: hh }}/>
         </div>
         <div>
           <div style={lab}>内容</div>
@@ -14996,11 +15093,10 @@ function ScheduleView({ appData, onSave, navigateTo }) {
             {/* 対象の利用者(担当者会議など)・ご家族へのお知らせ */}
             <div style={card}>
               {row('利用者', <>
-                <select data-testid="sch-patient" value={modal.patientId||''} onChange={e=>setModal(m=>({...m,patientId:e.target.value?Number(e.target.value):undefined}))} style={{...pill,maxWidth:'100%',paddingRight:28,appearance:'auto',WebkitAppearance:'menulist'}}>
-                  <option value="">なし{isTask ? '' : '（担当者会議など）'}</option>
-                  {/* ★ 休止中でも担当者会議等で予定を組むことがあるため、利用中と休止中の両方を選べるようにする(退所は除外) */}
-                  {(appData.patients||[]).filter(p=>['利用中','休止'].includes(getPatientDisplayStatus(p))).sort((a,b)=>(a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja')).map(p=>(<option key={p.id} value={p.id}>{p.name}{getPatientDisplayStatus(p)==='休止'?'（休止中）':''}</option>))}
-                </select>
+                {/* ★ 休止中でも担当者会議等で予定を組むことがあるため、利用中と休止中の両方を選べるようにする(退所は除外) ★ 2026-11-27 trial654: 検索とあいうえおの区切り */}
+                <TsuSearchPick testid="sch-patient" title="利用者を選ぶ" unit="名" value={modal.patientId ?? ''} noneLabel={`なし${isTask ? '' : '（担当者会議など）'}`}
+                  options={(appData.patients||[]).filter(p=>['利用中','休止'].includes(getPatientDisplayStatus(p))).map(p=>({ value:p.id, label:p.name, kana:p.kana||'', note:getPatientDisplayStatus(p)==='休止'?'休止中':'' }))}
+                  onChange={v=>setModal(m=>({...m,patientId:(v===''||v==null)?undefined:v}))} style={{...pill,maxWidth:'100%'}}/>
               </>, { last: !modal.patientId })}
               {modal.patientId && (()=>{ const p=(appData.patients||[]).find(x=>x.id===modal.patientId); if(!p) return null; return (
                 <div style={{fontSize:12,color:'#475569',padding:'8px 0',borderBottom:(!isTask)?'1px solid #eef0f3':'none'}}>
@@ -16033,10 +16129,7 @@ function FamilyAdminView({ appData, onSave }) {
                 {(postForm.audience||[]).includes('caremanager') && (
                   <div className="border-2 border-amber-100 rounded-xl p-2 bg-amber-50/40">
                     <div className="text-[11px] font-bold text-amber-700 mb-1.5 px-1">ケアマネを選択（事業所 → 担当者）</div>
-                    <select value={postCmOffice} onChange={e=>setPostCmOffice(e.target.value)} className="w-full px-3 py-2 bg-white border border-amber-200 rounded-lg font-bold text-xs outline-none">
-                      <option value="">事業所を選択してください</option>
-                      {cmOfficeNames.map(o => <option key={o} value={o}>{o}</option>)}
-                    </select>
+                    <TsuSearchPick testid="post-cm-office" title="事業所を選ぶ" value={postCmOffice} noneLabel="事業所を選択してください" options={tsuOfficePickOpts(cmOfficeNames.map(n => cmOfficesList.find(x => x && x.name === n) || { name: n }))} onChange={v=>setPostCmOffice(v||'')} className="w-full px-3 py-2 bg-white border border-amber-200 rounded-lg font-bold text-xs outline-none"/>{/* ★ trial654 */}
                     {postCmOffice ? (() => {
                       const mgrs = careManagersList.filter(c => c.office === postCmOffice);
                       return mgrs.length ? (
@@ -17740,16 +17833,12 @@ function FamilyView() {
                         ) : (
                         <div style={{marginBottom:10}}>
                           <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>事業所 <span style={{color:'#dc2626'}}>*</span></label>
-                          <select value={signupForm.cmOfficeMode === 'new' ? '__new__' : signupForm.cmOfficeId}
-                            onChange={e=>{
-                              if (e.target.value === '__new__') setSignupForm(f=>({...f, cmOfficeMode:'new', cmOfficeId:'', error:''}));
-                              else setSignupForm(f=>({...f, cmOfficeMode:'select', cmOfficeId:e.target.value, cmManagerMode:'select', cmManagerId:'', error:''}));
+                          <TsuSearchPick testid="signup-cm-office" title="事業所を選ぶ" value={signupForm.cmOfficeMode === 'new' ? '__new__' : (signupForm.cmOfficeId||'')} noneLabel="— 選択 —" options={tsuOfficePickOpts(cmOffices)} tail={[{ value:'__new__', label:'＋ 新規作成（リストにない場合）' }]}
+                            onChange={v=>{
+                              if (v === '__new__') setSignupForm(f=>({...f, cmOfficeMode:'new', cmOfficeId:'', error:''}));
+                              else setSignupForm(f=>({...f, cmOfficeMode:'select', cmOfficeId:v||'', cmManagerMode:'select', cmManagerId:'', error:''}));
                             }}
-                            style={{width:'100%',padding:'10px 12px',border:'1px solid #7dd3fc',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',fontWeight:'bold'}}>
-                            <option value="">— 選択 —</option>
-                            {cmOffices.map((o,i) => <option key={i} value={o.name}>{o.name}</option>)}
-                            <option value="__new__">＋ 新規作成（リストにない場合）</option>
-                          </select>
+                            style={{width:'100%',padding:'10px 12px',border:'1px solid #7dd3fc',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',fontWeight:'bold'}}/>{/* ★ trial654 */}
                         </div>
                         )}
                         {signupForm.cmOfficeMode === 'new' && (
@@ -48787,10 +48876,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             <div className="space-y-3 mb-5">
               <div>
                 <label className="block text-sm font-bold text-slate-600 mb-1.5">事業所</label>
-                <select value={cmChangeModal.office} onChange={e=>{const o=e.target.value;setCmChangeModal({...cmChangeModal,office:o,name:''}); }}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none">
-                  <option value="">未選択</option>{(appData.systemSettings?.cmOffices||[]).map((o,i)=><option key={i} value={o.name}>{o.name}</option>)}
-                </select>
+                <TsuSearchPick testid="cm-change-office" title="事業所を選ぶ" value={cmChangeModal.office||''} noneLabel="未選択" options={tsuOfficePickOpts(appData.systemSettings?.cmOffices)} onChange={v=>setCmChangeModal({...cmChangeModal,office:v||'',name:''})}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none"/>{/* ★ trial654 */}
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-600 mb-1.5">担当者</label>
@@ -48857,11 +48944,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 const _ppl = sortCareManagersByKana((appData.systemSettings?.careManagers||[]).filter(c => !_curOff || c.office===_curOff)); const _curNm = editHistModal.entry.name||'';
                 return (<>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">事業所</label>
-                  <select data-testid="hist-cm-office" value={_curOff} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,office:e.target.value,name:''}})} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none" style={{minHeight:44}}>
-                    <option value="">選んでください</option>
-                    {_curOff && !_offNames.includes(_curOff) && <option value={_curOff}>{_curOff}（名簿にありません）</option>}
-                    {_offs.map((x,i)=><option key={i} value={x.name}>{x.name}</option>)}
-                  </select></div>
+                  <TsuSearchPick testid="hist-cm-office" title="事業所を選ぶ" value={_curOff} noneLabel="選んでください" options={[...((_curOff && !_offNames.includes(_curOff)) ? [{ value:_curOff, label:_curOff, note:'名簿にありません', pin:true }] : []), ...tsuOfficePickOpts(_offs)]} onChange={v=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,office:v||'',name:''}})} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none" style={{minHeight:44}}/>{/* ★ trial654 */}</div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">担当者</label>
                   <select data-testid="hist-cm-name" value={_curNm} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,name:e.target.value}})} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none" style={{minHeight:44}}>
                     <option value="">選んでください</option>
@@ -50139,7 +50222,10 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
       }
       return;
     }
-    persistCm([...cmOffices, { ...newOffice, name: nm, phone: formatJpPhone(newOffice.phone), fax: formatJpPhone(newOffice.fax), _addedAt: syncNow() }], null, '✓ ケアマネ事業所を追加しました');
+    // ★ 2026-11-27 trial654(ユーザー「事業所追加のところも、ふりがなが入るといい」): ふりがな(kana)と、書いた時刻(_kanaTs・同期で新しい方を採る)
+    const _nk = String(newOffice.kana || '').trim(); const _no = { ...newOffice, name: nm, phone: formatJpPhone(newOffice.phone), fax: formatJpPhone(newOffice.fax), _addedAt: syncNow() };
+    if (_nk) { _no.kana = _nk; _no._kanaTs = syncNow(); } else { delete _no.kana; }
+    persistCm([...cmOffices, _no], null, '✓ ケアマネ事業所を追加しました');
     setNewOffice({ name:"", phone:"", fax:"" });
     setAddOfficeModal(false);
   };
@@ -50191,7 +50277,9 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
       //   事業所の電話/FAXが一覧に一切保存されていなかった(担当者・利用者側だけ更新され、一覧は7月のまま)。
       //   → 添え字(origIdx)または名前で照合する。
       const _isOrigOff = (o, i) => (orig.origIdx != null ? i === orig.origIdx : (o === orig || o.name === orig.name));
-      const newOffices = cmOffices.map((o, i) => _isOrigOff(o, i) ? { ...o, name:newName, phone:formatJpPhone(form.phone), fax:formatJpPhone(form.fax), ...(_renamedOff?{_addedAt:syncNow()}:{}) } : o);
+      // ★ 2026-11-27 trial654: ふりがなは変えたときだけ時刻(_kanaTs)を刻む(古い端末の保存で消えないよう、同期では新しい方を採る)
+      const _fk = String(form.kana || '').trim();
+      const newOffices = cmOffices.map((o, i) => _isOrigOff(o, i) ? { ...o, name:newName, phone:formatJpPhone(form.phone), fax:formatJpPhone(form.fax), ...(_fk !== String(o.kana || '').trim() ? { kana:_fk, _kanaTs:syncNow() } : {}), ...(_renamedOff?{_addedAt:syncNow()}:{}) } : o);
       // 担当者の所属事業所名・FAXも更新
       const newPersons = cmPersons.map(c => c.office===orig.name ? { ...c, office:newName, fax:formatJpPhone(form.fax), ...(_renamedOff?{_addedAt:syncNow()}:{}) } : c);
       // 各利用者マスタの担当ケアマネ事業所・FAXを更新
@@ -50605,7 +50693,10 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
             {cmEditModal.kind==='office' ? (
               <div className="space-y-3">
                 <div><label className="block text-xs font-bold text-slate-500 mb-1">事業所名</label>
-                  <input value={cmEditModal.form.name} onChange={e=>setCmEditModal(m=>({...m,form:{...m.form,name:e.target.value}}))} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/></div>
+                  <input data-testid="cm-office-name-edit" value={cmEditModal.form.name} onChange={e=>setCmEditModal(m=>({...m,form:{...m.form,name:e.target.value}}))} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/></div>
+                {/* ★ 2026-11-27 trial654: ふりがな(事業所を選ぶ一覧の並びと検索に使う) */}
+                <div><label className="flex items-center gap-1 text-xs font-bold text-slate-500 mb-1" style={{justifyContent:'flex-start'}}>ふりがな<TsuHint>入れておくと、事業所を選ぶ一覧があいうえお順に並び、ふりがなでも探せます。</TsuHint></label>
+                  <KanaInput data-testid="cm-office-kana-edit" value={cmEditModal.form.kana||''} onChangeText={v=>setCmEditModal(m=>({...m,form:{...m.form,kana:v}}))} placeholder="例: アオゾラキョタクカイゴシエン" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><label className="block text-xs font-bold text-slate-500 mb-1">電話番号</label>
                     <input value={cmEditModal.form.phone} onChange={e=>setCmEditModal(m=>({...m,form:{...m.form,phone:e.target.value}}))} onBlur={()=>setCmEditModal(m=>({...m,form:{...m.form,phone:formatJpPhone(m.form.phone)}}))} inputMode="tel" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/></div>
@@ -50616,10 +50707,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
             ) : (
               <div className="space-y-3">
                 <div><label className="block text-xs font-bold text-slate-500 mb-1">所属事業所</label>
-                  <select value={cmEditModal.form.office} onChange={e=>setCmEditModal(m=>({...m,form:{...m.form,office:e.target.value}}))} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400">
-                    <option value="">所属事業所を選択...</option>
-                    {cmOffices.map((o,i)=><option key={i} value={o.name}>{o.name}</option>)}
-                  </select></div>
+                  <TsuSearchPick testid="cm-edit-office" title="事業所を選ぶ" value={cmEditModal.form.office||''} noneLabel="所属事業所を選択..." options={tsuOfficePickOpts(cmOffices)} onChange={v=>setCmEditModal(m=>({...m,form:{...m.form,office:v||''}}))} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>{/* ★ trial654 */}</div>
                 {(() => { // ★ 2026-11-25 trial639(ユーザー「担当者名も姓と名で分けて。空白は残さないように」): 新規と同じ 2 欄。保存は trial532 の決まり(姓 名 を半角1つで)
                   const _sp=(t)=>{const a=(t||'').split(/[\s　]+/).filter(Boolean);return{sn:a[0]||'',gn:a.slice(1).join('')||''};};
                   const _jn=(sn,gn)=>{sn=(sn||'').replace(/[\s　]/g,'');gn=(gn||'').replace(/[\s　]/g,'');return sn&&gn?`${sn} ${gn}`:(sn||gn||'');};
@@ -50654,7 +50742,9 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
             <div className="text-base font-bold text-slate-800 mb-4">ケアマネ事業所を追加</div>
             <div className="space-y-3">
               <div><label className="block text-xs font-bold text-slate-500 mb-1">事業所名 <span className="text-red-500">*</span></label>
-                <input value={newOffice.name} onChange={e=>setNewOffice({...newOffice,name:e.target.value})} placeholder="例: あおぞら居宅介護支援" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/></div>
+                <input data-testid="cm-office-name-new" value={newOffice.name} onChange={e=>setNewOffice({...newOffice,name:e.target.value})} placeholder="例: あおぞら居宅介護支援" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/></div>
+              <div><label className="flex items-center gap-1 text-xs font-bold text-slate-500 mb-1" style={{justifyContent:'flex-start'}}>ふりがな<TsuHint>入れておくと、事業所を選ぶ一覧があいうえお順に並び、ふりがなでも探せます。</TsuHint></label>
+                <KanaInput data-testid="cm-office-kana-new" value={newOffice.kana||''} onChangeText={v=>setNewOffice(x=>({...x,kana:v}))} placeholder="例: アオゾラキョタクカイゴシエン" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="block text-xs font-bold text-slate-500 mb-1">電話番号</label>
                   <input value={newOffice.phone} onChange={e=>setNewOffice({...newOffice,phone:e.target.value})} onBlur={()=>setNewOffice(o=>({...o,phone:formatJpPhone(o.phone)}))} inputMode="tel" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/></div>
@@ -50676,10 +50766,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
             <div className="text-base font-bold text-slate-800 mb-4">担当ケアマネを追加</div>
             <div className="space-y-3">
               <div><label className="block text-xs font-bold text-slate-500 mb-1">所属事業所 <span className="text-red-500">*</span></label>
-                <select value={newPerson.office} onChange={e=>setNewPerson({...newPerson,office:e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400">
-                  <option value="">所属事業所を選択...</option>
-                  {[...cmOffices].sort((a,b)=>(a.name||'').localeCompare(b.name||'','ja')).map((o,i)=><option key={i} value={o.name}>{o.name}</option>)}
-                </select></div>
+                <TsuSearchPick testid="cm-new-office" title="事業所を選ぶ" value={newPerson.office||''} noneLabel="所属事業所を選択..." options={tsuOfficePickOpts(cmOffices)} onChange={v=>setNewPerson({...newPerson,office:v||''})} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>{/* ★ trial654 */}</div>
               {(() => {
                 const _sp=(s)=>{const a=(s||'').split(/[\s　]+/).filter(Boolean);return{sn:a[0]||'',gn:a.slice(1).join(' ')||''};};
                 const _jn=(sn,gn)=>{sn=(sn||'').trim();gn=(gn||'').trim();return sn&&gn?`${sn} ${gn}`:(sn||gn||'');};
@@ -51523,7 +51610,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                     options={cmOffices.map((o,i)=>({key:'o'+i, label:o.name, sub:o.corporateName||'', kana:o.kana||''}))}
                     wrapStyle={{marginBottom:8}}
                     inputProps={{type:'text', placeholder:'事業所名・カナ・法人名で検索', className:'w-full px-3 py-2 border border-slate-300 rounded-lg outline-none text-sm font-bold focus:border-blue-400'}}/>
-                  <div className="text-xs text-slate-500 mb-2 px-1">{sortedOffices.length}/{cmOffices.length}件・あいうえお順{hasAnyCorp ? '・法人ごと' : ''} {selectedOfficeIdx!==null && <button onClick={()=>setSelectedOfficeIdx(null)} className="ml-2 text-blue-600 hover:underline">× 選択解除</button>}</div>
+                  <div className="text-xs text-slate-500 mb-2 px-1">{sortedOffices.length}/{cmOffices.length}件・あいうえお順{hasAnyCorp ? '・法人ごと' : ''} {selectedOfficeIdx!==null && <button onClick={()=>setSelectedOfficeIdx(null)} className="ml-2 text-blue-600 hover:underline">× 選択解除</button>}{(() => { const n = cmOffices.filter(x => !String(x.kana||'').trim()).length; return n > 0 ? <span data-testid="cm-office-nokana" className="text-amber-700">（ふりがな未登録 {n}件。編集からふりがなを入れると、あいうえお順に正しく並びます）</span> : null; })()}</div>
                   {sortedOffices.length === 0 ? <div className="text-slate-400 text-sm font-bold bg-slate-50 p-4 rounded-xl border text-center">{cmOffices.length===0?'登録なし':'該当なし'}</div> : (
                     <div className="space-y-3 max-h-[34vh] md:max-h-[62vh] overflow-y-auto pr-1">{officeGroups.map(([corp, offices]) => (
                       <div key={corp}>
@@ -51536,7 +51623,7 @@ function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSup
                                 <div className="font-bold text-sm text-slate-800 truncate">{o.name}</div>
                                 <div className="text-[11px] text-slate-500 truncate">{o.phone||'-'} / FAX {o.fax||'-'}</div>
                               </div>
-                              <button type="button" onClick={(e)=>{e.stopPropagation(); setCmEditModal({kind:'office', orig:o, form:{name:o.name||'', phone:o.phone||'', fax:o.fax||''}});}} className="text-slate-300 hover:text-blue-500 p-1 ml-1 shrink-0" title="編集"><Edit3 size={14}/></button>
+                              <button type="button" onClick={(e)=>{e.stopPropagation(); setCmEditModal({kind:'office', orig:o, form:{name:o.name||'', kana:o.kana||'', phone:o.phone||'', fax:o.fax||''}});}} className="text-slate-300 hover:text-blue-500 p-1 ml-1 shrink-0" title="編集"><Edit3 size={14}/></button>
                               <button type="button" onClick={(e)=>{e.stopPropagation(); if(!window.confirm('この事業所を削除しますか？')) return; persistCm(cmOffices.filter((_,j)=>j!==o.origIdx), null, '削除しました', { cmTombstones: _cmTombsWith(_cmTombKeyOffice(o.name)) }); if(selectedOfficeIdx===o.origIdx) setSelectedOfficeIdx(null);}} className="text-slate-300 hover:text-red-500 p-1 ml-1 shrink-0" title="削除"><Trash2 size={14}/></button>
                             </div>
                           );

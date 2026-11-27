@@ -24,9 +24,10 @@ const seed = async (page) => page.evaluate(() => {
 const go = async (page, view, extra) => { await page.evaluate(([v, x]) => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: v, pid: null, t: Date.now(), ...(x || {}) })), [view, extra]); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2200); await page.locator('button', { hasText: 'あとで' }).click({ timeout: 400 }).catch(() => {}); };
 const data = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('daycareAppData_v3')));
 const memos = async (page) => ((await data(page)).scheduleEvents || []).filter(e => e.kind === 'memo');
+const pickPt = async (pg, pid, tap) => { const bt = pg.getByTestId('memo-pt'); if (tap) await bt.tap(); else await bt.click(); await pg.waitForTimeout(300); const o = pg.locator(`[data-testid="memo-pt-opt"][data-value="${pid}"]`); await o.scrollIntoViewIfNeeded(); if (tap) await o.tap(); else await o.click(); await pg.waitForTimeout(250); }; // ★ trial654: 利用者は検索つきの選ぶ欄
 const write = async (page, { pid, text, sp, date }) => {
   await page.getByTestId('home-memo-add').click(); await page.waitForTimeout(400);
-  if (pid != null) await page.getByTestId('memo-pt').selectOption(String(pid));
+  if (pid != null) await pickPt(page, pid);
   await page.getByTestId('memo-text').fill(text); if (sp) await page.getByTestId('memo-sp').check(); if (date) await page.getByTestId('memo-date').fill(date);
   await page.getByTestId('memo-save').click(); await page.waitForTimeout(900); };
 
@@ -38,7 +39,7 @@ await go(page, 'dashboard');
 r.empty = /今日の申し送りはありません/.test(await page.getByTestId('home-memos').innerText());
 // 書く画面: 退所済みの方は選べない・次の営業日のボタンはない
 await page.getByTestId('home-memo-add').click(); await page.waitForTimeout(400);
-const opts = await page.locator('[data-testid="memo-pt"] option').evaluateAll(os => os.map(o => o.value)); const noNext = (await page.getByTestId('memo-date-next').count()) === 0;
+await page.getByTestId('memo-pt').click(); await page.waitForTimeout(300); const opts = await page.locator('[data-testid="memo-pt-opt"]').evaluateAll(os => os.map(o => o.getAttribute('data-value'))); await page.getByTestId('memo-pt-close').click(); await page.waitForTimeout(200); const noNext = (await page.getByTestId('memo-date-next').count()) === 0;
 console.log('選べる方', opts.length - 1, '退所済み', S.PX, opts.includes(String(S.PX)), '退所', S.PQ, S.PQ != null && opts.includes(String(S.PQ)), '次の営業日のボタンなし', noNext);
 r.noRetired = opts.length > 3 && !opts.includes(String(S.PX)) && !(S.PQ != null && opts.includes(String(S.PQ))) && opts.includes(String(S.P)) && noNext;
 await page.locator('[data-testid="memo-editor"] button', { hasText: 'やめる' }).click(); await page.waitForTimeout(300);
@@ -114,7 +115,7 @@ for (const [lab, vp, ua] of [['スマホ', { width: 390, height: 844 }, 'Mozilla
   await pg.getByTestId('home-memo-add').click(); await pg.waitForTimeout(500);
   const ed = await pg.evaluate(() => { const e = document.querySelector('[data-testid="memo-editor"] > div'); const t = document.querySelector('[data-testid="memo-text"]'); const s = document.querySelector('[data-testid="memo-save"]'); const pt = document.querySelector('[data-testid="memo-pt"]'); const rc = e.getBoundingClientRect();
     return { w: Math.round(rc.width), left: Math.round(rc.left), fs: getComputedStyle(t).fontSize, saveH: Math.round(s.getBoundingClientRect().height), ptH: Math.round(pt.getBoundingClientRect().height), ptFs: getComputedStyle(pt).fontSize }; });
-  await pg.getByTestId('memo-pt').selectOption(String(S2.P)); await pg.getByTestId('memo-text').fill(T1); await pg.getByTestId('memo-save').tap(); await pg.waitForTimeout(900);
+  await pickPt(pg, S2.P, true); await pg.getByTestId('memo-text').fill(T1); await pg.getByTestId('memo-save').tap(); await pg.waitForTimeout(900);
   const row = await pg.evaluate(() => { const r = document.querySelector('[data-testid="home-memos-today"] [data-testid^="memo-row-"]'); if (!r) return null; const t = r.querySelector('[data-testid^="memo-text-"]'); const bs = [...r.querySelectorAll('button')].map(b => Math.round(b.getBoundingClientRect().height)); const add = document.querySelector('[data-testid="home-memo-add"]');
     return { fs: getComputedStyle(t).fontSize, btnH: bs, addH: Math.round(add.getBoundingClientRect().height), sw: document.documentElement.scrollWidth, hs: (document.querySelector('[data-testid="home-scroll"]') || {}).scrollWidth, hc: (document.querySelector('[data-testid="home-scroll"]') || {}).clientWidth }; });
   await pg.locator('[data-testid^="memo-copy-memo_"]').first().tap(); await pg.waitForTimeout(500);

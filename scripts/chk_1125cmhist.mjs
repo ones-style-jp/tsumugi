@@ -39,7 +39,7 @@ const boot = async (ctx, view, pid) => { const page = await ctx.newPage(); page.
     ok('8 事業所はプルダウン', await page.getByTestId('hist-cm-office').count() === 1);
     ok('9 担当者はプルダウン(その事業所の人)', await page.getByTestId('hist-cm-name').count() === 1 && (await page.getByTestId('hist-cm-name').locator('option').allInnerTexts()).some(t => /阿佐田 実|齋藤/.test(t)));
     const h = await page.getByTestId('hist-to').evaluate(e => e.getBoundingClientRect()); ok('10 終了日の欄が細くならない(高さ 40 以上・幅 200 以上)', h.height >= 40 && h.width >= 200, { w: Math.round(h.width), h: Math.round(h.height) });
-    await page.getByTestId('hist-cm-office').selectOption('さくら居宅'); await page.waitForTimeout(300);
+    await page.getByTestId('hist-cm-office').click(); await page.waitForTimeout(300); await page.locator('[data-testid="hist-cm-office-opt"][data-value="さくら居宅"]').click(); await page.waitForTimeout(300); // ★ trial654: 事業所は検索つきの選ぶ欄
     ok('11 事業所を変えると担当者はその事業所の人だけ', !(await page.getByTestId('hist-cm-name').locator('option').allInnerTexts()).some(t => /阿佐田 実/.test(t)));
   }
   await ctx.close(); }

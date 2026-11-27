@@ -33,14 +33,15 @@ const eshot = async (name, loc, pad = 10) => { await guard(page); const bb = awa
   await page.screenshot({ path: path.join(OUT, name), type: 'jpeg', quality: 85, clip: { x: Math.max(0, bb.x - pad), y: Math.max(0, bb.y - pad), width: Math.min(1180 - Math.max(0, bb.x - pad), bb.width + pad * 2), height: Math.min(760 - Math.max(0, bb.y - pad), bb.height + pad * 2) } }); console.log('saved', name); };
 // ① ② 申し送り
 await go('dashboard');
+const pickPt = async (pid) => { await page.getByTestId('memo-pt').click(); await page.waitForTimeout(300); const o = page.locator(`[data-testid="memo-pt-opt"][data-value="${pid}"]`); await o.scrollIntoViewIfNeeded(); await o.click(); await page.waitForTimeout(250); }; // ★ trial654
 const writeMemo = async (pid, text, sp, date) => { await page.getByTestId('home-memo-add').click(); await page.waitForTimeout(400);
-  if (pid != null) await page.getByTestId('memo-pt').selectOption(String(pid)); await page.getByTestId('memo-text').fill(text); if (sp) await page.getByTestId('memo-sp').check(); if (date) await page.getByTestId('memo-date').fill(date);
+  if (pid != null) await pickPt(pid); await page.getByTestId('memo-text').fill(text); if (sp) await page.getByTestId('memo-sp').check(); if (date) await page.getByTestId('memo-date').fill(date);
   await page.getByTestId('memo-save').click(); await page.waitForTimeout(900); };
 await writeMemo(S.A, '昨夜ご自宅で軽く転倒。今日は運動を少なめに、歩行は見守りで。', true);
 await writeMemo(null, '午後、消防の方が設備点検に来られます（14時ごろ）。', false);
 await writeMemo(S.B, 'インフルエンザの予防接種のあと。腕の痛みを聞いてください。', false, S.n2);
 await page.getByTestId('home-memo-add').click(); await page.waitForTimeout(400);
-await page.getByTestId('memo-pt').selectOption(String(S.A)); await page.getByTestId('memo-text').fill('昨夜ご自宅で軽く転倒。今日は運動を少なめに、歩行は見守りで。'); await page.getByTestId('memo-sp').check(); await page.waitForTimeout(300);
+await pickPt(S.A); await page.getByTestId('memo-text').fill('昨夜ご自宅で軽く転倒。今日は運動を少なめに、歩行は見守りで。'); await page.getByTestId('memo-sp').check(); await page.waitForTimeout(300);
 await eshot('trial_memo_editor.jpg', page.getByTestId('memo-editor'));
 await page.locator('[data-testid="memo-editor"] button', { hasText: 'やめる' }).click(); await page.waitForTimeout(300);
 await page.evaluate(() => { const el = document.querySelector('[data-testid="home-memos"]'); el && el.scrollIntoView({ block: 'start' }); }); await page.waitForTimeout(300);

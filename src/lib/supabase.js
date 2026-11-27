@@ -1486,7 +1486,10 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
             a.forEach(x => { const kk = keyFn(x); if (kk != null) m.set(kk, (combine && m.has(kk)) ? combine(x, m.get(kk)) : x); });
             out[k] = [...m.values()].filter(x => { const kk = keyFn(x); const tt = kk != null ? (cmTombs[kk] || 0) : 0; return !tt || (Number(x && x._addedAt) || 0) > tt; });
           };
-          unionBy('cmOffices', o => (o && o.name != null) ? `off|${String(o.name).trim()}` : null);
+          // ★ 2026-11-27 trial654: 同じ事業所は従来どおり端末側優先だが、ふりがなだけは「書いた時刻(_kanaTs)」の新しい方を採る。
+          //   ふりがなを入れる前から開いていた別の端末の保存で、入れたふりがなが消えないようにする(メールの _emailTs と同じ考え方)。
+          unionBy('cmOffices', o => (o && o.name != null) ? `off|${String(o.name).trim()}` : null,
+            (l, c) => { const lt = Number(l && l._kanaTs) || 0, ct = Number(c && c._kanaTs) || 0; return ct > lt ? { ...l, kana: (c && c.kana) || '', _kanaTs: ct } : l; });
           // ★ 2026-09-30(試験版): 同じ担当者は従来どおり端末側優先だが、メールだけは「書いた時刻(_emailTs)」の新しい方を採る。
           //   ケアマネ本人の登録や自動補完でクラウドに入ったメールが、古い端末の保存で消えないようにする(画面での変更・削除も時刻を刻む)。
           unionBy('careManagers', o => (o && (o.office != null || o.name != null)) ? `cm|${String(o.office||'').trim()}|${String(o.name||'').trim()}` : null,
