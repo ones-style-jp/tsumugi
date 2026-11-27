@@ -10944,6 +10944,8 @@ const tsuPauseRecStale = (p, iso) => { const d = String(iso || '').slice(0, 10);
 //   tsuPauseForces = その日は休止と読む / tsuRecStOn = その日の状態(記録が無ければ '')
 const tsuPauseForces = (p, iso, rec) => { try { if (!p || !iso || !getPauseReasonOnDate(p, iso)) return false; const st = (rec && rec.status) || ''; if (st === '欠席' || st === '振替' || st === '休業') return false; if (st === '休止') return true; return !(rec && ticketHasClinicalData(rec)); } catch { return false; } };
 const tsuRecStOn = (p, iso, rec) => tsuPauseForces(p, iso, rec) ? '休止' : ((rec && rec.status) || '');
+// ★ 2026-11-27 1127d: 休止の履歴を消したあと、いまの休止も先の休止予定も残らないなら 利用中 に戻す(休止予定を消すと、履歴のない「休止」が残り、その場で休止中になっていた)
+const tsuPauseLeft = (hist) => { const t = tsuTodayIso(); return (Array.isArray(hist) ? hist : []).some(h => h && h.fromDate && (!h.toDate || String(h.toDate).slice(0, 10) >= t)); };
 const tsuPauseAppend = (hist, entry) => { const f = String(entry && entry.fromDate || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return [...(Array.isArray(hist) ? hist : []), entry];
   const d = new Date(`${f}T00:00:00`); d.setDate(d.getDate() - 1); const prev = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return [...tsuPauseClose(hist, prev), entry]; };
@@ -46784,7 +46786,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                               {showCurrent && <span className="text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">現在</span>}
                               {isLatest && planned && !h.toDate && <span className="text-[9px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">予定</span>}
                               {!isOff && <button onClick={()=>setPauseEditModal({origIdx, reason:h.reason||'', fromDate:h.fromDate||'', toDate:h.toDate||''})} className="text-slate-300 hover:text-blue-500 shrink-0" title="この休止履歴を編集"><Edit3 size={13}/></button>}
-                              {!isOff && <button onClick={()=>{ if(!window.confirm('この休止履歴を削除しますか？')) return; const newHist=(localPatient.pauseHistory||[]).filter((_,i)=>i!==origIdx); const _upd={pauseHistory:newHist, statusUpdatedAt: Date.now()}; if(isLatest && isCurrentlyOnPause) _upd.status='利用中'; commitLP(_upd, '✓ 休止履歴を削除しました（保存済み）'); }} className="text-slate-300 hover:text-red-500 shrink-0" title="この休止履歴を削除"><Trash2 size={13}/></button>}
+                              {!isOff && <button onClick={()=>{ if(!window.confirm('この休止履歴を削除しますか？')) return; const newHist=(localPatient.pauseHistory||[]).filter((_,i)=>i!==origIdx); const _upd={pauseHistory:newHist, statusUpdatedAt: Date.now()}; if((isLatest && isCurrentlyOnPause) || (localPatient.status === '休止' && !tsuPauseLeft(newHist))) _upd.status='利用中'; commitLP(_upd, '✓ 休止履歴を削除しました（保存済み）'); }} className="text-slate-300 hover:text-red-500 shrink-0" title="この休止履歴を削除"><Trash2 size={13}/></button>}
                             </div>
                           );
                         })}
@@ -47122,7 +47124,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t flex justify-between items-center gap-2 shrink-0">
-              <button onClick={()=>{ if(!window.confirm('この休止履歴を削除しますか？')) return; const newHist=(localPatient.pauseHistory||[]).filter((_,i)=>i!==pauseEditModal.origIdx); updateLPFields({pauseHistory:newHist, statusUpdatedAt: Date.now()}); setPauseEditModal(null); }} className="px-4 py-2 rounded-xl font-bold text-red-600 hover:bg-red-50 flex items-center gap-1 text-sm"><Trash2 size={15}/>削除</button>
+              <button onClick={()=>{ if(!window.confirm('この休止履歴を削除しますか？')) return; const newHist=(localPatient.pauseHistory||[]).filter((_,i)=>i!==pauseEditModal.origIdx); commitLP({pauseHistory:newHist, statusUpdatedAt: Date.now(), ...((localPatient.status === '休止' && !tsuPauseLeft(newHist)) ? { status: '利用中' } : {})}, '✓ 休止履歴を削除しました（保存済み）'); setPauseEditModal(null); }} className="px-4 py-2 rounded-xl font-bold text-red-600 hover:bg-red-50 flex items-center gap-1 text-sm"><Trash2 size={15}/>削除</button>
               <div className="flex gap-2">
                 <button onClick={()=>setPauseEditModal(null)} className="whitespace-nowrap px-5 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200">キャンセル</button>
                 <button onClick={()=>{
