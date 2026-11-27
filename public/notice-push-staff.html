@@ -54,7 +54,7 @@
   .note{font-size:11px;color:var(--sub)}
   .kbd{display:inline-block;padding:0 6px;border:1px solid #b8c0cc;border-bottom-width:2px;border-radius:5px;background:#fff;font-size:12px;font-weight:700;white-space:nowrap;line-height:1.5}
   .foot{margin-top:auto;padding-top:6px;border-top:1px solid var(--line);font-size:10px;color:var(--sub);display:flex;justify-content:space-between}
-  .admin{display:grid;grid-template-columns:33% 1fr;gap:11px;align-items:start}
+  .admin{display:grid;grid-template-columns:25% 1fr;gap:11px;align-items:start}
   .devs{display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;margin-top:3px}.devs>div{min-width:0}.admin>*{min-width:0}
   @media print{
     @page{size:A4 portrait;margin:0}
@@ -77,25 +77,25 @@
     <div class="card when">
       <span class="t">前日の 17時</span>
       <p class="d">あすの予定を<b>まとめて1回</b>お知らせします。</p>
-      <div class="ntf"><img src="preview/tsumugi-favicon-chip-128.png" alt=""><div><div class="hd"><span>つむぎ</span><span>17:00</span></div><div class="tt">あすの予定 2件（10/29 木）</div><div class="bd">10:30 担当者会議・14:00 見学</div></div></div>
+      <div class="ntf"><img src="preview/tsumugi-favicon-chip-128.png" alt=""><div><div class="hd"><span>つむぎ</span><span>17:00</span></div><div class="tt">あすの予定 2件（10/29 木）</div><div class="bd">10:30 担当者会議：ご自宅で（○○様）<br>14:00 見学</div></div></div>
       <p class="ex">通知の例</p>
     </div>
     <div class="card when">
       <span class="t">はじまる 30分前</span>
       <p class="d">時間を入れた予定を、<b>1件ずつ</b>お知らせします。</p>
-      <div class="ntf"><img src="preview/tsumugi-favicon-chip-128.png" alt=""><div><div class="hd"><span>つむぎ</span><span>10:00</span></div><div class="tt">あと30分で予定があります</div><div class="bd">10:30 担当者会議</div></div></div>
+      <div class="ntf"><img src="preview/tsumugi-favicon-chip-128.png" alt=""><div><div class="hd"><span>つむぎ</span><span>10:00</span></div><div class="tt">予定30分前</div><div class="bd">10:30 担当者会議：ご自宅で（○○様）</div></div></div>
       <p class="ex">通知の例</p>
     </div>
   </div>
   <ul class="note" style="font-size:12px;color:var(--ink)">
     <li>夜（20時〜朝7時）は送りません。</li>
     <li>時間を入れていない予定（終日）は、前日のお知らせだけです。</li>
-    <li>前日の時刻・何分前に送るか・どの予定を送るかは、店舗ごとに変えられます。変えるときは管理者の方が設定してください（裏面）。</li>
+    <li>送る時刻・どの予定を送るか・中身を出すかは、店舗ごとに管理者の方が設定します（裏面）。</li>
   </ul>
 
   <h2>安心して使えるように</h2>
   <div class="safe">
-    <div><b>利用者名は出ません</b><p>通知の文は、予定の種類（担当者会議など）と時刻だけです。ロック画面に出ても安心です。</p></div>
+    <div><b>ロック中は中身を隠せます</b><p>通知には題名と利用者名が出ます。ロック中に隠すのは端末の設定で（裏面）。7日開いていない端末には種類と時刻だけ。</p></div>
     <div><b>押すとカレンダーへ</b><p>通知を押すと、つむぎのカレンダーが開きます。中身を見るにはログインが必要です。</p></div>
     <div><b>ログアウト中も届きます</b><p>止めたいときは、その端末で「この端末には届けない」を押します。</p></div>
   </div>
@@ -135,7 +135,7 @@
     </div>
     <div class="step">
       <div class="h"><span class="n">3</span><span>「テスト通知を送る」を押して、届くか確かめます。</span></div>
-      <figure><img src="manual/img/push_card_test.jpg" alt="この端末に届きましたと出たところ"><figcaption>「この端末に届きました」と出て、画面の端に通知が出れば完了です。</figcaption></figure>
+      <figure><img src="manual/img/push_card_test_n.jpg" alt="この端末に届きましたと出たところ"><figcaption>「この端末に届きました」と出て、画面の端に通知が出れば完了です。</figcaption></figure>
     </div>
   </div>
 
@@ -150,21 +150,22 @@
         <div><b>Mac</b>：「システム設定」の「通知」で「Google Chrome」など。アプリとして入れたときは「つむぎ」。</div>
         <div><b>Windows</b>：「設定」の「システム」の「通知」で「Google Chrome」など。「応答不可」もオフ。</div>
       </div></td></tr>
+    <tr><td class="s">ロック中は中身を<br>隠したい</td><td><b>iPhone・iPad</b>：「設定」→「通知」→「つむぎ」→「プレビューを表示」→「ロックされていないとき」。<b>Android</b>：「ロック画面の通知」→「内容を隠す」。</td></tr>
     <tr><td class="s">通知がブロック<br>されています</td><td>端末の設定（パソコンはアドレス欄の左のマークから「サイトの設定」）で、つむぎの通知を「許可」にしてから、もう一度ボタンを押します。</td></tr>
   </table>
 
   <h2>管理者の方へ（店舗の設定）</h2>
   <div class="admin">
-    <figure><img src="manual/img/push_store.jpg" alt="予定のお知らせ（店舗の設定）"></figure>
+    <figure><img src="manual/img/push_store_n.jpg" alt="予定のお知らせ（店舗の設定）"></figure>
     <div class="card g">
-      <p>「各種設定」の検索に「通知」と入れ、<b>「予定のお知らせ（店舗の設定）」</b>を開きます。店舗のすべての端末に共通の設定なので、変えるときは管理者の方が行ってください。</p>
+      <p>「各種設定」の検索に「通知」と入れ、<b>「予定のお知らせ（店舗の設定）」</b>を開きます。全端末に共通なので、管理者の方が変えてください。</p>
       <ul style="margin-top:5px">
+        <li><b>通知に予定の中身を出す</b>：はじめはオン。つむぎを7日（変えられます）開いていない端末には、種類と時刻だけを届けます。</li>
         <li><b>前日にお知らせ</b>：15時〜19時から選べます（はじめは17時）。</li>
         <li><b>はじまる前にお知らせ</b>：15分前・30分前・60分前から選べます（はじめは30分前）。</li>
-        <li><b>お知らせする予定</b>：ラベルを押すと切り替わります。線が引かれたラベルの予定は送りません。</li>
+        <li><b>お知らせする予定</b>：ラベル（予定の色の名前）を押すと切り替わります。線が引かれたラベルの予定は送りません。</li>
         <li>店舗全体で止めるときは「予定のお知らせを送る」を外します。</li>
       </ul>
-      <p class="note" style="margin-top:5px">ラベルは、カレンダーで予定に付ける色の名前です（担当者会議・契約・見学など）。</p>
     </div>
   </div>
   <div class="foot"><span>画面はすべて見本（架空）のデータです。</span><span>2 / 2</span></div>
