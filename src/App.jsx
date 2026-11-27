@@ -2183,8 +2183,15 @@ const tsumugiBuildPrintSrcDoc = (html) => {
   return `<!DOCTYPE html><html><head><meta charset="utf-8">${head}<style>@page{margin:0;}html,body{margin:0;padding:0;background:white;}.no-print,.fax-no-print{display:none!important;}</style></head><body>${html || ''}</body></html>`;
 };
 // iPad/iPhone では fetch の後に window.open すると開けない(ユーザー操作の外)ため、クリック時に先に空の窓を開いて渡す
-const tsumugiOpenPdfWindow = () => { if (!tsumugiIsIOS()) return null; try { const w = window.open('', '_blank'); if (w) { try { w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>PDFを作成中…</title></head><body style="font-family:-apple-system,sans-serif;padding:40px;color:#334155;font-size:18px;">PDFを作成しています。しばらくお待ちください…</body></html>'); w.document.close(); } catch {} } return w; } catch { return null; } };
+// ★ 2026-11-27 1127c(ユーザー「iPad で連絡帳をダウンロードすると『PDFを作成しています』で止まる」): ホーム画面のアプリでは先に開いた別タブへ
+//   PDF(blob)を渡せず、別タブが作成中のまま残る。画面の中の小窓(App の pdfJob・window.__tsuPdfJobHost)があるときは別タブを開かない
+const tsumugiPdfJobEmit = (job) => { try { window.dispatchEvent(new CustomEvent('tsumugi-pdf-job', { detail: job })); } catch {} };
+const tsumugiOpenPdfWindow = () => { if (!tsumugiIsIOS()) return null; if (typeof window !== 'undefined' && window.__tsuPdfJobHost) return null; try { const w = window.open('', '_blank'); if (w) { try { w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>PDFを作成中…</title></head><body style="font-family:-apple-system,sans-serif;padding:40px;color:#334155;font-size:18px;">PDFを作成しています。しばらくお待ちください…</body></html>'); w.document.close(); } catch {} } return w; } catch { return null; } };
 async function tsumugiServerPdf({ html, pageSize, title, win, onReady }) {
+  // ★ 1127c: iPhone/iPad は画面の中の小窓で作成中→できました(共有・印刷/新しいタブで開く)を出す(別タブは使わない)
+  const _job = !onReady && tsumugiIsIOS() && typeof window !== 'undefined' && !!window.__tsuPdfJobHost;
+  if (_job) { if (win) { try { win.close(); } catch {} win = null; } tsumugiPdfJobEmit({ status: 'busy', title: String(title || 'document') }); }
+  if (_job) { try { await tsumugiServerPdf({ html, pageSize, title, onReady: (url, fname, blob) => tsumugiPdfJobEmit({ status: 'ready', title: String(title || 'document'), url, fname, blob }) }); } catch (e) { tsumugiPdfJobEmit(null); throw e; } return; }
   // ★ 2026-11-24 trial624(ユーザー「iPad で連絡帳の PDF が『PDFを作成中』のまま止まる」): 75 秒で時間切れにして案内を出す(待ち続けて白い画面にならないように)
   const _ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null; const _tm = setTimeout(() => { try { _ctl && _ctl.abort(); } catch {} }, 75000);
   let r; try { r = await fetch('/api/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html, pageSize: pageSize || 'A4 portrait', title: title || 'document' }), ...(_ctl ? { signal: _ctl.signal } : {}) }); }
@@ -2198,7 +2205,7 @@ async function tsumugiServerPdf({ html, pageSize, title, win, onReady }) {
   else if (win && !win.closed) { try { win.location.href = url; } catch { win.close(); window.open(url, '_blank'); } }
   else if (tsumugiIsIOS()) { const w2 = window.open(url, '_blank'); if (!w2) { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); } }
   else { const a = document.createElement('a'); a.href = url; a.download = fname; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
-  setTimeout(() => URL.revokeObjectURL(url), 120000);
+  setTimeout(() => URL.revokeObjectURL(url), 600000); // ★ 1127c: 小窓の「新しいタブで開く」を後で押しても開けるように 10 分
 }
 // ★ 2026-10-04(ユーザー指示): 氏名マスキングは「必要な画面のダウンロードボタンの横」に置く(休み連絡・各種連絡・計画書/送付状・利用者実績・モニタリング・分析個人・フェイスシート)。
 //   画面のスイッチが ON の間だけ直接ダウンロード(directPdf)が氏名を○に置き換える。画面を離れると OFF に戻る
@@ -24081,6 +24088,9 @@ export default function App() {
   //   氏名マスキングはヘッダーの共通スイッチ(printMaskNames)。連絡帳・日誌には効かせない。
   const _maskRef = React.useRef({ on: false, fn: (h) => h }); _maskRef.current = { on: printMaskNames, fn: _maskPrintHtml };
   const [pdfJob, setPdfJob] = useState(null); // null | {status:'busy'|'ready'|'error', title, url?, fname?, error?}
+  // ★ 2026-11-27 1127c: 連絡帳など各画面のサーバーPDF(tsumugiServerPdf)も、iPhone/iPad はこの小窓で受け取る
+  React.useEffect(() => { window.__tsuPdfJobHost = true; const on = (e) => setPdfJob(e.detail || null); window.addEventListener('tsumugi-pdf-job', on);
+    return () => { window.removeEventListener('tsumugi-pdf-job', on); window.__tsuPdfJobHost = false; }; }, []);
   // ★ 2026-10-05(ユーザー指示「ダウンロードしただけで送付履歴に出る。FAXしない限り送付履歴に入れなくていい」):
   //   以前はここで faxHistory に「ダウンロード（DL済）」を自動追加していたが廃止。送付履歴は FAX 送信(各種連絡の送信)だけ。
   //   休み連絡の送付状の「ダウンロード済」状態(tsumugi:printed の method:'pdf')はそのまま
