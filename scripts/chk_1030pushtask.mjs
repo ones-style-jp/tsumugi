@@ -26,7 +26,7 @@ let its = planStore(base, at(9, 5), {});
 const tm = its.find(x => x.kind === 'taskMorning'); const bt = its.filter(x => x.kind === 'beforeTask');
 console.log('9:05', JSON.stringify(its.map(x => [x.kind, x.title, x.body])));
 r.morning = !!tm && tm.title === '今日のタスク 3件・期限切れ 6件' && !/架空/.test(tm.title + tm.body) && tm.path === '/?tsugo=dashboard';
-r.before = bt.length === 1 && bt[0].title === 'あと15分でタスクの時刻です' && /09:20 タスク/.test(bt[0].body) && bt[0].key.includes('|t6|');
+r.before = bt.length === 1 && bt[0].title === 'タスク15分前' && /09:20 タスク/.test(bt[0].body) && bt[0].key.includes('|t6|');
 r.early = !planStore(base, at(8, 59), {}).some(x => x.kind === 'taskMorning');
 r.sentOnce = !planStore(base, at(9, 30), { 's|tm|2026-10-30': 1 }).some(x => x.kind === 'taskMorning');
 const c = openTaskCounts(events, '2026-10-30', { closedDays: [0], holidays: [] }); console.log('数', JSON.stringify(c)); r.counts = c.nToday === 3 && c.nOver === 6; // 期限切れ = t2・t3 の4回(10/24・26・27・28)・t7 の9月の回(9/30)

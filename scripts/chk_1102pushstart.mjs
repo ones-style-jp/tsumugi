@@ -22,5 +22,5 @@ r.notBefore = !kinds(at(9, 59)).some(k => k.startsWith('start'));
 r.window = kinds(at(10, 9)).includes('start:e1') && !kinds(at(10, 10)).some(k => k.startsWith('start'));
 r.once = !kinds(at(10, 3), { 's|s|e1|2026-11-02': 1, 's|s|t1|2026-11-02': 1 }).some(k => k.startsWith('start'));
 r.off = !kinds(at(10, 0), {}, { atStart: false }).some(k => k.startsWith('start'));
-const it = planStore(base, at(10, 0), {}).find(x => x.kind === 'start'); r.text = !!it && it.title === '予定の時刻です' && it.body === '10:00 会議' && it.tag === 'tsumugi-s-e1-2026-11-02';
+const it = planStore(base, at(10, 0), {}).find(x => x.kind === 'start'); r.text = !!it && it.title === '予定の時刻' && it.body === '10:00 会議' && it.tag === 'tsumugi-s-e1-2026-11-02';
 console.log(r, Object.values(r).every(Boolean) ? 'PASS' : 'FAIL'); process.exit(Object.values(r).every(Boolean) ? 0 : 1);

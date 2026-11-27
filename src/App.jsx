@@ -22399,6 +22399,10 @@ export default function App() {
   // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名 URL 用に、店舗IDとログインの証を部品側へ渡す
   useEffect(() => { try { setFilesContext({ storeId: staffSession?.storeId || null, staffToken: staffSession?.token || null }); } catch {} }, [staffSession?.storeId, staffSession?.token]);
   useEffect(() => { if (staffSession?.token && staffSession?.storeId) tsuPushRefresh(); }, [staffSession?.token, staffSession?.storeId]); // ★ 2026-10-27: 通知の登録を確かめ直す
+  // ★ 2026-11-27 trial645: 通知の中身は「つむぎを N 日開いていない端末」には伏せる(サーバーの seen)。開いたままの端末も、画面に戻ったとき6時間ごとに知らせる
+  useEffect(() => { if (!staffSession?.token || !staffSession?.storeId) return;
+    const on = () => { if (document.visibilityState !== 'visible') return; let last = 0; try { last = Number(localStorage.getItem('tsumugiPushSeenAt') || 0); } catch {} if (Date.now() - last < 6 * 3600000) return; tsuPushRefresh(); };
+    document.addEventListener('visibilitychange', on); return () => document.removeEventListener('visibilitychange', on); }, [staffSession?.token, staffSession?.storeId]);
   // ★ 2026-10-17 データ保護(段階1): ログイン中は Supabase の証を起動時に取り直し、以後12時間ごとに更新(証は24時間有効)。
   //   ログインの証が切れていたら(サーバーが expired)ログアウトして入り直してもらう
   React.useEffect(() => {
@@ -49192,8 +49196,18 @@ async function tsuPushRefresh() {
     let dev = ''; try { dev = localStorage.getItem('tsumugiDeviceName') || ''; } catch {}
     await tsuPushApi({ action: 'subscribe', sub: sub.toJSON(), device: dev, origin: location.origin });
     _tsuPushStoreMark(true);
+    try { localStorage.setItem('tsumugiPushSeenAt', String(Date.now())); } catch {} // ★ trial645
   } catch {}
 }
+// ★ 2026-11-27 trial645: ロック中は通知の中身を隠す(解除すると見える)端末の設定の案内
+const tsuPushLockHelp = () => {
+  const ua = navigator.userAgent || '';
+  if (tsuIsIOSDevice()) return 'iPhone・iPad の「設定」→「通知」→「つむぎ」→「プレビューを表示」を「ロックされていないとき」にしてください。ロック中は「通知」とだけ出て、ロックを解除すると中身が見えます。';
+  if (/Android/.test(ua)) return 'Android の「設定」→「通知」→「ロック画面の通知」（機種によっては「ロック画面」→「通知」）で「内容を隠す」（機密性の高い内容を表示しない）を選んでください。';
+  if (/Macintosh|Mac OS X/.test(ua)) return 'Mac の「システム設定」→「通知」→「プレビューを表示」を「ロックされていないとき」にしてください。';
+  if (/Windows/.test(ua)) return 'Windows の「設定」→「システム」→「通知」で「ロック画面に通知を表示する」をオフにしてください。';
+  return '端末の通知の設定で、ロック中は通知の内容を隠すようにしてください。';
+};
 // 各種設定 → システム: この端末の通知
 function TsuPushDeviceCard() {
   const [st, setSt] = React.useState({ loading: true }); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
@@ -49214,7 +49228,7 @@ function TsuPushDeviceCard() {
   const btn = 'px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50';
   return (
     <div data-testid="push-device-card">
-      <div className="tsu-hint-row mb-3"><TsuHint>カレンダーの予定（担当者会議など）を、前日とはじまる前にこの端末へお知らせします。通知の文には利用者名は出ません。</TsuHint></div>
+      <div className="tsu-hint-row mb-3"><TsuHint>カレンダーの予定（担当者会議など）を、前日とはじまる前にこの端末へお知らせします。通知に予定の中身（題名・利用者名）を出すかは、店舗の「予定のお知らせ」の設定で決まります。</TsuHint></div>
       {st.loading ? <div className="text-xs text-slate-500">確認しています…</div> : !st.supported ? (
         <div data-testid="push-unsupported" className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">{iosNeedsHome ? <>iPhone・iPad は、<b>ホーム画面に追加したつむぎ</b>で使えます（Safari の共有ボタン → ホーム画面に追加）。追加したつむぎを開いて、ここをもう一度開いてください。iOS 16.4 以上が必要です。</> : 'この端末・ブラウザは通知に対応していません（Chrome・Edge・Safari の新しい版で使えます）。'}</div>
       ) : (
@@ -49229,6 +49243,7 @@ function TsuPushDeviceCard() {
             {st.on && <button type="button" data-testid="push-test" disabled={busy} onClick={runTest} className={`${btn} bg-white border border-blue-300 text-blue-700`}>テスト通知を送る</button>}
             {st.on && <button type="button" data-testid="push-disable" disabled={busy} onClick={() => run(tsuPushDisable, 'この端末には届かないようにしました')} className={`${btn} bg-white border border-slate-300 text-slate-600`}>この端末には届けない</button>}
           </div>
+          {st.on && <div data-testid="push-lock-help" className="text-xs text-slate-700 leading-relaxed"><b>ロック中は中身を隠すには:</b> {tsuPushLockHelp()}</div>}
         </div>
       )}
       {msg && <div data-testid="push-msg" className="mt-2 text-xs font-bold text-slate-700">{msg}</div>}
@@ -49246,7 +49261,7 @@ function TsuPushDeviceCard() {
 // 各種設定 → システム: 予定のお知らせ(店舗の設定・全端末共通)
 const TSU_PUSH_DEFAULT_LABELS = [{ color: '#3b82f6', label: '担当者会議' }, { color: '#ef4444', label: '契約' }, { color: '#10b981', label: '見学' }, { color: '#f59e0b', label: '避難訓練' }, { color: '#8b5cf6', label: '行事' }, { color: '#0ea5e9', label: 'その他' }];
 function TsuPushStoreCard({ appData, saveSS }) {
-  const ss = appData.systemSettings || {}; const cfg = { on: true, dayBefore: true, dayBeforeAt: '17:00', before: true, beforeMin: 30, offColors: [], taskMorning: true, taskMorningAt: '09:00', atStart: true, ...(ss.pushNotify || {}) }; // ★ 2026-11-02: atStart
+  const ss = appData.systemSettings || {}; const cfg = { on: true, dayBefore: true, dayBeforeAt: '17:00', before: true, beforeMin: 30, offColors: [], taskMorning: true, taskMorningAt: '09:00', atStart: true, detail: true, detailDays: 7, ...(ss.pushNotify || {}) }; // ★ 2026-11-02: atStart ★ 2026-11-27 trial645: detail・detailDays
   const labels = (Array.isArray(ss.scheduleColorLabels) && ss.scheduleColorLabels.length) ? ss.scheduleColorLabels : TSU_PUSH_DEFAULT_LABELS;
   const off = new Set((cfg.offColors || []).map(x => String(x).toLowerCase()));
   const set = (patch, m) => saveSS({ pushNotify: { ...cfg, ...patch } }, m || '✓ 予定のお知らせの設定を保存しました');
@@ -49256,13 +49271,22 @@ function TsuPushStoreCard({ appData, saveSS }) {
       <div className="tsu-hint-row"><TsuHint>この店舗の、通知を届ける端末すべてに共通の設定です。夜（20時〜7時）は送りません。</TsuHint></div>
       <label className="flex items-center gap-2 text-sm font-bold text-slate-700"><input type="checkbox" data-testid="push-cfg-on" checked={cfg.on !== false} onChange={e => set({ on: e.target.checked })} className="w-5 h-5"/>予定のお知らせを送る</label>
       <div className={`space-y-2 ${cfg.on === false ? 'opacity-50 pointer-events-none' : ''}`}>
+        {/* ★ 2026-11-27 trial645(ユーザー「予定があります、だけでは開かないと分からない。何日もログインしていない端末は伏せる」): 中身を出す・N日開いていない端末は伏せる */}
+        <div data-testid="push-cfg-detail-box" className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 space-y-2">
+          <label className="flex items-center gap-2 text-sm font-bold text-slate-700"><input type="checkbox" data-testid="push-cfg-detail" checked={cfg.detail !== false} onChange={e => set({ detail: e.target.checked })} className="w-5 h-5"/>通知に予定の中身を出す（題名・利用者名・タスクの名前）</label>
+          <div className={`flex items-center gap-2 flex-wrap text-sm ${cfg.detail === false ? 'opacity-50 pointer-events-none' : ''}`}><span>つむぎを</span>
+            <select data-testid="push-cfg-detail-days" value={String(cfg.detailDays || 7)} onChange={e => set({ detailDays: Number(e.target.value) })} className={sel}>{[3, 7, 14, 30].map(d => <option key={d} value={d}>{d}日</option>)}</select>
+            <span>開いていない端末には、中身を伏せる（ラベルと時刻だけ）</span></div>
+          <div data-testid="push-cfg-detail-example" className="text-xs text-slate-600">通知の例: {cfg.detail !== false ? '「予定30分前　10:00 担当者会議：ご自宅で（○○様）」' : '「予定30分前　10:00 担当者会議」'}</div>
+          <div className="tsu-hint-row"><TsuHint>ロック中は中身を隠し、ロックを解除すると見えるようにするには、各端末の設定を変えてください。<br/>iPhone・iPad: 「設定」→「通知」→「つむぎ」→「プレビューを表示」を「ロックされていないとき」に。<br/>Android: 「設定」→「通知」→「ロック画面の通知」で「内容を隠す」（機種によっては「ロック画面」→「通知」）。<br/>各端末の「この端末の通知」にも、その端末での手順が出ます。</TsuHint></div>
+        </div>
         <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-daybefore" checked={cfg.dayBefore !== false} onChange={e => set({ dayBefore: e.target.checked })} className="w-5 h-5"/>前日にお知らせ</label>
           <select data-testid="push-cfg-daybefore-at" value={cfg.dayBeforeAt || '17:00'} onChange={e => set({ dayBeforeAt: e.target.value })} className={sel}>{['15:00','16:00','17:00','18:00','19:00'].map(t => <option key={t} value={t}>{t}</option>)}</select><span className="text-xs text-slate-500">あすの予定をまとめて1回</span></div>
         <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-before" checked={cfg.before !== false} onChange={e => set({ before: e.target.checked })} className="w-5 h-5"/>はじまる前にお知らせ</label>
           <select data-testid="push-cfg-before-min" value={String(cfg.beforeMin || 30)} onChange={e => set({ beforeMin: Number(e.target.value) })} className={sel}>{[15, 30, 60].map(m => <option key={m} value={m}>{m}分前</option>)}</select><span className="text-xs text-slate-500">時間の入った予定・タスクだけ</span></div>
         {/* ★ 2026-11-02(ユーザー要望): 開始の時刻ちょうどにも1通 */}
         <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-atstart" checked={cfg.atStart !== false} onChange={e => set({ atStart: e.target.checked })} className="w-5 h-5"/>はじまる時刻にもお知らせ</label>
-          <span className="text-xs text-slate-500">「予定の時刻です」「タスクの時刻です」を開始の時刻に1回</span></div>
+          <span className="text-xs text-slate-500">「予定の時刻」「タスクの時刻」を開始の時刻に1回</span></div>
         {/* ★ 2026-10-30: タスクの朝のお知らせ(今日のタスクと期限切れの数を1回・題名は出さない) */}
         <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-taskmorning" checked={cfg.taskMorning !== false} onChange={e => set({ taskMorning: e.target.checked })} className="w-5 h-5"/>タスクを朝にお知らせ</label>
           <select data-testid="push-cfg-taskmorning-at" value={cfg.taskMorningAt || '09:00'} onChange={e => set({ taskMorningAt: e.target.value })} className={sel}>{['07:30','08:00','08:30','09:00','09:30','10:00'].map(t => <option key={t} value={t}>{t}</option>)}</select><span className="text-xs text-slate-500">今日のタスクと期限切れの数を1回</span></div>
