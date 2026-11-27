@@ -48016,7 +48016,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           appData={appData}
           initialTab={personalFileModal.initialTab}
           focusSection={personalFileModal.focus}
-          onSave={(updated)=>{ onSave(updated); }}
+          onSave={(updated, opts)=>{ /* ★ 2026-11-27 trial652: 結果の文の指定(manual/message)を渡す(渡しておらず「削除しています…」「保存しました」が出なかった) */ onSave(updated, opts); }}
           onClose={()=>setPersonalFileModal(null)}
           navigateTo={navigateTo}
           onPatientChange={onPatientChange}
