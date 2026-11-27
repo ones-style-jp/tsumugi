@@ -251,8 +251,8 @@ const DataExportSection = ({ appData }) => {
   const [patientMode, setPatientMode] = React.useState('all');
   const [selectedPatientIds, setSelectedPatientIds] = React.useState([]);
   const [patientSearchQ, setPatientSearchQ] = React.useState('');
-  // 出力形式: 'html' (高速) or 'pdf' (実PDF, 重い)
-  const [outputFormat, setOutputFormat] = React.useState('pdf');
+  // ★ 2026-11-27 1127a: 出力は利用者の基本情報の CSV だけ(PDF/HTML と期間の選択は外した)。下の提供記録などの出力は include が false のまま使っていない
+  const outputFormat = 'html';
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState('');
 
@@ -387,7 +387,7 @@ const DataExportSection = ({ appData }) => {
       const zip = new JSZip();
       const { start, end, label } = getRange();
       const stamp = new Date().toISOString().slice(0,10);
-      const rootDir = `daycare_export_${stamp}_${label.replace(/[\/\\:?]/g,'-')}`;
+      const rootDir = `tsumugi_利用者情報_${stamp}`; // ★ 1127a: 期間の選択は外した(利用者情報は今の内容)
       const root = zip.folder(rootDir);
       // HTML を PDF に変換して追加するヘルパー
       const addHtmlOrPdf = async (folder, baseName, htmlStr, opts) => {
@@ -716,28 +716,21 @@ ${allPagesHtml}
       }
 
       // README
-      root.file('README.txt', `Tsumugi (つむぎ) データエクスポート
+      root.file('README.txt', `つむぎ 利用者情報の一括ダウンロード
 
-期間: ${label}
-エクスポート日時: ${new Date().toLocaleString('ja-JP')}
+ダウンロード日時: ${new Date().toLocaleString('ja-JP')}
 
-【含まれるファイル】
-01_利用者一覧.csv  - 利用者基本情報 (Excelで開けます)
-01_緊急連絡先.csv  - 各利用者の緊急連絡先
-02_提供記録/       - 利用者×月ごとの HTML ファイル
-03_体力測定.csv    - 体力測定データ
-04_日誌/            - 1日1ファイルの HTML
-05_休み連絡/        - 送付した休み連絡の控え
-06_各種連絡/        - 送付した各種連絡の控え
+【含まれるファイル】(すべて CSV。Excel でそのまま開けます)
+01_利用者一覧.csv        - 利用者の基本情報
+01_緊急連絡先.csv        - 各利用者の緊急連絡先
+01_ケアマネ事業所.csv    - ケアマネ事業所のマスタ
+01_ケアマネ担当者.csv    - ケアマネ担当者のマスタ
 
-【PDF 化の方法】
-HTML ファイルをブラウザで開き、
-ファイル → 印刷 → 送信先「PDF として保存」を選択するとPDF化できます。
-画面上部の「今すぐ印刷」ボタンでも同じ印刷ダイアログが開きます。
+提供記録・連絡帳・モニタリング・体力測定・日誌などの記録は含まれません。
+それぞれの画面の印刷・PDF から出力してください。
 
-【保管推奨】
-法定保存期間 (多くの自治体で 2〜5 年) を満たすため、
-このZIPをデスクトップやクラウドストレージに保管してください。`);
+【保管】
+個人情報を含みます。パスワードのかかった場所に保管し、使い終わったら削除してください。`);
 
       setProgress('ZIP を圧縮中...');
       const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE', compressionOptions:{level:6} }, (m) => {
@@ -756,33 +749,12 @@ HTML ファイルをブラウザで開き、
 
   return (
     <div className="bg-blue-50 border-2 border-blue-300 rounded-xl p-4 mt-4">
-      <h4 className="text-sm font-bold text-blue-800 mb-2 flex items-center gap-2">データ一括エクスポート (ZIP)</h4>
+      <h4 className="text-sm font-bold text-blue-800 mb-2 flex items-center gap-2" data-testid="export-title">データ一括エクスポート（CSV・Excel で開けます）</h4>
       <p className="text-xs text-slate-700 mb-3 leading-relaxed">
-        利用者基本情報（緊急連絡先・ケアマネ事業所/担当者を含む）を CSV にまとめ、1 つの ZIP ファイルでダウンロードします。<br/>
+        利用者基本情報（緊急連絡先・ケアマネ事業所/担当者を含む）を CSV（Excel で開ける形式）にまとめ、1 つの ZIP ファイルでダウンロードします。PDF ではありません。<br/>
         提供記録・連絡帳・モニタリング・体力測定・日誌などの記録は、それぞれの画面の印刷・PDF から出力してください（この一括エクスポートには含まれません）。
       </p>
       <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-3">
-        {/* 期間選択 */}
-        <div>
-          <div className="text-xs font-bold text-slate-600 mb-1.5">期間</div>
-          <div className="flex gap-2 flex-wrap items-center text-xs">
-            {[['all','全期間'],['year','年単位'],['month','月単位'],['custom','期間指定']].map(([k,l]) => (
-              <label key={k} className={`px-2.5 py-1 rounded-lg border-2 cursor-pointer font-bold ${range===k?'bg-blue-600 border-blue-700 text-white':'bg-white border-slate-200 text-slate-600'}`}>
-                <input type="radio" checked={range===k} onChange={()=>setRange(k)} className="hidden"/>{l}
-              </label>
-            ))}
-            {range === 'year' && <select value={year} onChange={e=>setYear(parseInt(e.target.value))} className="px-2 py-1 border border-slate-300 rounded font-bold">{Array.from({length:6},(_,i)=>today.getFullYear()-i).map(y=><option key={y} value={y}>{y}年</option>)}</select>}
-            {range === 'month' && <>
-              <select value={year} onChange={e=>setYear(parseInt(e.target.value))} className="px-2 py-1 border border-slate-300 rounded font-bold">{Array.from({length:6},(_,i)=>today.getFullYear()-i).map(y=><option key={y} value={y}>{y}年</option>)}</select>
-              <select value={month} onChange={e=>setMonth(parseInt(e.target.value))} className="px-2 py-1 border border-slate-300 rounded font-bold">{Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}</select>
-            </>}
-            {range === 'custom' && <>
-              <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} className="px-2 py-1 border border-slate-300 rounded font-bold"/>
-              <span>〜</span>
-              <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)} className="px-2 py-1 border border-slate-300 rounded font-bold"/>
-            </>}
-          </div>
-        </div>
         {/* 利用者選択 */}
         <div>
           <div className="text-xs font-bold text-slate-600 mb-1.5">対象の利用者</div>
@@ -833,17 +805,10 @@ HTML ファイルをブラウザで開き、
             );
           })()}
         </div>
-        {/* 出力形式 */}
+        {/* ★ 1127a: 出力形式(PDF/HTML)の選択は外した。出るのは CSV だけ */}
         <div>
           <div className="text-xs font-bold text-slate-600 mb-1.5">出力形式</div>
-          <div className="flex gap-2 flex-wrap items-center text-xs">
-            {[['pdf','PDF (推奨)'],['html','HTML (高速)']].map(([k,l]) => (
-              <label key={k} className={`px-2.5 py-1 rounded-lg border-2 cursor-pointer font-bold ${outputFormat===k?'bg-blue-600 border-blue-700 text-white':'bg-white border-slate-200 text-slate-600'}`}>
-                <input type="radio" checked={outputFormat===k} onChange={()=>setOutputFormat(k)} className="hidden"/>{l}
-              </label>
-            ))}
-            <span className="text-[10px] text-slate-500">{outputFormat==='pdf'?'画面表示のままPDF化 (記録数が多いと時間がかかります)':'ファイル数が多くてもすぐ生成。後でブラウザでPDF化'}</span>
-          </div>
+          <div data-testid="export-format" className="text-xs font-bold text-slate-700">CSV（Excel で開けます）を ZIP にまとめます</div>
         </div>
         {/* 含める項目: 利用者基本情報 + 事業所(ケアマネ)情報 のみ */}
         <div>
@@ -859,14 +824,13 @@ HTML ファイルをブラウザで開き、
         <div>
           <button onClick={doExport} disabled={busy}
             className={`w-full py-2 rounded-lg font-bold text-sm ${busy?'bg-slate-300 text-slate-500 cursor-not-allowed':'bg-blue-600 hover:bg-blue-700 text-white shadow active:scale-95'}`}>
-            {busy ? <><BusySpin/>{`処理中...`}</> : 'ZIP でダウンロード'}
+            {busy ? <><BusySpin/>{`処理中...`}</> : 'CSV を ZIP でダウンロード'}
           </button>
           {progress && <div className="text-[11px] text-slate-600 mt-2 text-center font-bold">{busy && <BusySpin/>}{progress}</div>}
         </div>
         <div className="tsu-hint-row"><TsuHint>
-          ・<b>PDF形式</b>: そのまま開ける PDF を生成 (記録数が多いと数十秒〜数分かかります)<br/>
-          ・<b>HTML形式</b>: ブラウザで開いて「印刷 → PDFとして保存」が必要、ただし瞬時に生成<br/>
           ・CSV は UTF-8 (BOM付き) で Excel でそのまま開けます<br/>
+          ・利用者情報は、ダウンロードした時点の内容です（期間の指定はありません）<br/>
           ・お知らせ・写真・モニタリング等はアプリ内で随時参照する想定のため対象外
         </TsuHint></div>
       </div>
