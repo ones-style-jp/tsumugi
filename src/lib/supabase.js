@@ -2,7 +2,7 @@
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
 import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard, pushShrinkGuard, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, mergeObjKeys, pickObjNewer } from './logic.js';
-import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL, mergeEmergencyContacts, histDedup } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
+import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL, mergeEmergencyContacts, histDedup, FAMILY_CONTACT_FL, PATIENT_FIELDLEVEL_KEYS } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -1236,13 +1236,13 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
   //   ローカル(編集端末)を基準にしつつ、ローカルで「空欄」の項目だけクラウドの値で補完する。
   //   → 別端末で運動メニュー(規定数値)・送迎時間を入力しても、古いスナップショットの端末が
   //     保存した際に上書き消去されるのを防ぐ。 ローカルに無い利用者は復活させない(=削除は保持)。
-  const FAMILY_CONTACT_FIELDS = new Set(['familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail']);
+  const FAMILY_CONTACT_FIELDS = new Set(FAMILY_CONTACT_FL); // ★ 1128a/trial659: 一覧は portalLogic.js に(取り込みの側と共通)
   // ★ 利用者の「フィールド単位で時刻(_fieldTs)保護」する項目。 利用者を1項目編集して _savedAt 全体が
   //   更新されても、これらの項目は触っていなければ古い端末の保存で巻き戻らない(基本利用日/送迎/緊急連絡先)。
   // ★ cm系(担当ケアマネ)を追加(2026-09-03): 「担当を変更」が刻印なし=非保護で、別端末の古いスナップショット
   //   保存で担当情報が巻き戻り消えていた(試作店で担当欄がクラウドから消失した実例)。
   // ★ 2026-10-13(西馬込店の報告「個別運動の既定を未設定にして保存しても戻る」): 個別運動の既定/メニューも項目別(新しい方が空でも採用)。従来は空欄をクラウドの旧値で補完していた
-  const PATIENT_FIELDLEVEL = new Set(['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','addressBuilding','addressRoom', ...FAMILY_CONTACT_FIELDS, ...PATIENT_TEXT_FL]); // ★ 2026-10-29: 建物名・部屋番号も(部屋番号を空にして建物名へ移したのが戻らないように)。電話・住所・メール・既往歴など基本情報の文字の項目も(PATIENT_TEXT_FL・消しても戻らないように)
+  const PATIENT_FIELDLEVEL = new Set(PATIENT_FIELDLEVEL_KEYS); // ★ 2026-10-29: 建物名・部屋番号も(部屋番号を空にして建物名へ移したのが戻らないように)。電話・住所・メール・既往歴など基本情報の文字の項目も(PATIENT_TEXT_FL・消しても戻らないように) ★ 1128a/trial659: 一覧は portalLogic.js の PATIENT_FIELDLEVEL_KEYS(項目を足すときはそちらへ)
   // ★ 削除済み書類の墓石を両端末ぶん合算する。 _delDocs = { "<書類id>": 削除時刻(ms) }
   //   和集合(union)マージは「追加を失わない」代わりに削除を必ず復活させるため、墓石で除外する。
   const _mergeDocTombs = (...srcs) => {

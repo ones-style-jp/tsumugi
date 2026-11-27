@@ -24,7 +24,7 @@ const tsuSwallowEvent = (e) => { try { e.stopPropagation(); if (e.cancelable) e.
 const tsuVerParse = (v) => { const m = String(v || '').match(/(\d{4})-(\d{4})(.*)$/); return m ? { d: m[1] + m[2], s: m[3] || '' } : null; };
 const tsuVerBelow = (cur, min) => { const a = tsuVerParse(cur), b = tsuVerParse(min); if (!a || !b) return false; if (a.d !== b.d) return a.d < b.d; if (/trial/.test(a.s)) return false; return a.s < b.s; };
 import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, healPausedAttendRecords, PAUSE_HEAL_FROM, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames, bootCacheKeepable, applyDueInsurance } from './lib/logic';
-import { PATIENT_TEXT_FL, mergeEmergencyContacts, histDedup, appendValueHist, histKeyOf } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL) ★ 2026-11-16 1116d: 緊急連絡先の付き合わせ
+import { PATIENT_TEXT_FL, mergeEmergencyContacts, histDedup, appendValueHist, histKeyOf, patientTakeNewerCloud } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL) ★ 2026-11-16 1116d: 緊急連絡先の付き合わせ
 import {
   isSupabaseEnabled,
   supabaseCreateInvite,
@@ -23923,7 +23923,7 @@ export default function App() {
               if (Array.isArray(prev.patients) && Array.isArray(merged.patients)) {
                 const _pTomb = (merged.deletedIds && merged.deletedIds.patients) || {};
                 const _byId = new Map(prev.patients.filter(p=>p&&p.id!=null).map(p => [String(p.id), p]));
-                let _kept = 0;
+                let _kept = 0, _fl659 = 0;
                 merged.patients = merged.patients.map(cp => {
                   if (!cp || cp.id == null) return cp;
                   const lp = _byId.get(String(cp.id));
@@ -23932,10 +23932,14 @@ export default function App() {
                   if (lt > ct) {
                     _kept++;
                     // ★ 2026-11-16 1116d: 手元を保つときも、クラウドにだけある「ご家族の登録で入った緊急連絡先」は足す(push 側 mergePatientBackfill と同じ計算)
+                    let _lp2 = lp;
                     try { const _m = mergeEmergencyContacts(lp, cp, true); if (_m.emergencyContacts !== undefined && JSON.stringify(_m.emergencyContacts) !== JSON.stringify(lp.emergencyContacts || [])) {
                       const _ft = { ...(lp._fieldTs || {}) }; const _mx = Math.max(Number(_ft.emergencyContacts) || 0, Number(cp._fieldTs && cp._fieldTs.emergencyContacts) || 0); if (_mx) _ft.emergencyContacts = _mx;
-                      return { ...lp, emergencyContacts: _m.emergencyContacts, ...(_m._deletedEC.length ? { _deletedEC: _m._deletedEC } : {}), ...(Object.keys(_ft).length ? { _fieldTs: _ft } : {}) }; } } catch {}
-                    return lp;
+                      _lp2 = { ...lp, emergencyContacts: _m.emergencyContacts, ...(_m._deletedEC.length ? { _deletedEC: _m._deletedEC } : {}), ...(Object.keys(_ft).length ? { _fieldTs: _ft } : {}) }; } } catch {}
+                    // ★ 2026-11-28 1128a/trial659: 手元を残すときも、項目の時刻がクラウドの方が新しい項目(ほかの端末が直した認定有効期間・基本利用日・送迎 など)はクラウドの値に。
+                    //   保存のときの付き合わせ(mergePatientBackfill)と同じ結果にそろえる。そろえないと、クラウドは正しいのにこの端末の画面だけ前の内容のままになる(保存のあとは取り直さない trial624)
+                    try { const _lp3 = patientTakeNewerCloud(_lp2, cp); if (_lp3 !== _lp2) { _lp2 = _lp3; _fl659++; } } catch {}
+                    return _lp2;
                   }
                   return cp;
                 });
@@ -23945,7 +23949,7 @@ export default function App() {
                   const k = String(lp.id);
                   if (!_cloudIds.has(k) && !_pTomb[k]) { merged.patients.push(lp); _kept++; }
                 });
-                if (_kept) { _mergedForPush = merged; syncLog('pull-preserve-pat', { kept: _kept }); }
+                if (_kept) { _mergedForPush = merged; syncLog('pull-preserve-pat', { kept: _kept, ...(_fl659 ? { cloudFields: _fl659 } : {}) }); }
               }
               // 月間シフト: 利用者×月の時刻(_msTs)が新しい手元を維持(振替・取り消し直後の一瞬巻き戻り防止)
               if (prev.monthlyShifts && typeof prev.monthlyShifts === 'object') {

@@ -153,3 +153,35 @@ describe('histDedup / appendValueHist(介護度・負担割合の変更履歴・
     expect(n2.patients[0].careLevelHistory.length).toBe(2);
   });
 });
+
+import { patientTakeNewerCloud, PATIENT_FIELDLEVEL_KEYS } from './portalLogic.js';
+describe('patientTakeNewerCloud(取り込みで手元を残すとき・クラウドの方が新しい項目だけクラウドの値・1128a)', () => {
+  const lp = { id: 7, name: '見本 一郎', _savedAt: 200, ryui: '手元で書いた', careLevel: '要介護1', careLevelFrom: '2025-10-22', careLevelTo: '2026-10-21',
+    careLevelHistory: [{ value: '要介護1', from: '2025-10-22' }], scheduleAmPm: ['AM', '', '', '', '', '', ''], _fieldTs: { ryui: 200, careLevelFrom: 50, careLevelTo: 50, careLevelHistory: 50, scheduleAmPm: 90 } };
+  const cp = { id: 7, name: '見本 一郎', _savedAt: 100, ryui: '', careLevel: '要介護1', careLevelFrom: '2026-11-01', careLevelTo: '2027-10-31',
+    careLevelHistory: [{ value: '要介護1', from: '2025-10-22' }, { value: '要介護1', from: '2026-11-01' }, { value: '要介護1', from: '2026-11-01', note: '認定更新' }], scheduleAmPm: ['PM', '', '', '', '', '', ''],
+    _fieldTs: { ryui: 10, careLevelFrom: 100, careLevelTo: 100, careLevelHistory: 100, scheduleAmPm: 90 } };
+  it('クラウドの方が新しい項目だけクラウドの値になり、手元で直した項目は残る', () => {
+    const o = patientTakeNewerCloud(lp, cp);
+    expect(o).not.toBe(lp);
+    expect([o.careLevelFrom, o.careLevelTo]).toEqual(['2026-11-01', '2027-10-31']);
+    expect(o.careLevelHistory.map(h => `${h.value}|${h.from}`)).toEqual(['要介護1|2025-10-22', '要介護1|2026-11-01']); // 同じ行は 1 件に
+    expect(o.ryui).toBe('手元で書いた'); expect(o.scheduleAmPm[0]).toBe('AM'); // 時刻が同じ・手元が新しい → 手元
+    expect(o._savedAt).toBe(200);
+    expect(o._fieldTs).toMatchObject({ ryui: 200, careLevelFrom: 100, careLevelTo: 100, careLevelHistory: 100, scheduleAmPm: 90 });
+    expect(lp.careLevelFrom).toBe('2025-10-22'); // 元は変えない
+  });
+  it('変えるものが無ければ同じものを返す・時刻の無いこれまでのデータは手元のまま', () => {
+    expect(patientTakeNewerCloud(lp, { ...cp, _fieldTs: { careLevelFrom: 50 } })).toBe(lp);
+    expect(patientTakeNewerCloud(lp, { ...cp, _fieldTs: undefined })).toBe(lp);
+    expect(patientTakeNewerCloud(lp, null)).toBe(lp);
+  });
+  it('クラウドで空にした項目は空になる・緊急連絡先は触らない(別の決まり)', () => {
+    const l2 = { id: 1, phone: '000', emergencyContacts: [{ id: 'a' }], _fieldTs: { phone: 1, emergencyContacts: 1 } };
+    const o = patientTakeNewerCloud(l2, { id: 1, emergencyContacts: [], _fieldTs: { phone: 5, emergencyContacts: 5 } });
+    expect('phone' in o).toBe(false); expect(o.emergencyContacts).toEqual([{ id: 'a' }]); expect(o._fieldTs.emergencyContacts).toBe(1);
+  });
+  it('一覧に保険証の項目と文字の項目が入っている', () => {
+    ['careLevel', 'careLevelFrom', 'careLevelTo', 'costBurden', 'costBurdenFrom', 'costBurdenTo', 'scheduleAmPm', 'cmOffice', 'familyPhone', 'phone', 'ryui'].forEach(k => expect(PATIENT_FIELDLEVEL_KEYS).toContain(k));
+  });
+});

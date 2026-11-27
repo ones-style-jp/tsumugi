@@ -11,6 +11,27 @@
 //   ここ(ご家族・ケアマネの保存)でも、直した項目に時刻を刻む(刻まないと事業所の端末の古い時刻に負けて、ご家族の直しが戻る)
 export const PATIENT_TEXT_FL = ['phone','phoneMobile','email','zipCode','address','prefecture','city','addressLine','building','kiou','ryui','doctor','medicalInstitution','medicalContact','hihokenNum','kana','kanaLast','kanaFirst','gender','birthDate'];
 
+// ★ 2026-11-28 1128a/trial659: 利用者の「項目ごとに新しい方を残す」項目の一覧(supabase.js の保存のときの付き合わせ PATIENT_FIELDLEVEL と、下の patientTakeNewerCloud で共通)
+export const FAMILY_CONTACT_FL = ['familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail'];
+export const PATIENT_FIELDLEVEL_KEYS = ['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','addressBuilding','addressRoom', ...FAMILY_CONTACT_FL, ...PATIENT_TEXT_FL];
+// ★ 2026-11-28 1128a/trial659(テスト店舗の 2 台の確認で見つけた): 取り込みは「手元の利用者の方が新しく保存されている(_savedAt)」と、その方を手元のまま丸ごと残す。
+//   でも保存のときの付き合わせは項目ごと(_fieldTs)なので、ほかの端末が直した認定有効期間などは、クラウドには正しく残るのに、この端末の画面だけ前の内容のままになっていた
+//   (保存のあとは取り直さない決まり trial624 なので、ほかの端末が次に何か保存するまで直らない)。
+//   → 手元を残すときも、項目の時刻がクラウドの方が新しい項目だけはクラウドの値にする(保存のときと同じ結果)。変更履歴(介護度・負担割合)も同じ決まり。
+//   緊急連絡先は別の決まり(mergeEmergencyContacts)なのでここでは触らない。変えるものが無ければ lp をそのまま返す
+export function patientTakeNewerCloud(lp, cp) {
+  if (!lp || !cp || typeof lp !== 'object' || typeof cp !== 'object') return lp;
+  const lf = (lp._fieldTs && typeof lp._fieldTs === 'object') ? lp._fieldTs : {};
+  const cf = (cp._fieldTs && typeof cp._fieldTs === 'object') ? cp._fieldTs : {};
+  let out = null, ft = null;
+  const take = (k, v) => { if (!out) { out = { ...lp }; ft = { ...lf }; } if (v === undefined) delete out[k]; else out[k] = v; ft[k] = Number(cf[k]); };
+  PATIENT_FIELDLEVEL_KEYS.forEach(k => { if (k === 'emergencyContacts') return; if ((Number(cf[k]) || 0) > (Number(lf[k]) || 0)) take(k, cp[k]); });
+  ['careLevelHistory', 'costBurdenHistory'].forEach(k => { if ((Number(cf[k]) || 0) > (Number(lf[k]) || 0)) take(k, histDedup(Array.isArray(cp[k]) ? cp[k] : [])); });
+  if (!out) return lp;
+  out._fieldTs = ft;
+  return out;
+}
+
 // ★ 2026-11-27 1128a/trial657(ユーザー「保険証の認定有効期間を保存したら、同じものが 2 個 変更履歴に入った」): 介護度・負担割合の変更履歴の部品
 //   【App.jsx(事業所の保存)・ここ(ケアマネの保存)・supabase.js(端末どうしの付き合わせ)で共通】
 //   履歴 1 件の見分けは「値 + 開始日」。同じ値・同じ開始日の行は 1 件にまとめる(終了日・メモは入っている方、記入者は先の方)。
