@@ -353,7 +353,7 @@ const _recHasData = (r) => !!r && (['temp', 'bpUpSt', 'bpDnSt', 'plSt', 'bpUpEn'
   || (r.exercises && typeof r.exercises === 'object' && Object.values(r.exercises).some(v => v && (typeof v === 'object' ? (v.value || v.done) : v))));
 export const healStalePauseRecords = (records, patients, todayIso, isPausedOn, isScheduledOn, opts) => {
   const o = { graceMs: 15 * 60 * 1000, maxDays: 62, now: Date.now(), minIso: PAUSE_HEAL_FROM, hasData: _recHasData, ...(opts || {}) };
-  const fixed = []; if (!Array.isArray(records) || !Array.isArray(patients) || !/^\d{4}-\d{2}-\d{2}$/.test(String(todayIso || ''))) return { records, fixed };
+  const fixed = []; let pending = 0; if (!Array.isArray(records) || !Array.isArray(patients) || !/^\d{4}-\d{2}-\d{2}$/.test(String(todayIso || ''))) return { records, fixed, pending };
   const byId = new Map(patients.filter(p => p && p.id != null).map(p => [String(p.id), p]));
   const recIso = (r) => { const m = String(r && r.date || '').match(/(\d+)月(\d+)日/); if (!m || !r.year) return ''; return `${r.year}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`; };
   const lim = (() => { const d = new Date(`${todayIso}T00:00:00`); d.setDate(d.getDate() + o.maxDays); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
@@ -362,14 +362,41 @@ export const healStalePauseRecords = (records, patients, todayIso, isPausedOn, i
     const iso = recIso(r); if (!iso || iso < (o.minIso || todayIso) || iso > lim) return r;
     const p = byId.get(String(r.patientId)); if (!p) return r;
     if (o.hasData && o.hasData(r)) return r;
-    const ts = Number((r._fieldTs && r._fieldTs.status) || r._savedAt || 0); if (ts && o.now - ts < o.graceMs) return r;
     if (isPausedOn(p, iso)) return r;
     if (isScheduledOn && !isScheduledOn(p, iso)) return r;
+    const ts = Number((r._fieldTs && r._fieldTs.status) || r._savedAt || 0); if (ts && o.now - ts < o.graceMs) { pending++; return r; } // 1127d: 見送った数(あとで見直す)
     const tk = String(r.tokki || ''); const dropTk = !tk || /休止/.test(tk) || /（\d{4}\/\d{1,2}\/\d{1,2}〜）\s*$/.test(tk);
     fixed.push({ id: r.id, patientId: r.patientId, iso, tokkiCleared: dropTk && !!tk });
     return { ...r, status: '出席', ...(dropTk ? { tokki: '' } : {}) };
   });
-  return { records: fixed.length ? out : records, fixed };
+  return { records: fixed.length ? out : records, fixed, pending };
+};
+// ★ 2026-11-27 1127d(ユーザー報告「月間スケジュールで休止にした人が提供記録入力で出席になっている」): 上の逆向き。
+//   休止の期間に入っている日(isPausedOn)の記録が 出席/臨時(または状態なし)で、バイタル・運動などの中身が無ければ 休止 にそろえる。
+//   ・欠席/振替/休業 と中身の入った記録は触らない(はっきり決めた状態・来ている=人が見て直す)
+//   ・日付は minIso(PAUSE_HEAL_FROM)以降(上限なし=先の日の記録も)
+//   ・記録の状態を書いてから graceMs 以内は見送る(休止の終了がまだこの端末に届いていないだけかもしれない)。
+//     ただし記録のほうが休止の変更(statusUpdatedAt)より前に書かれていれば待たない(休止を付けた直後にそろう)
+//   特記は触らない(休止の理由は画面が休止の履歴から出す)。保存は呼び出し側で obsMarkRecEditRec + _savedAt を付けて行う。pending = 見送った数
+export const healPausedAttendRecords = (records, patients, isPausedOn, opts) => {
+  const o = { graceMs: 15 * 60 * 1000, now: Date.now(), minIso: PAUSE_HEAL_FROM, hasData: _recHasData, ...(opts || {}) };
+  const fixed = []; let pending = 0; if (!Array.isArray(records) || !Array.isArray(patients) || typeof isPausedOn !== 'function') return { records, fixed, pending };
+  const byId = new Map(patients.filter(p => p && p.id != null && (p.status === '休止' || (Array.isArray(p.pauseHistory) && p.pauseHistory.length))).map(p => [String(p.id), p]));
+  if (!byId.size) return { records, fixed, pending };
+  const recIso = (r) => { const m = String(r && r.date || '').match(/(\d+)月(\d+)日/); if (!m || !r.year) return ''; return `${r.year}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`; };
+  const out = records.map(r => {
+    if (!r || r.id == null) return r;
+    const st = r.status || ''; if (st && st !== '出席' && st !== '臨時') return r;
+    const p = byId.get(String(r.patientId)); if (!p) return r;
+    const iso = recIso(r); if (!iso || iso < o.minIso) return r;
+    if (o.hasData && o.hasData(r)) return r;
+    if (!isPausedOn(p, iso)) return r;
+    const ts = Number((r._fieldTs && r._fieldTs.status) || r._savedAt || 0); const pTs = Number(p.statusUpdatedAt || 0);
+    if (ts && !(pTs && ts < pTs) && o.now - ts < o.graceMs) { pending++; return r; }
+    fixed.push({ id: r.id, patientId: r.patientId, iso });
+    return { ...r, status: '休止' };
+  });
+  return { records: fixed.length ? out : records, fixed, pending };
 };
 
 // ★ 2026-11-01(ユーザー指摘「フェイスシートに自立度の欄がない」→「計画書からでも入力できてお互い更新される方が楽」):
