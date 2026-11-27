@@ -23706,6 +23706,13 @@ export default function App() {
                 const mF = {};
                 new Set([...Object.keys(lFts), ...Object.keys(cFts)]).forEach(f => { const t = Math.max(Number(lFts[f]) || 0, Number(cFts[f]) || 0); if (t) mF[f] = t; });
                 out._fieldTs = mF; out._updatedAt = Math.max(lT, cT);
+                // ★ 2026-11-27 trial655: ケアマネ事業所のふりがなは、どちらの一覧を採っても「書いた時刻(_kanaTs)」の新しい方を残す(push 側 supabase.js の unionBy('cmOffices') と同じ決まり)。
+                //   2台の検査(live_1127kana)で、別の端末がふりがなを入れている間に電話を直した端末は、クラウドには ふりがな が残るのに自分の画面には出ないままだった。
+                if (_k === 'systemSettings' && Array.isArray(out.cmOffices) && Array.isArray(lo.cmOffices) && Array.isArray(co.cmOffices)) {
+                  const _nk = (o) => String((o && o.name) || '').trim(); const _best = new Map();
+                  [...lo.cmOffices, ...co.cmOffices].forEach(o => { const t = Number(o && o._kanaTs) || 0; if (!t) return; const e = _best.get(_nk(o)); if (!e || t > e.t) _best.set(_nk(o), { t, kana: (o && o.kana) || '' }); });
+                  if (_best.size) out.cmOffices = out.cmOffices.map(o => { const e = _best.get(_nk(o)); return (e && e.t > (Number(o && o._kanaTs) || 0)) ? { ...o, kana: e.kana, _kanaTs: e.t } : o; });
+                }
                 // ★ 2026-09-15 第3段(扇橋ループ対策): キーの並び順だけが違う「偽差分」で保持→再pushが
                 //   無限に往復していたため、キーをソートした安定比較で判定する(値が同じなら差分なし)
                 const _stb = (x) => JSON.stringify((function f(v){ if (Array.isArray(v)) return v.map(f); if (v && typeof v === 'object') { const r = {}; Object.keys(v).sort().forEach(k2 => { r[k2] = f(v[k2]); }); return r; } return v; })(x));
