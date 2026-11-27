@@ -44487,8 +44487,74 @@ function warekiLabel(iso) {
   const w = isoToWareki(iso);
   return w ? `${w.era}${w.ey}年${w.m}月${w.day}日` : '';
 }
+// ★ 2026-11-27 trial658(ユーザー「認定有効期間の数字のプルダウンは、一覧の外でスクロールすると消えてしまう」): 元号・年・月・日を選ぶ欄。
+//   ブラウザのプルダウン(select)は、後ろの画面が動くと閉じる決まり → 候補を body に固定位置で描く(1109b の決まり: 枠の overflow で切れない・後ろは少し暗くして動かさない)。
+//   数字はます目で全部いちどに見せる(一覧の中を送らなくてよい)。今の選択は太字＋チェック・1 ます 44px・スマホ(幅640未満)は下からの紙・外側か × か Esc で閉じる
+function TsuGridPick({ value, options, onChange, cols = 7, cellW = 44, title = '選ぶ', placeholder = '', testid = 'tsu-grid', className, disabled }) {
+  const [open, setOpen] = React.useState(false);
+  const [rect, setRect] = React.useState(null);
+  const btnRef = React.useRef(null);
+  const sv = String(value ?? '');
+  const list = Array.isArray(options) ? options : [];
+  const cur = list.find(x => String(x.value) === sv) || null;
+  const close = React.useCallback(() => setOpen(false), []);
+  useTsuBackEntry(open, close); // スマホの「戻る」でまずこの一覧を閉じる
+  React.useEffect(() => {
+    if (!open) return;
+    // 後ろの小窓(個人ファイルなど)が Esc で閉じないよう、先に受けて止める
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [open, close]);
+  const openIt = () => { if (disabled) return; try { setRect(btnRef.current ? btnRef.current.getBoundingClientRect() : null); } catch { setRect(null); } setOpen(true); };
+  const pick = (v) => { close(); if (String(v ?? '') !== sv) onChange(v); };
+  let phone = false, pos = {}, nc = cols;
+  if (open) {
+    let vw = 1024, vh = 768; try { vw = window.innerWidth; vh = window.innerHeight; } catch {}
+    phone = vw < 640;
+    nc = Math.max(1, Math.min(cols, Math.floor((vw - 32) / (cellW + 4))));
+    const need = Math.min(vh - 16, 46 + Math.ceil(list.length / nc) * 48 + 14);
+    if (phone) pos = { left: 0, right: 0, bottom: 0, maxHeight: '85%' };
+    else if (!rect) pos = { left: 8, top: 8, width: Math.min(nc * (cellW + 4) + 20, vw - 16), maxHeight: vh - 16 };
+    else {
+      const w = Math.min(Math.max(nc * (cellW + 4) + 20, 150), vw - 16); const left = Math.max(8, Math.min(rect.left, vw - w - 8));
+      const below = vh - rect.bottom - 12, above = rect.top - 12;
+      // 欄の下→上の順に、入る側へ。どちらにも入らなければ、入るところまで上へずらして重ねる
+      if (below >= need) pos = { left, top: rect.bottom + 4, width: w, maxHeight: below };
+      else if (above >= need) pos = { left, bottom: vh - rect.top + 4, width: w, maxHeight: above };
+      else { const top = Math.max(8, vh - 8 - need); pos = { left, top, width: w, maxHeight: vh - 8 - top }; }
+    }
+  }
+  return (<>
+    <button ref={btnRef} type="button" data-testid={testid} data-value={sv} disabled={disabled} aria-haspopup="listbox" aria-expanded={open} onClick={openIt} className={className}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, cursor: disabled ? 'default' : 'pointer' }}>
+      <span style={{ whiteSpace: 'nowrap', minWidth: '1.2em', textAlign: 'right' }}>{cur ? cur.label : placeholder}</span>
+      <ChevronDown size={12} className="shrink-0 text-slate-400" aria-hidden="true"/>
+    </button>
+    {open && ReactDOM.createPortal((<>
+      <div className="fixed inset-0 bg-slate-900/25" style={{ zIndex: 2000060 }} onClick={close} aria-hidden="true"/>
+      <div data-testid={`${testid}-pop`} role="dialog" aria-label={title} className={`fixed bg-white border border-slate-300 shadow-2xl flex flex-col overflow-hidden ${phone ? 'rounded-t-2xl' : 'rounded-xl'}`} style={{ zIndex: 2000061, ...pos, ...(phone ? { paddingBottom: 'env(safe-area-inset-bottom)' } : {}) }}>
+        <div className="flex items-center gap-2 pl-3 pr-1 shrink-0">
+          <div className="flex-1 min-w-0 text-[13px] font-bold text-slate-600 truncate">{title}</div>
+          <button type="button" onClick={close} aria-label="閉じる" data-testid={`${testid}-close`} className="shrink-0 w-11 h-11 flex items-center justify-center text-slate-500 rounded-full hover:bg-slate-100"><X size={18} aria-hidden="true"/></button>
+        </div>
+        <div role="listbox" aria-label={title} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2.5 pb-2.5" style={{ display: 'grid', gridTemplateColumns: `repeat(${nc}, minmax(0, 1fr))`, gap: 4, alignContent: 'start' }}>
+          {list.map(x => { const on = String(x.value ?? '') === sv; return (
+            <button key={String(x.value)} type="button" role="option" aria-selected={on} data-testid={`${testid}-opt`} data-value={String(x.value ?? '')} onClick={() => pick(x.value)}
+              className={`relative flex items-center justify-center rounded-lg bg-white text-[16px] hover:bg-slate-100 active:bg-slate-200 ${on ? 'font-extrabold text-emerald-800 border-2 border-emerald-600' : 'font-bold text-slate-800 border border-slate-200'}`} style={{ minHeight: 44 }}>
+              {on ? <span aria-hidden="true" className="absolute text-emerald-700" style={{ left: 3, top: 0, fontSize: 10, lineHeight: '14px' }}>✓</span> : null}{x.label}
+            </button>); })}
+        </div>
+      </div>
+    </>), document.body)}
+  </>);
+}
 function WarekiDateInput({ value, onChange, disabled }) {
   const w = isoToWareki(value);
+  // 年の候補: 令和はことしの 10 年先まで・平成 31・昭和 64(今の値がそれより先ならそこまで)
+  const _eraNow = w?.era || '令和';
+  const _yMax = Math.max(_eraNow === '令和' ? new Date().getFullYear() - 2018 + 10 : _eraNow === '平成' ? 31 : 64, Number(w?.ey) || 0);
+  const _nums = (n) => Array.from({ length: n }, (_, i) => ({ value: i + 1, label: String(i + 1) }));
   const setPart = (patch) => {
     const cur = w || { era: '令和', ey: new Date().getFullYear() - 2018, m: new Date().getMonth() + 1, day: 1 };
     const next = { ...cur, ...patch };
@@ -44504,20 +44570,12 @@ function WarekiDateInput({ value, onChange, disabled }) {
     <span className="inline-flex flex-col gap-1">
       <span className="inline-flex items-center gap-1 flex-wrap">
         {/* 和暦プルダウン (和暦のみ) */}
-        <select value={w?.era||'令和'} disabled={disabled} onChange={e=>setPart({era:e.target.value})} className={selCls}>
-          {WK_ERAS.map(e=><option key={e.name} value={e.name}>{e.name}</option>)}
-        </select>
-        <select value={w?.ey||''} disabled={disabled} onChange={e=>setPart({ey:e.target.value})} className={selCls}>
-          <option value="">年</option>{Array.from({length:64},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}</option>)}
-        </select>
+        <TsuGridPick value={_eraNow} disabled={disabled} onChange={v=>setPart({era:v})} options={WK_ERAS.map(e=>({value:e.name,label:e.name}))} cols={1} cellW={110} title="元号" testid="wk-era" className={selCls}/>
+        <TsuGridPick value={w?.ey||''} disabled={disabled} onChange={v=>setPart({ey:v})} options={_nums(_yMax)} cols={8} title={`${_eraNow} 何年`} placeholder="年" testid="wk-y" className={selCls}/>
         <span className="text-[11px] text-slate-500">年</span>
-        <select value={w?.m||''} disabled={disabled} onChange={e=>setPart({m:e.target.value})} className={selCls}>
-          <option value="">月</option>{Array.from({length:12},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}</option>)}
-        </select>
+        <TsuGridPick value={w?.m||''} disabled={disabled} onChange={v=>setPart({m:v})} options={_nums(12)} cols={6} title="月" placeholder="月" testid="wk-m" className={selCls}/>
         <span className="text-[11px] text-slate-500">月</span>
-        <select value={w?.day||''} disabled={disabled} onChange={e=>setPart({day:e.target.value})} className={selCls}>
-          <option value="">日</option>{Array.from({length:31},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}</option>)}
-        </select>
+        <TsuGridPick value={w?.day||''} disabled={disabled} onChange={v=>setPart({day:v})} options={_nums(31)} cols={7} title="日" placeholder="日" testid="wk-d" className={selCls}/>
         <span className="text-[11px] text-slate-500">日</span>
       </span>
       {w && <span className="text-[11px] font-bold text-blue-700">{warekiLabel(value)}</span>}
