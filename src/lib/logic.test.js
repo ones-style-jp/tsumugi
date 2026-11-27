@@ -375,6 +375,69 @@ describe('休止中に保存された先の日の記録を出席に戻す(healSt
   });
 });
 
+import { healPausedAttendRecords } from './logic';
+describe('休止の期間に入っている日の出席の記録を休止にそろえる(healPausedAttendRecords・2026-11-27 1127d)', () => {
+  const now = Date.parse('2026-11-27T10:00:00+09:00'); const old = now - 3600 * 1000; const fresh = now - 60 * 1000;
+  const pats = [
+    { id: 1, status: '休止', statusUpdatedAt: now - 30 * 60 * 1000, pauseHistory: [{ reason: '入院', fromDate: '2026-11-20' }] },                 // 11/20 から休止中(終了日なし)
+    { id: 2, status: '利用中', statusUpdatedAt: old, pauseHistory: [{ reason: '旅行', fromDate: '2026-11-10', toDate: '2026-11-14' }] },        // 終わった休止
+    { id: 3, status: '利用中' },                                                                                                              // 休止なし
+  ];
+  const paused = (p, iso) => (p.pauseHistory || []).some(h => h.fromDate <= iso && (h.toDate ? iso <= h.toDate : p.status === '休止'));
+  const rec = (id, pid, iso, extra) => ({ id, patientId: pid, date: `${Number(iso.slice(5, 7))}月${Number(iso.slice(8, 10))}日`, year: Number(iso.slice(0, 4)), status: '出席', tokki: '', _savedAt: old, ...(extra || {}) });
+  it('休止の期間の 出席/臨時(中身なし)だけ休止に。欠席・振替・休業・中身あり・期間外・休止のない方は触らない', () => {
+    const recs = [
+      rec('a', 1, '2026-11-24'),                                   // 対象
+      rec('b', 1, '2026-12-01', { status: '臨時' }),               // 対象(先の日も)
+      rec('c', 1, '2026-11-25', { temp_AM: '36.5' }),              // 中身あり → 触らない
+      rec('d', 1, '2026-11-26', { status: '欠席' }),               // 欠席 → 触らない
+      rec('e', 1, '2026-11-27', { status: '振替' }),               // 振替 → 触らない
+      rec('f', 1, '2026-11-19'),                                   // 休止の前の日 → 触らない
+      rec('g', 2, '2026-11-12'),                                   // 終わった休止の期間内 → 対象
+      rec('h', 2, '2026-11-17'),                                   // 期間外 → 触らない
+      rec('i', 3, '2026-11-24'),                                   // 休止のない方 → 触らない
+      rec('j', 2, '2026-10-30'),                                   // (期間外かつ下限より前)
+      rec('k', 1, '2026-11-21', { status: '休業' }),               // 休業 → 触らない
+      rec('l', 1, '2026-11-28', { status: '' }),                   // 状態なし → 対象
+    ];
+    const r = healPausedAttendRecords(recs, pats, paused, { now });
+    expect(r.fixed.map(f => f.id).sort()).toEqual(['a', 'b', 'g', 'l']);
+    expect(r.records.filter(x => ['a', 'b', 'g', 'l'].includes(x.id)).every(x => x.status === '休止')).toBe(true);
+    ['c', 'd', 'e', 'f', 'h', 'i', 'j', 'k'].forEach(id => expect(r.records.find(x => x.id === id)).toBe(recs.find(x => x.id === id)));
+    expect(r.records.find(x => x.id === 'a').tokki).toBe('');
+    expect(healPausedAttendRecords(r.records, pats, paused, { now }).fixed).toEqual([]);
+  });
+  it('付けたばかりの出席は見送る(pending)。ただし休止の変更より前に書かれた記録は待たない', () => {
+    const recs = [
+      rec('a', 1, '2026-11-24', { _savedAt: fresh }),                                   // 休止の変更(30分前)より後・1分前 → 見送る
+      rec('b', 1, '2026-11-25', { _savedAt: old, _fieldTs: { status: fresh } }),        // 項目の時刻を優先 → 見送る
+      rec('c', 2, '2026-11-12', { _savedAt: fresh }),                                   // 休止の変更(1時間前)より後・1分前 → 見送る
+    ];
+    const r = healPausedAttendRecords(recs, pats, paused, { now });
+    expect(r.fixed).toEqual([]); expect(r.pending).toBe(3); expect(r.records).toBe(recs);
+    // 休止をいま付けた(statusUpdatedAt が記録より後) → 1分前の記録でも待たずにそろえる
+    const pats2 = [{ ...pats[0], statusUpdatedAt: now - 10 * 1000 }, pats[1], pats[2]];
+    const r2 = healPausedAttendRecords(recs, pats2, paused, { now });
+    expect(r2.fixed.map(f => f.id)).toEqual(['a', 'b']); expect(r2.pending).toBe(1);
+    // 15分たてば見送らない
+    expect(healPausedAttendRecords(recs, pats, paused, { now: now + 16 * 60 * 1000 }).fixed.map(f => f.id)).toEqual(['a', 'b', 'c']);
+  });
+  it('下限(2026-11-01)より前・id なし・引数がおかしいときは何もしない', () => {
+    const pOld = [{ id: 9, status: '利用中', pauseHistory: [{ reason: 'x', fromDate: '2026-10-01', toDate: '2026-10-31' }] }];
+    const recs = [rec('a', 9, '2026-10-20'), { ...rec(null, 9, '2026-10-21') }];
+    expect(healPausedAttendRecords(recs, pOld, paused, { now }).records).toBe(recs);
+    expect(healPausedAttendRecords(null, pats, paused).records).toBe(null);
+    expect(healPausedAttendRecords(recs, pats, null).fixed).toEqual([]);
+  });
+});
+it('healStalePauseRecords は見送った数(pending)も返す(1127d)', () => {
+  const now = Date.parse('2026-11-27T10:00:00+09:00');
+  const pats = [{ id: 1, status: '利用中', pauseHistory: [{ reason: '入院', fromDate: '2026-11-10', toDate: '2026-11-20' }] }];
+  const recs = [{ id: 'a', patientId: 1, date: '11月25日', year: 2026, status: '休止', tokki: '', _savedAt: now - 60 * 1000 }];
+  const r = healStalePauseRecords(recs, pats, '2026-11-27', () => false, () => true, { now });
+  expect(r.fixed).toEqual([]); expect(r.pending).toBe(1);
+});
+
 import { backfillFaceSheetLevels } from './logic';
 describe('計画書の自立度をフェイスシートへ反映する(backfillFaceSheetLevels・2026-11-01・新しい方が勝つ)', () => {
   const pats = [
