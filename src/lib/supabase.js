@@ -46,6 +46,7 @@ export function syncLog(ev, detail) {
     const d = new Date();
     const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0'), ss = String(d.getSeconds()).padStart(2,'0');
     arr.push({ t: `${hh}:${mm}:${ss}`, n: (arr.length ? (Number(arr[arr.length-1].n)||0) + 1 : 1), ev, d: detail || null });
+    _perfNote(ev, detail || {}); // ★ trial656
     try {
       localStorage.setItem(_SYNCLOG_KEY, JSON.stringify(arr.slice(-120)));
     } catch {
@@ -56,6 +57,31 @@ export function syncLog(ev, detail) {
   } catch {}
 }
 export function getSyncLog() { try { return JSON.parse(localStorage.getItem(_SYNCLOG_KEY) || '[]'); } catch { return []; } }
+// ★ 2026-11-27 trial656(扇橋 iPad「保存・更新が重い」の調べ): かかった時間のまとめ(その日と、その前に使った日)。
+//   ふつうの記録は末尾 20 件しか送らず「alive」で流れてしまうので、保存・取り込み・更新・起動の時間だけを回数/合計/最大/直近で別に残す。数字だけ(名前や中身は入らない)
+const _PERF_KEY = 'tsumugiPerfSum';
+function _perfNote(ev, d) {
+  try {
+    if (ev !== 'push-time' && ev !== 'push-gz' && ev !== 'pull-full' && ev !== 'upd-time' && ev !== 'boot-perf' && ev !== 'push-timeout' && ev !== 'push-give-up' && ev !== 'persist-quota' && ev !== 'persist-fail' && ev !== 'cas-conflict') return;
+    const x = new Date(); const day = `${x.getMonth() + 1}/${x.getDate()}`;
+    let p = null; try { p = JSON.parse(localStorage.getItem(_PERF_KEY) || 'null'); } catch {}
+    if (!p || typeof p !== 'object') p = { day };
+    if (p.day !== day) { const prev = { ...p }; delete prev.prev; p = { day, prev }; }
+    const add = (k, ms) => { const v = Math.round(Number(ms)); if (!(v >= 0)) return; const s = p[k] || { n: 0, sum: 0, max: 0, last: 0 }; s.n++; s.sum += v; if (v > s.max) s.max = v; s.last = v; p[k] = s; };
+    const cnt = (k) => { p[k] = (Number(p[k]) || 0) + 1; };
+    if (ev === 'push-time') { add('push', d.pushMs); if (d.pullMs) add('prePull', d.pullMs); if (d.ok !== 1) cnt('pushNg'); }
+    else if (ev === 'push-gz') { add('zip', d.zipMs); add('send', d.sendMs); p.rawKB = Math.round((Number(d.raw) || 0) / 1024); p.gzKB = Math.round((Number(d.gz) || 0) / 1024); }
+    else if (ev === 'pull-full') { if (d.ms == null) return; add('pull', d.ms); }
+    else if (ev === 'upd-time') { p.upd = { ...d, at: `${x.getHours()}:${String(x.getMinutes()).padStart(2, '0')}` }; }
+    else if (ev === 'boot-perf') { p.boot = { ...d, at: `${x.getHours()}:${String(x.getMinutes()).padStart(2, '0')}` }; cnt('boots'); }
+    else if (ev === 'push-timeout') cnt('timeout');
+    else if (ev === 'push-give-up') cnt('giveUp');
+    else if (ev === 'cas-conflict') cnt('conflict');
+    else cnt('quota');
+    localStorage.setItem(_PERF_KEY, JSON.stringify(p));
+  } catch {}
+}
+export function getPerfSum() { try { const p = JSON.parse(localStorage.getItem(_PERF_KEY) || 'null'); return (p && typeof p === 'object') ? p : null; } catch { return null; } }
 export function clearSyncLog() { try { localStorage.removeItem(_SYNCLOG_KEY); } catch {} }
 // ★ 同期診断のクラウド送信(2026-09-06 扇橋「保存が届かない」調査用): syncLog の末尾を
 //   app_state の別行(diag_<店舗ID>)へベストエフォートで送る。本体データとは完全に別行のため、
@@ -205,7 +231,8 @@ export async function supabaseUploadSyncDiag(storeId, name, ver, use) { // ★ 2
       }
       // ★ 2026-11-08 trial530: 設定で名前を変えた端末は、名前の割当表(__names)も今の名前にする(前の「店舗名N」の番号が空く。空いた番号は次の端末が使う)
       if (d.__names && typeof d.__names === 'object' && d.__names[id] && d.__names[id] !== nm) d.__names = { ...d.__names, [id]: nm };
-      d[id] = { at: now, logs, sb, name: nm, ver: vr, ...((use && typeof use === 'object' && Object.keys(use).length) ? { use } : {}) };
+      const perf = getPerfSum(); // ★ trial656: かかった時間のまとめ(数字だけ)
+      d[id] = { at: now, logs, sb, name: nm, ver: vr, ...((use && typeof use === 'object' && Object.keys(use).length) ? { use } : {}), ...(perf ? { perf } : {}) };
       return d;
     }, { maxRetries: 1 });
     if (r && r.ok) { _diagLastSig = _sig; _diagLastAt = Date.now(); }

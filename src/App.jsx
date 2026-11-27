@@ -2099,6 +2099,14 @@ const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
 //   処理中・読み込み中の共通の回る輪。文字の大きさ・色に合わせて回る(見た目は src/index.css の .tsumugi-busy-spin)。
 //   「保存中…」「読み込み中…」など処理中の表示を新しく作るときは、文字の前に <BusySpin/> を付けること。
 const BusySpin = ({ style }) => <span aria-hidden="true" className="tsumugi-busy-spin" style={style} />;
+// ★ 2026-11-27 trial656: 「今すぐ更新」の途中の文(どの段階か・5 秒を過ぎたら秒)。秒はこの部品の中だけで数える(アプリ全体を毎秒描き直さない)
+function TsuUpdLabel({ stage }) {
+  const [, tick] = React.useState(0);
+  React.useEffect(() => { const iv = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(iv); }, []);
+  const st = stage && stage.st; const sec = stage && stage.t0 ? Math.round((Date.now() - stage.t0) / 1000) : 0;
+  const base = st === 'save' ? '入力を保存しています…' : st === 'load' ? '新しい版を読み込んでいます…' : '更新中…';
+  return <span data-testid="update-stage" data-st={st || ''}>{base}（{sec >= 5 ? `${sec}秒・` : ''}そのままお待ちください）</span>;
+}
 // ★ 2026-10-03(ユーザー指示「印刷で見切れる恐れのある入力欄は全て文字数制限し、入力中は 現在/最大 を表示。印刷時は非表示」):
 //   文字数の表示(no-print)。上限に達したら赤。入力欄には maxLength を付け、その横にこれを置く。
 // ★ 2026-11-05 trial526(ユーザー「22字で」): クラス在籍表の待ちは印刷で1行約11字×2行しか入らない(40字だと切れた)→22字・改行は行の残りも数える(ROSTER_WAIT_NL_C)
@@ -22893,6 +22901,15 @@ export default function App() {
   const _pushBusyRef = React.useRef(false);
   const _pushNextRef = React.useRef(null);
   const _pendPushRef = React.useRef(false); // 直近の push 失敗を IndexedDB に控えているか
+  // ★ 2026-11-27 trial656(扇橋 iPad「保存・更新が重い」。テスト店舗で実測: 保存 1 回で店舗データ全体の読み直しが 2 回):
+  //   ① 保存の送信(_pumpPush)が受け持った内容は、1.5 秒後の自動の送信でもう一度読み書きしない(_pumpOwnedRef)。送信・やり直し・端末への控えは _pumpPush が持つ
+  //   ② 「今すぐ更新」は、まだクラウドへ送れていない変更があるときだけ先に保存する(_tsuUnsent)。
+  //      端末で変えた内容に順番の番号を付け(_tsuSeqMark)、クラウドへ書けた番号まで進める(_tsuSeqSent)。迷うときは「送れていない」側に倒す(=これまでどおり保存する)
+  const _pumpOwnedRef = React.useRef(new WeakSet()); const _objSeqRef = React.useRef(new WeakMap()); const _editSeqRef = React.useRef(0); const _sentSeqRef = React.useRef(0);
+  const _tsuSeqMark = (obj) => { try { if (obj && typeof obj === 'object' && !_objSeqRef.current.has(obj)) _objSeqRef.current.set(obj, ++_editSeqRef.current); } catch { _editSeqRef.current++; } };
+  const _tsuSeqSent = (obj) => { try { const s = _objSeqRef.current.get(obj); if (s && s > _sentSeqRef.current) _sentSeqRef.current = s; } catch {} };
+  const _rowsBusyRef = React.useRef(0); // 提供記録の表へ書いている途中の数(「今すぐ更新」は、これが終わるまで読み込み直さない)
+  const _tsuUnsent = () => _sentSeqRef.current < _editSeqRef.current || !!_pushBusyRef.current || !!_pushNextRef.current || !!_pendPushRef.current;
   const _pushWaitersRef = React.useRef([]);   // ★ 2026-10-02: 保存結果を待つ約束(「保存しました」の判定)
   const _saveToastSeqRef = React.useRef(0); const _saveToastTimerRef = React.useRef(null);
   const _saveStageRef = React.useRef(null); // ★ trial561: 手で保存したときの段階の表示(最新の確かめ→送信・経過秒)
@@ -23095,8 +23112,12 @@ export default function App() {
         && !storeTransitionRef.current
         && dataLoadedForStoreRef.current === staffSession.storeId
         && !(appData._sbStoreId && appData._sbStoreId !== staffSession.storeId)) {
+      _tsuSeqMark(appData); // ★ trial656: 端末で変えた内容に番号(保存ボタンの経路で付いていればそのまま)
       const t = setTimeout(async () => {
         if (storeTransitionRef.current || dataLoadedForStoreRef.current !== staffSession.storeId) return;
+        // ★ trial656: この内容は保存の送信(_pumpPush)が受け持っている → ここでもう一度、店舗データ全体を読んで比べることはしない
+        if (_pumpOwnedRef.current.has(appData)) return;
+        const _autoPush = () => { try { Promise.resolve(supabaseMergeAndSyncStateForStore(staffSession.storeId, appData)).then((r) => { if (r === true) _tsuSeqSent(appData); }).catch(() => {}); } catch {} };
         // ★ 店舗不一致(別店舗データが混入)の疑いがあれば push 中止(店舗間混在の防波堤)
         if (appData._sbStoreId && appData._sbStoreId !== staffSession.storeId) { console.warn('[safety] skip push: appData store mismatch', appData._sbStoreId, '!=', staffSession.storeId); return; }
         // ★ 利用者データ消失防止: 0 件 patient で上書きする際は Supabase 側に既存があるか確認
@@ -23115,7 +23136,7 @@ export default function App() {
               return;
             }
           }
-          supabaseMergeAndSyncStateForStore(staffSession.storeId, appData);
+          _autoPush();
         } catch (e) {
           // ★ 0件pushの安全確認に失敗 (通信エラー等)。 リモートを確認できない以上、
           //   空データで上書きしてしまう危険があるので push しない (データ消失防止)。
@@ -23124,7 +23145,7 @@ export default function App() {
             return;
           }
           // 利用者がいる通常データはそのまま push (確認不要)
-          supabaseMergeAndSyncStateForStore(staffSession.storeId, appData);
+          _autoPush();
         }
       }, 1500);
       return () => clearTimeout(t);
@@ -23464,7 +23485,9 @@ export default function App() {
             }
           } catch { /* メタ取得失敗時は従来どおりフル取得へ */ }
         }
+        const _tPull0 = Date.now(); // ★ trial656: 取り込み(店舗データ全体の受信)にかかった時間
         const row = await supabaseLoadStateForStore(newStoreId);
+        const _pullMs = Date.now() - _tPull0;
         // ★ 新規店舗 (app_state 行が存在しない or data 空): BLANK で初期化 (店舗情報を facilityInfo へ転記)
         if (!row || !row.data || Object.keys(row.data).length === 0) {
           // ★ 2026-11-09 1109d(テスト店舗が空になった事故): 行が読めない=新規店舗とは限らない(権限・証の期限切れで RLS に弾かれると maybeSingle は error なしで null を返す)。
@@ -23547,7 +23570,7 @@ export default function App() {
         // ★ 2026-08-30: 取りこぼし対策の強制反映は4秒→60秒に。 4秒だとポーリング毎にほぼ必ず
         //   全再構築(setAppData)が走り、メモリ肥大クラッシュの主因になっていた。
         const _stale = (Date.now() - (lastAppliedAtRef.current || 0)) > TSU_PULL_FULL_REFRESH_MS; // ★ trial624: 5分→60分
-        try { syncLog('pull-full', { why: forcePull ? 'force' : (_sig && lastAppliedSigRef.current === _sig) ? 'stale' : 'changed', v: _sig }); } catch {}
+        try { syncLog('pull-full', { why: forcePull ? 'force' : (_sig && lastAppliedSigRef.current === _sig) ? 'stale' : 'changed', v: _sig, ms: _pullMs }); } catch {}
         if (_sig) lastPullCheckOkAtRef.current = Date.now();
         if (!forcePull && !_stale && _sig && lastAppliedSigRef.current === _sig) {
           lastInSyncAtRef.current = { sid: newStoreId, at: Date.now() }; // ★ 1127d
@@ -23963,7 +23986,8 @@ export default function App() {
         });
         // ★ 端末内の新しい記録を保持した場合は、クラウドにも反映(失敗していた保存を再送し、次回pullで消えないように)。
         if (_mergedForPush) {
-          Promise.resolve().then(() => supabaseMergeAndSyncStateForStore(newStoreId, _mergedForPush)).then((r) => { if (r === true) _tsuAdoptOwnPush(); }).catch(e => console.warn('[pull preserve] push failed', e)); // ★ trial627: 自分の再保存の版は取り直さない
+          _tsuSeqMark(_mergedForPush); // ★ trial656: 端末だけにある分 → 送れるまで「送れていない」
+          Promise.resolve().then(() => supabaseMergeAndSyncStateForStore(newStoreId, _mergedForPush)).then((r) => { if (r === true) { _tsuAdoptOwnPush(); _tsuSeqSent(_mergedForPush); } }).catch(e => console.warn('[pull preserve] push failed', e)); // ★ trial627: 自分の再保存の版は取り直さない
         }
         // ★ load 完了 → push 解禁
         dataLoadedForStoreRef.current = newStoreId;
@@ -24202,6 +24226,16 @@ export default function App() {
   const [meetingFloat, setMeetingFloat] = useState(null);
   const meetingFloatRef = React.useRef(null); meetingFloatRef.current = meetingFloat;
   const [appUpdating, setAppUpdating] = useState(false); // ★ 「今すぐ更新」実行中の表示
+  const [updStage, setUpdStage] = useState(null); // ★ trial656: 「今すぐ更新」の段階 { st: 'save' | 'load', t0 }
+  // ★ trial656: 開いたときにかかった時間を 1 回だけ記録(js=プログラムの受信ミリ秒・kb=受信した大きさ(0 は端末の控えから)・up=開いてからアプリが動き出すまで)。数字だけ
+  React.useEffect(() => {
+    const t = setTimeout(() => { try {
+      const es = performance.getEntriesByType('resource').filter(e => /\/assets\/index-[^/]*\.js/.test(e.name));
+      const e = es[es.length - 1]; const nav = performance.getEntriesByType('navigation')[0];
+      syncLog('boot-perf', { js: e ? Math.round(e.duration) : -1, kb: e ? Math.round((e.transferSize || 0) / 1024) : -1, dcl: nav ? Math.round(nav.domContentLoadedEventEnd) : -1, up: Math.round(performance.now()) });
+    } catch {} }, 0);
+    return () => clearTimeout(t);
+  }, []);
   // ★ 2026-11-10 trial536: スマホの下のバー(この端末の設定で切れる)。設定の切り替えは 'tsumugi-tabbar-change' で受ける
   const _phoneW = useTsuIsPhone();
   const [_tabBarTick, _setTabBarTick] = useState(0);
@@ -25594,6 +25628,7 @@ export default function App() {
       //   保存直後に別画面へ移動 → pull で古いクラウドデータに上書きされて
       //   入力が消える、というレースを防ぐ (保存と同時にクラウドを最新化)。
       lastLocalEditRef.current = Date.now();
+      _tsuSeqMark(newData); // ★ trial656
       if (options.allowEmpty) intentionalEmptyRef.current = Date.now();
       // ★ クラウド保存は「現在の店舗のデータを正しく読込済み」のときのみ許可する。
       //   (店舗切替の途中で古い店舗のデータを別店舗のキーへ書く=店舗間データ混在を防ぐ安全装置)
@@ -25642,7 +25677,7 @@ export default function App() {
             return Object.keys(d).some(k => k !== '_fieldTs') ? { ...row, data: d } : null;
           }).filter(Boolean);
           if (_gateDrop) syncLog('rows-gate', { drop: _gateDrop, ex: _gateEx });
-          if (_rows.length) _rowsPromise = upsertTicketRows(staffSession.storeId, _rows).catch(() => ({ ok: false }));
+          if (_rows.length) { _rowsBusyRef.current++; _rowsPromise = upsertTicketRows(staffSession.storeId, _rows).catch(() => ({ ok: false })).finally(() => { _rowsBusyRef.current = Math.max(0, _rowsBusyRef.current - 1); }); } // ★ trial656: 書いている途中の数
           // ★ 削除の反映(2026-08-10): 「明示的に指定された記録idだけ」テーブルにも削除(deleted_at)を立てる。
           //   配列差分からの推測削除は誤爆リスクがあるため従来どおり行わない。 これが無いと、振替の
           //   取り消し等で墓石に積んでもテーブルの行が生き残り、数秒後の受信や再読み込みで必ず復活していた
@@ -25701,7 +25736,7 @@ export default function App() {
               const _t1 = Date.now(); try { if (_saveStageRef.current) _saveStageRef.current('push'); } catch {}
               const ok = await _retryPush(cur); _lastOk = ok;
               try { syncLog('push-time', { pullMs: _pulled ? _t1 - _t0 : 0, pushMs: Date.now() - _t1, ok: ok === true ? 1 : String(ok) }); } catch {}
-              if (ok === true) _tsuAdoptOwnPush(); // ★ trial624: 間に他の端末が書いていなければ、クラウドは自分の書いた版=取り直さない
+              if (ok === true) { _tsuAdoptOwnPush(); _tsuSeqSent(cur); } // ★ trial624: 間に他の端末が書いていなければ、クラウドは自分の書いた版=取り直さない ★ trial656: 送れた番号
               { const ws = _pushWaitersRef.current.splice(0); ws.forEach(r => { try { r(ok === true); } catch {} }); }
               if (ok === 'blocked') { // ★ 2026-11-02 水元店の事故: 関所で止めた保存は再送に積まない(その状態をクラウドへ送ると全店のデータが消える)。端末はまもなく最新を取り直す
                 try { await _keepP; } catch {} _pendKeptRef.current = null; _pendSeqRef.current++; _pendPushRef.current = false; _pendIdb.del(staffSession.storeId); // ★ trial651: 送る前の控えも消す
@@ -25739,6 +25774,7 @@ export default function App() {
           const _label = () => { const sec = Math.round((Date.now() - _t0) / 1000); const base = _stage === 'pull' ? '最新の内容を確かめています…（他の端末の変更を先に取り込みます）' : _busyBase; return sec >= 5 ? `${base}（${sec}秒）` : base; };
           _saveStageRef.current = (st) => { _stage = st; _show(_label(), 60000); if (!_stageTimer) _stageTimer = setInterval(() => { if (_saveToastSeqRef.current !== _tid) { _stageStop(); return; } _show(_label(), 60000); }, 1000); };
         }
+        try { _pumpOwnedRef.current.add(newData); } catch {} // ★ trial656: この内容の送信は _pumpPush が受け持つ(1.5 秒後の自動の送信は二重にしない)
         const _pushDone = _pumpPush(newData);
         if (options.manual) {
           if (typeof navigator !== 'undefined' && navigator.onLine === false) {
@@ -26693,7 +26729,7 @@ export default function App() {
           <div style={{background:'white',borderRadius:18,padding:'26px 22px',maxWidth:460,width:'100%',textAlign:'center',boxShadow:'0 12px 40px rgba(0,0,0,0.35)'}}>
             <div style={{fontSize:20,fontWeight:'bold',color:'#1e293b',marginBottom:10}}>更新が必要です</div>
             <div style={{fontSize:14,color:'#475569',lineHeight:1.8,marginBottom:18}}>この端末のつむぎは古い版です。同期や記録の決まりが変わっているため、更新するまで操作できません。<br/>下の「更新する」を押してください（入力中のものは先に保存されます）。</div>
-            <button type="button" data-testid="force-update-go" disabled={appUpdating} onClick={()=>{ try { document.querySelector('[data-testid="update-banner-go"]')?.click(); } catch {} }} style={{padding:'14px 28px',background:'#5e8030',color:'white',border:'none',borderRadius:12,fontSize:16,fontWeight:'bold',cursor:'pointer',minWidth:200}}>{appUpdating ? '更新中…' : '更新する'}</button>
+            <button type="button" data-testid="force-update-go" disabled={appUpdating} onClick={()=>{ try { document.querySelector('[data-testid="update-banner-go"]')?.click(); } catch {} }} style={{padding:'14px 28px',background:'#5e8030',color:'white',border:'none',borderRadius:12,fontSize:16,fontWeight:'bold',cursor:'pointer',minWidth:200}}>{appUpdating ? <TsuUpdLabel stage={updStage}/> : '更新する'}</button>
             <div style={{fontSize:11,color:'#94a3b8',marginTop:12}}>今の版 {String(__builtUpdateNotes?.version || '')}</div>
           </div>
         </div>, document.body)}
@@ -26725,14 +26761,20 @@ export default function App() {
               if (isSupabaseEnabled && staffSession?.storeId) {
                 // ★ 2026-11-02 水元店の事故(起動直後にこのボタンを押すと、まだ読み込んでいない空の状態がクラウドへ書かれ、利用者・日誌・送迎表・設定が消えた):
                 //   店舗のデータを読み込み済みで利用者がいるときだけ保存する。そうでなければ保存せず更新だけ(関所 pushEmptyGuard でも止まるが、ここでも送らない)
+                // ★ 2026-11-27 trial656(扇橋 iPad「更新を押しても長く更新されない」): これまでは必ず店舗データ全体を読んで比べてから読み込み直していた(変更が無くても)。
+                //   ① 保存の送信が走っている → 終わるのを待つ(同じ内容をもう一度送らない・最大 90 秒) ② まだ送れていない変更があるときだけ保存する ③ どの段階かと秒を出す
+                const _tU0 = Date.now(); let _updSave = 0;
+                if (_pushBusyRef.current || _pushNextRef.current || _rowsBusyRef.current > 0) { setUpdStage({ st: 'save', t0: _tU0 }); _updSave = 2; while ((_pushBusyRef.current || _pushNextRef.current || _rowsBusyRef.current > 0) && Date.now() - _tU0 < 90000) await new Promise(r => setTimeout(r, 200)); }
                 const _st = appDataRef.current || appData;
                 const _loaded = dataLoadedForStoreRef.current === staffSession.storeId && !storeTransitionRef.current && Array.isArray(_st && _st.patients) && _st.patients.length > 0 && _st._sbStoreId === staffSession.storeId;
-                if (_loaded) await supabaseMergeAndSyncStateForStore(staffSession.storeId, _st);
+                if (_loaded && !_tsuUnsent()) { /* 送れていない変更なし → 保存は省く */ }
+                else if (_loaded) { if (!_updSave) setUpdStage({ st: 'save', t0: _tU0 }); _updSave = 1; const _r = await supabaseMergeAndSyncStateForStore(staffSession.storeId, _st); if (_r === true) _tsuSeqSent(_st); }
                 else { try { syncLog('update-skip-push', { dl: dataLoadedForStoreRef.current === staffSession.storeId, st: !!storeTransitionRef.current, pat: Array.isArray(_st && _st.patients) ? _st.patients.length : -1, sb: (_st && _st._sbStoreId) || null }); } catch {} }
                 try { await flushOps(staffSession.storeId); } catch {}
+                try { syncLog('upd-time', { save: _updSave, saveMs: Date.now() - _tU0 }); } catch {}
               }
             } catch (e) { console.warn('[update] 保存に失敗、リロードを中止', e);
-              setAppUpdating(false);
+              setAppUpdating(false); setUpdStage(null);
               setToastMsg('⚠ 保存に失敗しました。通信を確認してから更新してください'); setShowToast(true); setTimeout(()=>setShowToast(false),5000); return; }
             try {
               if (window.caches && caches.keys) { const ks = await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }
@@ -26746,12 +26788,15 @@ export default function App() {
             } catch {}
             // ★ 更新前に見ていた画面へ戻れるように保存(2026-08-28)
             try { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: currentView, pid: targetPatientId ?? null, t: Date.now() })); } catch {}
+            // ★ trial656: 読み込み直しのあいだ(新しいプログラムの受信・展開)は白い画面でなく「新しい版を読み込んでいます…」を出す(index.html が印を見て先に描く)
+            try { sessionStorage.setItem('tsumugiUpdateSplash', '1'); } catch {}
+            setUpdStage({ st: 'load', t0: Date.now() });
             try {
               const u = new URL(window.location.href);
               u.searchParams.set('_v', String(Date.now()));
               window.location.replace(u.toString());
             } catch { try { window.location.reload(); } catch {} }
-          }} style={{background:appUpdating?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:8,padding:'6px 14px',fontSize:13,fontWeight:'bold',cursor:appUpdating?'wait':'pointer',whiteSpace:'nowrap'}}>{appUpdating ? <><BusySpin/>更新中…（そのままお待ちください）</> : '今すぐ更新'}</button>
+          }} style={{background:appUpdating?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:8,padding:'6px 14px',fontSize:13,fontWeight:'bold',cursor:appUpdating?'wait':'pointer',whiteSpace:'nowrap'}}>{appUpdating ? <><BusySpin/><TsuUpdLabel stage={updStage}/></> : '今すぐ更新'}</button>
           </div>
         </div>
         </div>,
