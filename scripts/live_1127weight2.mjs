@@ -65,12 +65,19 @@ const tok = 'k' + Date.now().toString(36);
 
 // ===== T3 保存して、すぐ「今すぐ更新」 =====
 { await showBanner(B.page); const n0 = await lastN(B.page);
+  // 通信がゆっくりのお店を想定: 書き込みを 3 秒遅らせる(その間に読み込み直すと、送信の途中で切れてしまう)
+  const slow = async (route) => { const rq = route.request(); if (rq.method() !== 'GET') await new Promise(r => setTimeout(r, 3000)); try { await route.continue(); } catch {} };
+  await B.page.route('**/api/state-cas*', slow); await B.page.route('**/rest/v1/app_state*', slow);
   await memo(B.page, `軽さ検査3 ${tok}（消してよい）`);
+  const seen = []; await B.page.exposeFunction('__seen3', (t) => { seen.push(t); }).catch(() => {});
+  await B.page.evaluate(() => { const el = document.querySelector('[data-testid="update-banner-go"]'); const mo = new MutationObserver(() => { try { window.__seen3(el.textContent); } catch {} }); mo.observe(el, { childList: true, subtree: true, characterData: true }); });
   await B.page.getByTestId('memo-save').click(); await B.page.getByTestId('update-banner-go').click({ force: true });
   const got = await waitText(A.page, `軽さ検査3 ${tok}`, 60000);
   await B.page.waitForFunction(() => !!document.querySelector('[data-testid="home-memo-add"]') && !document.querySelector('[data-tsu-splash="1"]'), null, { timeout: 60000 }).catch(() => {}); await B.page.waitForTimeout(6000);
   const L = await since(B.page, n0); const u = L.find(x => x.ev === 'upd-time');
-  ok('T3-1 保存の送信が終わるのを待ってから読み込み直す(upd-time save:1 か 2)', u && u.d && (u.d.save === 1 || u.d.save === 2), u && u.d);
+  await B.page.unroute('**/api/state-cas*', slow).catch(() => {}); await B.page.unroute('**/rest/v1/app_state*', slow).catch(() => {});
+  ok('T3-1 保存の送信が終わるのを待ってから読み込み直す(upd-time save:2・2.5 秒以上待つ)', u && u.d && u.d.save === 2 && u.d.saveMs >= 2500, u && u.d);
+  ok('T3-1b 待っている間のボタンは「入力を保存しています…」', seen.some(t => /^入力を保存しています…（/.test(t)), seen.slice(0, 6));
   ok('T3-2 もう 1 台に届く(入力は消えない)', got >= 0, { ms: got });
   ok('T3-3 読み込み直した端末にも残っている', await hasText(B.page, `軽さ検査3 ${tok}`)); }
 
