@@ -112,3 +112,76 @@ describe('1116d 緊急連絡先の付き合わせ(mergeEmergencyContacts)と、�
     expect(mergeEmergencyContacts({}, {}, true).emergencyContacts).toBeUndefined();
   });
 });
+
+import { histDedup, appendValueHist, histKeyOf } from './portalLogic.js';
+describe('histDedup / appendValueHist(介護度・負担割合の変更履歴・1128a)', () => {
+  const A = { value: '要介護1', from: '2025-10-22', to: '2026-11-01', note: '' };
+  const B = { value: '要介護1', from: '2026-11-01', to: '2027-10-31', note: '認定更新', by: '職員A' };
+  it('同じ「値 + 開始日」の行は 1 件にまとめる(終了日・メモは入っている方、記入者は先の方)。変わらなければ同じ一覧を返す', () => {
+    const l = [A, B]; expect(histDedup(l)).toBe(l);
+    const r = histDedup([{ ...A, to: null }, B, { ...A, note: '認定更新' }, { ...B, by: '職員B', to: null }]);
+    expect(r).toEqual([{ ...A, note: '認定更新' }, B]);
+    expect(histDedup([A, null, 'x'])).toEqual([A]);
+    expect(histKeyOf({ value: 'x', from: null, to: '2026-01-01' })).not.toBe(histKeyOf({ value: 'x', from: null, to: '2026-02-01' }));
+  });
+  it('前にある同じ期間を入れ直しても、2 つ目は足さない(今回の件: 前の期間に戻ったあと、新しい期間を入れ直した)', () => {
+    // 戻ったときに足された行(前の期間の「認定更新」)がいちばん後ろにある
+    const hist = [A, B, { value: '要介護1', from: '2025-10-22', to: '2026-10-31', note: '認定更新' }];
+    const r = appendValueHist(hist, '要介護1', '要介護1', '2026-11-01', '2027-10-31', '2025-10-22', { today: '2026-11-27', by: '職員C' });
+    expect(r.filter(h => h.from === '2026-11-01').length).toBe(1);
+    expect(r.filter(h => h.from === '2025-10-22').length).toBe(1); // 前からの重なりもまとまる
+    expect(r.length).toBe(2);
+  });
+  it('新しい期間は 1 件足す(値が同じなら「認定更新」・記入者つき)。終了日だけの直しはその行に入れる', () => {
+    const r = appendValueHist([{ value: '要介護1', from: '2025-10-22', to: null }], '要介護1', '要介護1', '2026-11-01', '2027-10-31', '2025-10-22', { today: '2026-11-27', by: '職員C' });
+    expect(r).toEqual([{ value: '要介護1', from: '2025-10-22', to: '2026-11-01' }, { value: '要介護1', from: '2026-11-01', to: '2027-10-31', note: '認定更新', by: '職員C' }]);
+    const r2 = appendValueHist(r, '要介護1', '要介護1', '2026-11-01', '2027-11-30', '2026-11-01', {});
+    expect(r2.length).toBe(2); expect(r2[1].to).toBe('2027-11-30');
+    expect(appendValueHist([], '', '要介護2', '', '', undefined, { today: '2026-11-27' })).toEqual([{ value: '要介護2', from: '2026-11-27', to: null, note: '' }]);
+    expect(appendValueHist([A], '要介護1', '', '2026-11-01', '', '2025-10-22', {})).toEqual([A]);
+  });
+  it('ケアマネの保存: 直した項目に時刻を刻み、同じ内容をもう一度送っても履歴は増えない', () => {
+    const cloud = { patients: [{ id: 1, careLevel: '要介護1', careLevelFrom: '2025-10-22', careLevelTo: '2026-10-31', _fieldTs: { careLevelFrom: 5 } }] };
+    const n = portalMergePatientDocsFromCM(cloud, '1', { master: { careLevel: '要介護1', careLevelFrom: '2026-11-01', careLevelTo: '2027-10-31' } }, 'ケアマネ', '2026-11-27T00:00:00Z', 'du_a');
+    const p = n.patients[0];
+    expect(p.careLevelFrom).toBe('2026-11-01'); expect(p.careLevelHistory.length).toBe(2);
+    expect(p._fieldTs.careLevelFrom).toBeGreaterThan(5); expect(p._fieldTs.careLevelTo).toBeGreaterThan(0); expect(p._fieldTs.careLevelHistory).toBeGreaterThan(0);
+    expect(p._fieldTs.careLevel).toBeUndefined(); // 変わっていない項目には刻まない
+    // 事業所の端末が前の期間に戻したあと、ケアマネがもう一度同じ期間を送る → 履歴は 2 件のまま
+    const back = { patients: [{ ...p, careLevelFrom: '2025-10-22', careLevelTo: '2026-10-31' }] };
+    const n2 = portalMergePatientDocsFromCM(back, '1', { master: { careLevel: '要介護1', careLevelFrom: '2026-11-01', careLevelTo: '2027-10-31' } }, 'ケアマネ', '2026-11-28T00:00:00Z', 'du_b');
+    expect(n2.patients[0].careLevelHistory.length).toBe(2);
+  });
+});
+
+import { patientTakeNewerCloud, PATIENT_FIELDLEVEL_KEYS } from './portalLogic.js';
+describe('patientTakeNewerCloud(取り込みで手元を残すとき・クラウドの方が新しい項目だけクラウドの値・1128a)', () => {
+  const lp = { id: 7, name: '見本 一郎', _savedAt: 200, ryui: '手元で書いた', careLevel: '要介護1', careLevelFrom: '2025-10-22', careLevelTo: '2026-10-21',
+    careLevelHistory: [{ value: '要介護1', from: '2025-10-22' }], scheduleAmPm: ['AM', '', '', '', '', '', ''], _fieldTs: { ryui: 200, careLevelFrom: 50, careLevelTo: 50, careLevelHistory: 50, scheduleAmPm: 90 } };
+  const cp = { id: 7, name: '見本 一郎', _savedAt: 100, ryui: '', careLevel: '要介護1', careLevelFrom: '2026-11-01', careLevelTo: '2027-10-31',
+    careLevelHistory: [{ value: '要介護1', from: '2025-10-22' }, { value: '要介護1', from: '2026-11-01' }, { value: '要介護1', from: '2026-11-01', note: '認定更新' }], scheduleAmPm: ['PM', '', '', '', '', '', ''],
+    _fieldTs: { ryui: 10, careLevelFrom: 100, careLevelTo: 100, careLevelHistory: 100, scheduleAmPm: 90 } };
+  it('クラウドの方が新しい項目だけクラウドの値になり、手元で直した項目は残る', () => {
+    const o = patientTakeNewerCloud(lp, cp);
+    expect(o).not.toBe(lp);
+    expect([o.careLevelFrom, o.careLevelTo]).toEqual(['2026-11-01', '2027-10-31']);
+    expect(o.careLevelHistory.map(h => `${h.value}|${h.from}`)).toEqual(['要介護1|2025-10-22', '要介護1|2026-11-01']); // 同じ行は 1 件に
+    expect(o.ryui).toBe('手元で書いた'); expect(o.scheduleAmPm[0]).toBe('AM'); // 時刻が同じ・手元が新しい → 手元
+    expect(o._savedAt).toBe(200);
+    expect(o._fieldTs).toMatchObject({ ryui: 200, careLevelFrom: 100, careLevelTo: 100, careLevelHistory: 100, scheduleAmPm: 90 });
+    expect(lp.careLevelFrom).toBe('2025-10-22'); // 元は変えない
+  });
+  it('変えるものが無ければ同じものを返す・時刻の無いこれまでのデータは手元のまま', () => {
+    expect(patientTakeNewerCloud(lp, { ...cp, _fieldTs: { careLevelFrom: 50 } })).toBe(lp);
+    expect(patientTakeNewerCloud(lp, { ...cp, _fieldTs: undefined })).toBe(lp);
+    expect(patientTakeNewerCloud(lp, null)).toBe(lp);
+  });
+  it('クラウドで空にした項目は空になる・緊急連絡先は触らない(別の決まり)', () => {
+    const l2 = { id: 1, phone: '000', emergencyContacts: [{ id: 'a' }], _fieldTs: { phone: 1, emergencyContacts: 1 } };
+    const o = patientTakeNewerCloud(l2, { id: 1, emergencyContacts: [], _fieldTs: { phone: 5, emergencyContacts: 5 } });
+    expect('phone' in o).toBe(false); expect(o.emergencyContacts).toEqual([{ id: 'a' }]); expect(o._fieldTs.emergencyContacts).toBe(1);
+  });
+  it('一覧に保険証の項目と文字の項目が入っている', () => {
+    ['careLevel', 'careLevelFrom', 'careLevelTo', 'costBurden', 'costBurdenFrom', 'costBurdenTo', 'scheduleAmPm', 'cmOffice', 'familyPhone', 'phone', 'ryui'].forEach(k => expect(PATIENT_FIELDLEVEL_KEYS).toContain(k));
+  });
+});

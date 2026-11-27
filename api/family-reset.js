@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { getSecret } from './_secrets.js';
 import { sendMailAny, mailConfig } from './_mail.js';
+import { casUpdateStoreData } from './_statecas.js';
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 // クライアント(src/lib/supabase.js の hashPassword)と同一: SHA-256('tsumugi_v1_' + password)
@@ -63,11 +64,17 @@ export default async function handler(req, res) {
     if (r.error) throw r.error;
     return r.data ? (r.data.data || {}) : null;
   };
+  // ★ 2026-11-27 1128a: 版を見て書く(読んでから書くまでのあいだの端末の保存を、古い内容で上書きしない)。
+  //   書く直前の最新の内容の familyPwResets のうち、このアカウントの分だけを替える(第2引数 data は呼び出し側の互換のために残す・使わない)
   const saveResets = async (storeId, data, resets) => {
-    const ss = data.systemSettings || {};
-    const newData = { ...data, systemSettings: { ...ss, familyPwResets: resets } };
-    const u = await supa.from('app_state').update({ data: newData }).eq('key', String(storeId));
-    if (u.error) throw u.error;
+    const _id = String(acc.id), _mine = resets ? resets[_id] : null;
+    const u = await casUpdateStoreData(supa, storeId, (d) => {
+      const s2 = d.systemSettings || {}; const cur = { ...(s2.familyPwResets || {}) };
+      Object.keys(cur).forEach(k => { if (!cur[k] || Date.now() > Number(cur[k].exp)) delete cur[k]; }); // 期限切れは掃除
+      if (_mine) cur[_id] = _mine; else delete cur[_id]; // このアカウントの分だけ替える(同じときに届いた別の方のコードを消さない)
+      return { ...d, systemSettings: { ...s2, familyPwResets: cur } };
+    });
+    if (!u.ok) throw new Error(u.reason || 'conflict');
   };
 
   if (action === 'request') {

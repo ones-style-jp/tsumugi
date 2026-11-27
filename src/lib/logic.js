@@ -541,3 +541,52 @@ export const pickObjNewer = (aNewer, newerStrict, aft, bft) => {
   if (!a && !b) return { aNewer: !!aNewer, strict: !!newerStrict };
   const an = a >= b; return { aNewer: an, strict: an ? a > b : b > a };
 };
+
+// ★ 2026-11-27 1128a/trial657(ユーザー「令和8年11月1日からの認定を前もって入れていたのに、その日になっても切り替わっていなかった」):
+//   変更履歴にある「開始日が来た分」を、利用者マスタのいまの値(介護度・認定有効期間／負担割合・適用期間／担当ケアマネ)へ移す。
+//   今日(today)は端末の日付 'YYYY-MM-DD'。変わった人だけ新しいオブジェクトにする(変わらない人は同じ参照=保存の時刻を刻ませない)。
+//   ・値が変わる分(要介護1→2 など): これまでどおり、開始日が来たら移す
+//   ・値が同じ「認定更新」: これまでは移さなかった(入力したときに利用者マスタへ入れていたが、別の画面の保存で前の期間に戻ると、戻ったままだった)。
+//     次の 3 つがそろうときだけ移す = ① 開始日がこの 90 日以内(入れた時点より前の古い履歴を、配信のときにまとめて書き換えない)
+//     ② 利用者マスタの終了日が入っていて、その開始日より前(=いまの期間は終わっている。後から期間を直しただけの方には触らない) ③ 日付の形が正しい
+export const DUE_RENEWAL_DAYS = 90;
+const _dueIso = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+const _dueFloor = (today, days) => { const d = new Date(today + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - days); return d.toISOString().slice(0, 10); };
+const _dueOne = (p, valKey, fromKey, toKey, histKey, today, floor) => {
+  const hist = Array.isArray(p[histKey]) ? p[histKey] : [];
+  if (!hist.length) return null;
+  const curFrom = String(p[fromKey] || '');
+  if (curFrom && !_dueIso(curFrom)) return null; // 開始日の形が崩れている方は触らない
+  let latest = null;
+  hist.forEach(h => { if (h && _dueIso(h.from) && h.from <= today && h.from > curFrom && String(h.value == null ? '' : h.value).trim() && (!latest || h.from > latest.from)) latest = h; });
+  if (!latest) return null;
+  if (String(latest.value) !== String(p[valKey] == null ? '' : p[valKey])) {
+    // 値が変わる分。終了日は履歴に無ければ、すでに入っている終了日を空でつぶさない(これまでと同じ)
+    return { [valKey]: latest.value, [fromKey]: latest.from, [toKey]: latest.to || p[toKey] || '' };
+  }
+  const curTo = String(p[toKey] || '');
+  if (latest.from < floor) return null;
+  if (!_dueIso(curTo) || curTo >= latest.from) return null;
+  return { [fromKey]: latest.from, [toKey]: (_dueIso(latest.to) && latest.to >= latest.from) ? latest.to : '' };
+};
+export function applyDueInsurance(patients, today, days) {
+  const list = Array.isArray(patients) ? patients : [];
+  if (!_dueIso(today)) return { patients: list, changed: false, n: 0 };
+  const floor = _dueFloor(today, Number.isFinite(days) ? days : DUE_RENEWAL_DAYS);
+  let n = 0;
+  const out = list.map(p => {
+    if (!p || typeof p !== 'object') return p;
+    let patch = null;
+    const a = _dueOne(p, 'careLevel', 'careLevelFrom', 'careLevelTo', 'careLevelHistory', today, floor); if (a) patch = { ...(patch || {}), ...a };
+    const b = _dueOne(p, 'costBurden', 'costBurdenFrom', 'costBurdenTo', 'costBurdenHistory', today, floor); if (b) patch = { ...(patch || {}), ...b };
+    // 担当ケアマネの予定(これまでと同じ決まり: 終了日の無い行のうちいちばん新しい開始日より後で、開始日が来た分)
+    if (Array.isArray(p.cmHistory) && p.cmHistory.length) {
+      let curFrom = ''; p.cmHistory.forEach(h => { if (h && !h.to && String(h.from || '') > curFrom) curFrom = String(h.from || ''); });
+      let latest = null; p.cmHistory.forEach(h => { if (h && _dueIso(h.from) && h.from <= today && h.from > curFrom && (!latest || h.from > latest.from)) latest = h; });
+      if (latest && (latest.office !== p.cmOffice || latest.name !== p.cmName)) patch = { ...(patch || {}), cmOffice: latest.office, cmName: latest.name };
+    }
+    if (!patch) return p;
+    n++; return { ...p, ...patch };
+  });
+  return n ? { patients: out, changed: true, n } : { patients: list, changed: false, n: 0 };
+}
