@@ -23,8 +23,8 @@ const tsuSwallowEvent = (e) => { try { e.stopPropagation(); if (e.cancelable) e.
 //   版の比べ方: "upd-2026-1122b" → 日付 20261122 と末尾 b。日付が古ければ古い版。同じ日付なら末尾の文字で比べる(trial は同じ日の安定版より新しい扱い)
 const tsuVerParse = (v) => { const m = String(v || '').match(/(\d{4})-(\d{4})(.*)$/); return m ? { d: m[1] + m[2], s: m[3] || '' } : null; };
 const tsuVerBelow = (cur, min) => { const a = tsuVerParse(cur), b = tsuVerParse(min); if (!a || !b) return false; if (a.d !== b.d) return a.d < b.d; if (/trial/.test(a.s)) return false; return a.s < b.s; };
-import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, healPausedAttendRecords, PAUSE_HEAL_FROM, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames, bootCacheKeepable } from './lib/logic';
-import { PATIENT_TEXT_FL, mergeEmergencyContacts } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL) ★ 2026-11-16 1116d: 緊急連絡先の付き合わせ
+import { tsuMonScrub, encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, mergeTaskDone, pickHolidays, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel, dateIsoAny, healPatientDates, healPausedStatus, healInsuranceNo, healStalePauseRecords, healPausedAttendRecords, PAUSE_HEAL_FROM, backfillFaceSheetLevels, tsuNameSpace, tsuSplitName, healNameSpaces, healCareManagerNames, bootCacheKeepable, applyDueInsurance } from './lib/logic';
+import { PATIENT_TEXT_FL, mergeEmergencyContacts, histDedup, appendValueHist, histKeyOf } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL) ★ 2026-11-16 1116d: 緊急連絡先の付き合わせ
 import {
   isSupabaseEnabled,
   supabaseCreateInvite,
@@ -3238,40 +3238,27 @@ function stripPatientData(appData, idSet) {
 //     (要介護2のまま R7.4.1〜R8.3.31 → R8.4.1〜R9.3.31 に更新した、という事実を履歴に残すため)
 // ★ スタッフ切替で選択中のスタッフ名(履歴の「誰が更新したか」記録用)
 const _activeStaffName = () => { try { return (JSON.parse(sessionStorage.getItem('tsumugiActiveRecorder')||'null')||{}).name || ''; } catch { return ''; } };
+// ★ 2026-11-27 1128a/trial657: 介護度・認定有効期間・負担割合・その変更履歴は、個人ファイル(保険証・負担割合証の欄)で直す項目。
+//   利用者マスタの画面は「開いたときの写し」を持っていて、その写しで保存すると、あとから個人ファイルで入れた新しい期間が前の期間に戻っていた
+//   (しかも「新しく直した」印が付くので、ほかの端末でも前の期間が勝つ)。利用者マスタの保存では、この項目はいつも最新のデータから取る。
+const TSU_INS_FIELDS = ['careLevel', 'careLevelFrom', 'careLevelTo', 'careLevelHistory', 'costBurden', 'costBurdenFrom', 'costBurdenTo', 'costBurdenHistory'];
+// ★ 2026-11-27 1128a/trial657(ユーザー「保険証の認定有効期間を保存したら、同じものが 2 個 変更履歴に入った」): 中身は portalLogic.appendValueHist へ(ケアマネの保存と共通)。
+//   これまでは「いちばん後ろの 1 件」としか比べず、前にある同じ期間を入れ直すと 2 つ目が足されていた → 履歴のどこかに同じ「値 + 開始日」があれば足さない。
+//   きょうの日付は端末の日付(これまでは世界時で、朝 9 時までは前の日になっていた)。記入者はスタッフ切替で選んでいる方(2026-08-26)
 function appendValueHistory(existingHist, oldValue, newValue, from, to, prevFrom) {
-  const hist = Array.isArray(existingHist) ? [...existingHist] : [];
-  const today = new Date().toISOString().split('T')[0];
-  const nv = newValue == null ? '' : String(newValue);
-  if (!nv) return hist; // 空は履歴を作らない
-  const f = from || today;
-  const last = hist.length ? hist[hist.length - 1] : null;
-  const valChanged = String(oldValue || '') !== nv;
-  const periodChanged = prevFrom !== undefined && String(prevFrom || '') !== String(from || '');
-  // 直近エントリと「値も開始日も同じ」なら二重に積まない。 終了日だけの修正はその場で反映。
-  if (last && String(last.value || '') === nv && String(last.from || '') === String(f)) {
-    if (to && String(last.to || '') !== String(to)) hist[hist.length - 1] = { ...last, to };
-    return hist;
-  }
-  if (!valChanged && !periodChanged) return hist; // 変更なし
-  if (oldValue) {
-    if (last && !last.to) hist[hist.length - 1] = { ...last, to: f };
-    else if (!hist.length) hist.push({ value: oldValue, from: prevFrom || null, to: f, note: '' });
-  }
-  // ★ 誰が更新したかを記録(2026-08-26): スタッフ切替の選択者名を by に残す
-  hist.push({ value: nv, from: f, to: to || null, note: valChanged ? '' : '認定更新', by: _activeStaffName() || undefined });
-  return hist;
+  return appendValueHist(existingHist, oldValue, newValue, from, to, prevFrom, { today: tsuTodayIso(), by: _activeStaffName() || undefined });
 }
 
 // ★ 介護度/負担割合などの変更履歴を読み取り表示 (事業所・ケアマネ両画面で共通・インラインstyle)。
 //   onChangeHist を渡すと、その場で「編集(上書き)/削除」ができる(=間違えて入力した履歴を後から修正)。
 //   履歴配列を書き換えて保存するだけなので、支援経過表(この履歴から自動生成)にも即反映される。
 function ValueHistoryList({ title, hist, onChangeHist, valueOptions }) {
-  const list = Array.isArray(hist) ? hist : [];
+  const list = histDedup(Array.isArray(hist) ? hist : []); // ★ 2026-11-27 1128a/trial657: 同じ「値 + 開始日」の行は 1 件にまとめて見せる(直す・消すと、まとめた形で保存される)
   const [editIdx, setEditIdx] = React.useState(null); // list 内の実インデックス
   const [draft, setDraft] = React.useState(null);
   if (!list.length) return null;
   const fmt = (s) => { if (!s) return '?'; const w = warekiStr(s); if (w) return w; const d = new Date(s); return isNaN(d) ? s : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`; };
-  const today = new Date().toISOString().split('T')[0];
+  const today = tsuTodayIso(); // ★ 1128a/trial657: 端末の日付(世界時だと朝 9 時まで前の日)
   const editable = typeof onChangeHist === 'function';
   const sorted = list.map((h, realIdx) => ({ h, realIdx })).sort((a, b) => String(b.h.from || '').localeCompare(String(a.h.from || '')));
   const iStyle = { fontSize: 11, padding: '3px 5px', border: '1px solid #cbd5e1', borderRadius: 6, background: 'white' };
@@ -25399,7 +25386,7 @@ export default function App() {
         // ★ フィールド単位保護対象(基本利用日/送迎/緊急連絡先/介護度等)は、変更された項目だけ _fieldTs に刻む。
         //   これで別項目を編集して _savedAt 全体が更新されても、触っていない項目は古い端末で巻き戻らない。
         // ★ 2026-10-29: 建物名・部屋番号(addressBuilding/addressRoom)も項目別に(部屋番号を空にして建物名へ移したのが、古い端末の値で戻らないように・supabase.js の PATIENT_FIELDLEVEL と同じ)
-        const _PT_FL = ['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','addressBuilding','addressRoom','emergencyContacts','familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail', ...PATIENT_TEXT_FL]; // ★ 2026-10-29: 電話・住所・メール・既往歴など基本情報の文字の項目も(消して保存しても前の値で戻らないように)
+        const _PT_FL = ['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','careLevelHistory','costBurdenHistory','addressBuilding','addressRoom','emergencyContacts','familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail', ...PATIENT_TEXT_FL]; // ★ 2026-10-29: 電話・住所・メール・既往歴など基本情報の文字の項目も(消して保存しても前の値で戻らないように)
         const stamped = newData.patients.map(p => {
           if (!p || p.id == null) return p;
           const old = prevMap.get(String(p.id));
@@ -25907,60 +25894,35 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [staffSession?.storeId, appData]);
 
-  // 起動時：予定変更（from <= 今日）を自動適用
-  React.useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
-    let changed = false;
-    const newPatients = (appData.patients||[]).map(p => {
-      let upd = {...p};
-
-      // 介護度の予定変更チェック
-      if (upd.careLevelHistory && upd.careLevelHistory.length > 0) {
-        const applicable = upd.careLevelHistory.filter(h => h.from && h.from <= today && h.from > (upd.careLevelFrom||''));
-        if (applicable.length > 0) {
-          const latest = applicable.sort((a,b) => b.from.localeCompare(a.from))[0];
-          if (latest.value !== upd.careLevel) {
-            // ★ careLevelTo は「空=期限未記録」。 履歴側に終了日が無いからといって、既に手入力された
-            //   認定有効期間(終了)を空で潰さない(起動時の自動適用=ユーザー編集ではないため他端末の入力を消す)。
-            upd = {...upd, careLevel: latest.value, careLevelFrom: latest.from, careLevelTo: latest.to || upd.careLevelTo || ''};
-            changed = true;
-          }
-        }
-      }
-
-      // 負担割合の予定変更チェック
-      // ★ 2026-08-26: 介護度と同じ「costBurdenFrom基準」に変更。 従来の「未終了エントリのfrom基準」だと、
-      //   未来日の予約エントリ(終了日なし)自身がfrom基準になり、開始日が来ても永久に適用されなかった。
-      if (upd.costBurdenHistory && upd.costBurdenHistory.length > 0) {
-        const applicable = upd.costBurdenHistory.filter(h => h.from && h.from <= today && h.from > (upd.costBurdenFrom||''));
-        if (applicable.length > 0) {
-          const latest = applicable.sort((a,b) => b.from.localeCompare(a.from))[0];
-          if (latest.value !== upd.costBurden) {
-            upd = {...upd, costBurden: latest.value, costBurdenFrom: latest.from, costBurdenTo: latest.to || upd.costBurdenTo || ''};
-            changed = true;
-          }
-        }
-      }
-
-      // ケアマネの予定変更チェック
-      if (upd.cmHistory && upd.cmHistory.length > 0) {
-        const curFrom = upd.cmHistory.filter(h=>!h.to).sort((a,b)=>(b.from||'').localeCompare(a.from||''))[0]?.from||'';
-        const applicable = upd.cmHistory.filter(h => h.from && h.from <= today && h.from > curFrom);
-        if (applicable.length > 0) {
-          const latest = applicable.sort((a,b) => b.from.localeCompare(a.from))[0];
-          if (latest.office !== upd.cmOffice || latest.name !== upd.cmName) {
-            upd = {...upd, cmOffice: latest.office, cmName: latest.name};
-            changed = true;
-          }
-        }
-      }
-
-      return upd;
-    });
-    if (changed) {
-      setAppData({...appData, patients: newPatients});
+  // 予定の変更(開始日が来た分)を利用者マスタへ移す(介護度・負担割合・担当ケアマネ)。決まりは logic.applyDueInsurance
+  // ★ 2026-11-27 1128a/trial657(ユーザー「令和8年11月1日からの認定を前もって入れていたのに、その日になっても切り替わっていなかった」): これまでは
+  //   ① アプリを開いた瞬間の 1 回だけ(前の日から開いたままの iPad では日付が変わっても動かない・読み込み前の端末の控えに対して動く)
+  //   ② 端末の中だけ書き換えて保存しない(次の取り込みで元に戻る) ③ 世界時の日付(朝 9 時までは前の日) ④ 値が同じ認定更新は対象外 だった。
+  //   → 店舗のデータを読み込んで、クラウドと同じだと確かめた直後に、1 日 1 回(店舗ごと)。変わった人がいれば、ふつうの保存と同じ道で送る
+  //     (項目の時刻が刻まれる)。眠っていた端末は、取り込みが済むまで動かさない(古い控えから切り替えて、ほかの端末の直しに勝ってしまわないように)。
+  const _dueDoneRef = React.useRef('');
+  const [_dueTick, _setDueTick] = useState(0);
+  useEffect(() => { // まだ済んでいない日だけ、1 分ごと・画面に戻ったときに確かめ直す(済んだ日は何もしない)
+    const f = () => { try { if (_dueDoneRef.current !== `${staffSession?.storeId || ''}|${tsuTodayIso()}`) _setDueTick(t => t + 1); } catch {} };
+    const iv = setInterval(f, 60000); document.addEventListener('visibilitychange', f);
+    return () => { clearInterval(iv); document.removeEventListener('visibilitychange', f); };
+  }, [staffSession?.storeId]);
+  useEffect(() => {
+    const sid = staffSession?.storeId || '';
+    const key = `${sid}|${tsuTodayIso()}`;
+    if (_dueDoneRef.current === key) return;
+    if (isSupabaseEnabled) {
+      if (!sid || storeTransitionRef.current || dataLoadedForStoreRef.current !== sid || !appData || appData._sbStoreId !== sid) return;
+      const ins = lastInSyncAtRef.current || {};
+      if (ins.sid !== sid || Date.now() - (ins.at || 0) > 45000) return; // クラウドと同じだと確かめてから 45 秒以内
     }
-  }, []);
+    _dueDoneRef.current = key;
+    const r = applyDueInsurance(appData.patients, tsuTodayIso());
+    if (!r.changed) return;
+    try { syncLog('due-apply', { n: r.n }); } catch {}
+    handleSaveToCloud({ ...appData, patients: r.patients }, { silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffSession?.storeId, appData, _dueTick]);
 
   // ★ 2026-10-09(ユーザー要望・スマホ限定): サイドバーの項目(連絡帳・日誌など)を押したら、自動でサイドバーを閉じる
   const _sideNav = (...a) => { try { tsuUseCount('side', a[0]); if (tsuViewW() < 1024) setIsSidebarOpen(false); } catch {} navigateTo(...a); }; // ★ 2026-10-22: 重ねて出す幅(1024px 未満)では画面を移ったら閉じる
@@ -45360,10 +45322,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     if (_remotePatientSig === lastLoadedPatientSigRef.current) return; // リモートに変化なし
     // ★ 保存直後(6秒)は再シードしない = push が反映される前に古いクラウド値で上書きし、
     //   入力した基本利用日等が一瞬消える競合を防ぐ(6秒後に整合が取れてから反映)。
+    const p = (appData.patients||[]).find(pt => pt.id === editingPatientId);
+    // ★ 2026-11-27 1128a/trial657: この画面では直さない項目(介護度・認定有効期間・負担割合・その変更履歴=個人ファイルで直す)は、保存の直後でも編集中でも最新に合わせる
+    //   (これまでは、編集中や保存の直後に個人ファイルで保険証を入れると、この画面の表示も、あとで保存する中身も前のままだった)
+    if (p) setLocalPatient(lp => { if (!lp || lp.id !== p.id) return lp; let ch = false; const n = { ...lp };
+      TSU_INS_FIELDS.forEach(k => { if (JSON.stringify(n[k] ?? null) !== JSON.stringify(p[k] ?? null)) { n[k] = p[k]; ch = true; } }); return ch ? n : lp; });
     if (Date.now() - (_justSavedMasterRef.current || 0) < 6000) return;
     lastLoadedPatientSigRef.current = _remotePatientSig;
     if (dirtyRef?.current) return; // 編集中は上書きしない
-    const p = (appData.patients||[]).find(pt => pt.id === editingPatientId);
     if (p) setLocalPatient(_buildLocalPatient(p));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [_remotePatientSig]);
@@ -45417,7 +45383,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     const cur = (appData.patients||[]).find(p => p.id === lp.id);
     if (!cur) return lp;
     const merged = { ...lp };
-    [...FILE_FIELDS, ...STICKY_FIELDS].forEach(k => { if (cur[k] !== undefined) merged[k] = cur[k]; });
+    // ★ 2026-11-27 1128a/trial657: 介護度・認定有効期間・負担割合・その変更履歴(TSU_INS_FIELDS)も最新から取る。この画面では直さない項目なので編集は失わない。
+    //   これまでは開いたときの写しで書き戻し、個人ファイルで入れた新しい認定有効期間が前の期間に戻り、変更履歴に前の期間の「認定更新」が足されていた。
+    //   (変更履歴タブでの直し・削除は、呼び出し側で直した一覧を重ねる)
+    [...FILE_FIELDS, ...STICKY_FIELDS, ...TSU_INS_FIELDS].forEach(k => { if (cur[k] !== undefined) merged[k] = cur[k]; });
     return merged;
   };
   const saveLP = (field, value) => {
@@ -45982,7 +45951,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   // ★ 期限もの(保険証/負担割合証)の更新状態(2026-08-26 店舗要望):
   //   'expired'=期限切れで未更新 / 'expiring'=期限30日以内で未更新 / 'updated'=新期間・変更予定を登録済み / ''=問題なし
   //   「誰がまだ更新していないか」を名簿でひと目で分かるようにする(チェックリストは作らない)。
-  const _hasFutureHist = (hist) => { const t = new Date().toISOString().slice(0,10); return (hist||[]).some(h => h && h.from && h.from > t && h.value); };
+  const _hasFutureHist = (hist) => { const t = tsuTodayIso(); return (hist||[]).some(h => h && h.from && h.from > t && h.value); };
   const _expiryState = (toDate, hist) => {
     if (_hasFutureHist(hist)) return 'updated';
     if (!toDate) return '';
@@ -46598,7 +46567,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <span className="font-bold text-[16px] text-slate-800 truncate flex items-center gap-1">{p.name}{pendingInitialReportSet.has(p.id) && <span title="初回ご利用報告が未報告です。タップで初回報告を開く" onClick={(e)=>{ e.stopPropagation(); setPersonalFileModal({ patient: p, initialTab: 'cat_7' }); }} className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-800 bg-amber-100 border border-amber-300 rounded px-1 py-0.5 shrink-0 cursor-pointer hover:bg-amber-200">初回報告</span>}{bday && <><span title="今月が誕生月" className="text-[9px] font-bold text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1">誕</span>{bdayDate && <span className="text-[9px] text-yellow-600 font-bold">{bdayDate}</span>}</>}</span>
                 {p.careLevel && <span className="text-[11px] text-blue-600 font-bold">{p.careLevel}</span>}
                 {/* ★ 未来の介護度変更予定(認定開始日前)を名簿にも表示(2026-08-26 店舗要望) */}
-                {(() => { const _t = new Date().toISOString().slice(0,10); const _f = (p.careLevelHistory||[]).filter(h=>h.from&&h.from>_t&&h.value).sort((a,b)=>a.from.localeCompare(b.from))[0]; return _f ? <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-300 rounded px-1 py-0.5 w-fit">{parseInt(_f.from.slice(5,7))}月から{_f.value}</span> : null; })()}
+                {(() => { const _t = tsuTodayIso(); const _f = (p.careLevelHistory||[]).filter(h=>h.from&&h.from>_t&&h.value).sort((a,b)=>a.from.localeCompare(b.from))[0]; return _f ? <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-300 rounded px-1 py-0.5 w-fit">{parseInt(_f.from.slice(5,7))}月から{_f.value}</span> : null; })()}
                 {_sortExtra}
                 {(() => {
                   const st = _insState(p);
@@ -47295,10 +47264,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   </div>
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden"><div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block"/><span className="font-bold text-sm text-slate-700">介護度 変更履歴</span></div>
-                  {!(localPatient.careLevelHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...(localPatient.careLevelHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.careLevelHistory||[]).findIndex(x=>x===h);const isF=h.from>new Date().toISOString().split('T')[0];return(<div key={si} className={`px-4 py-3 flex items-start gap-3 ${isF?'bg-blue-50':''}`}><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.value}</span>{isF&&<span className="text-[11px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded font-bold">予定</span>}</div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'careLevel',idx:ri,entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'careLevel',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
+                  {!(localPatient.careLevelHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...histDedup(localPatient.careLevelHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.careLevelHistory||[]).findIndex(x=>x===h);const isF=h.from>tsuTodayIso();return(<div key={si} data-testid="hist-care-row" className={`px-4 py-3 flex items-start gap-3 ${isF?'bg-blue-50':''}`}><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.value}</span>{isF&&<span className="text-[11px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded font-bold">予定</span>}</div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'careLevel',idx:ri,key0:histKeyOf(h),entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button data-testid="hist-care-del" onClick={()=>setDeleteHistConfirm({type:'careLevel',idx:ri,key0:histKeyOf(h)})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden"><div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-indigo-500 inline-block"/><span className="font-bold text-sm text-slate-700">負担割合 変更履歴</span></div>
-                  {!(localPatient.costBurdenHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...(localPatient.costBurdenHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.costBurdenHistory||[]).findIndex(x=>x===h);return(<div key={si} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.value}</span></div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'costBurden',idx:ri,entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'costBurden',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
+                  {!(localPatient.costBurdenHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...histDedup(localPatient.costBurdenHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.costBurdenHistory||[]).findIndex(x=>x===h);return(<div key={si} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.value}</span></div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'costBurden',idx:ri,key0:histKeyOf(h),entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'costBurden',idx:ri,key0:histKeyOf(h)})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden"><div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"/><span className="font-bold text-sm text-slate-700">ケアマネ 変更履歴</span></div>
                   {!(localPatient.cmHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...(localPatient.cmHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.cmHistory||[]).findIndex(x=>x===h);return(<div key={si} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.office}</span>{h.name&&<span className="text-sm text-slate-600">{h.name}</span>}</div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button data-testid={`hist-edit-cm-${ri}`} onClick={()=>setEditHistModal({type:'cm',idx:ri,entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'cm',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
@@ -49022,12 +48991,21 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <button onClick={()=>{
                 if(!localPatient) return;
                 const histKey = editHistModal.type==='careLevel'?'careLevelHistory':editHistModal.type==='costBurden'?'costBurdenHistory':editHistModal.type==='cm'?'cmHistory':'changeLog';
-                const hist=[...(localPatient[histKey]||[])];
-                hist[editHistModal.idx]={...editHistModal.entry};
+                // ★ 2026-11-27 1128a/trial657: 介護度・負担割合の履歴は、最新のデータの一覧に対して「値 + 開始日」で行を探して直す(この画面の写しが古くても、ほかで足した行を落とさない)
+                const _isIns = histKey==='careLevelHistory'||histKey==='costBurdenHistory';
+                let hist;
+                if (_isIns) {
+                  const _cur = (appData.patients||[]).find(p=>p.id===localPatient.id) || localPatient;
+                  const _tk = editHistModal.key0 != null ? editHistModal.key0 : histKeyOf((localPatient[histKey]||[])[editHistModal.idx]||{});
+                  let _done = false; hist = [];
+                  histDedup(_cur[histKey]||[]).forEach(h => { if (histKeyOf(h) === _tk) { if (!_done) { hist.push({...editHistModal.entry}); _done = true; } } else hist.push(h); });
+                  if (!_done) hist.push({...editHistModal.entry});
+                  hist = histDedup(hist);
+                } else { hist=[...(localPatient[histKey]||[])]; hist[editHistModal.idx]={...editHistModal.entry}; }
                 const upd={...localPatient,[histKey]:hist};
                 setLocalPatient(upd);
                 if(dirtyRef) dirtyRef.current=false;
-                onSave({...appData,patients:appData.patients.map(p=>p.id===upd.id?withLatestFiles(upd):p)});
+                onSave({...appData,patients:appData.patients.map(p=>p.id===upd.id?{...withLatestFiles(upd),[histKey]:hist}:p)});
                 setEditHistModal(null);
               }} className="flex-1 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-lg active:scale-95">保存</button>
             </div>
@@ -49047,12 +49025,18 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <button onClick={()=>{
                 if(!localPatient) return;
                 const histKey=deleteHistConfirm.type==='careLevel'?'careLevelHistory':deleteHistConfirm.type==='costBurden'?'costBurdenHistory':deleteHistConfirm.type==='cm'?'cmHistory':'changeLog';
-                const hist=[...(localPatient[histKey]||[])];
-                hist.splice(deleteHistConfirm.idx,1);
+                // ★ 2026-11-27 1128a/trial657: 介護度・負担割合の履歴は、最新のデータの一覧から「値 + 開始日」が同じ行を消す(同じ行が 2 つあれば両方)
+                const _isIns = histKey==='careLevelHistory'||histKey==='costBurdenHistory';
+                let hist;
+                if (_isIns) {
+                  const _cur = (appData.patients||[]).find(p=>p.id===localPatient.id) || localPatient;
+                  const _tk = deleteHistConfirm.key0 != null ? deleteHistConfirm.key0 : histKeyOf((localPatient[histKey]||[])[deleteHistConfirm.idx]||{});
+                  hist = histDedup(_cur[histKey]||[]).filter(h => histKeyOf(h) !== _tk);
+                } else { hist=[...(localPatient[histKey]||[])]; hist.splice(deleteHistConfirm.idx,1); }
                 const upd={...localPatient,[histKey]:hist};
                 setLocalPatient(upd);
                 if(dirtyRef) dirtyRef.current=false;
-                onSave({...appData,patients:appData.patients.map(p=>p.id===upd.id?withLatestFiles(upd):p)});
+                onSave({...appData,patients:appData.patients.map(p=>p.id===upd.id?{...withLatestFiles(upd),[histKey]:hist}:p)});
                 setDeleteHistConfirm(null);
               }} className="flex-1 py-2.5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg active:scale-95">削除する</button>
             </div>
@@ -63481,7 +63465,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     // ★ 認定/適用期間の開始日が未来なら「予約」扱い(2026-08-26 店舗要望): 現在の介護度/負担割合は
     //   開始日まで変えない(名簿・帳票・加算計算に未来の介護度が先に出ないように)。 履歴には未来日の
     //   エントリとして残り、開始日当日に起動時の自動適用が反映する(利用者マスタの保険更新モーダルと同挙動)。
-    const _today2 = new Date().toISOString().slice(0,10);
+    const _today2 = tsuTodayIso(); // ★ 1128a/trial657: 端末の日付(世界時だと朝 9 時まで前の日=当日からの変更が「予定」になっていた)
     let _reservedMsg = '';
     const _fmtMD = (f) => `${parseInt(f.slice(5,7))}月${parseInt(f.slice(8,10))}日`;
     if (np.careLevelHistory) {
@@ -64167,7 +64151,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                       return (
                       <div ref={insuranceSecRef} className="mt-3 bg-slate-50 rounded-lg p-2.5 border border-slate-200 space-y-2">
                         <div className="text-[11px] font-bold text-slate-500">保険証の内容（選んで「保存」を押すと利用者マスタに反映）</div>
-                        {(() => { const _t = new Date().toISOString().slice(0,10); const _f = (patient.careLevelHistory||[]).filter(h=>h.from&&h.from>_t&&h.value).sort((a,b)=>a.from.localeCompare(b.from))[0]; return _f ? (
+                        {(() => { const _t = tsuTodayIso(); const _f = (patient.careLevelHistory||[]).filter(h=>h.from&&h.from>_t&&h.value).sort((a,b)=>a.from.localeCompare(b.from))[0]; return _f ? (
                           <div className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-2.5 py-1.5">
                             {_f.from.replace(/-/g,'/')} から「{_f.value}」に変更予定（開始日に自動で切り替わります。それまで現在の介護度のままです）
                           </div>
@@ -64211,7 +64195,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                       const upd = (patch) => setDocBurDraft({ ...d, ...patch });
                       return (
                       <div className="mt-3 bg-slate-50 rounded-lg p-2.5 border border-slate-200">
-                        {(() => { const _t = new Date().toISOString().slice(0,10); const _f = (patient.costBurdenHistory||[]).filter(h=>h.from&&h.from>_t&&h.value).sort((a,b)=>a.from.localeCompare(b.from))[0]; return _f ? (
+                        {(() => { const _t = tsuTodayIso(); const _f = (patient.costBurdenHistory||[]).filter(h=>h.from&&h.from>_t&&h.value).sort((a,b)=>a.from.localeCompare(b.from))[0]; return _f ? (
                           <div className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-2.5 py-1.5 mb-2">
                             {_f.from.replace(/-/g,'/')} から「{_f.value}」に変更予定（開始日に自動で切り替わります）
                           </div>

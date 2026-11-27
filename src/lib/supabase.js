@@ -2,7 +2,7 @@
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
 import { sameStateIgnoringMeta, mergeTpTelDone, mergeTaskDone, pickHolidays, pushEmptyGuard, pushShrinkGuard, mergeSalesRecords, mergeStoreMembers, mergeFamilyTokkiOverrides, mergeNoticeReads, mergeObjKeys, pickObjNewer } from './logic.js';
-import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL, mergeEmergencyContacts } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
+import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead, PATIENT_TEXT_FL, mergeEmergencyContacts, histDedup } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -1314,13 +1314,19 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
         out[k] = [...byId.values()];
         return;
       }
-      // ★ 介護度/負担割合の変更履歴は「追加のみ」の記録。 両端末の追記を失わないよう和集合(JSON重複排除)で残す。
+      // ★ 介護度/負担割合の変更履歴。
+      // ★ 2026-11-27 1128a/trial657(ユーザー「同じものが 2 個 変更履歴に入った」): これまでは「1 文字でも違えば別の行」の和集合で、
+      //   終了日を入れた・直した行が前の形と 2 つ残り、消した行も戻っていた。
+      //   ① 項目の時刻(_fieldTs)が新しい側があれば、その一覧を丸ごと採る(直し・削除がそのまま通る)
+      //   ② 時刻が同じ・どちらにも無い(これまでのデータ)ときは、両方を合わせる(足した分を落とさない)
+      //   ③ どちらの場合も、同じ「値 + 開始日」の行は 1 件にまとめる(portalLogic.histDedup)
       if (k === 'careLevelHistory' || k === 'costBurdenHistory') {
-        const la = Array.isArray(lv) ? lv : [], ca = Array.isArray(cv) ? cv : [];
+        const la = Array.isArray(lpArg[k]) ? lpArg[k] : [], ca = Array.isArray(cpArg[k]) ? cpArg[k] : [];
+        const _lft = Number(_lFts[k]) || 0, _cft = Number(_cFts[k]) || 0;
+        if (_lft > _cft) { out[k] = histDedup(la); return; }
+        if (_cft > _lft) { out[k] = histDedup(ca); return; }
         if (!la.length && !ca.length) return;
-        const seen = new Set(); const merged = [];
-        [...ca, ...la].forEach(h => { let key; try { key = JSON.stringify(h); } catch { key = String(h); } if (!seen.has(key)) { seen.add(key); merged.push(h); } });
-        out[k] = merged; return;
+        out[k] = histDedup([...ca, ...la]); return;
       }
       // ★ scheduleAmPm(基本利用日)は「無し」も意図的な設定値。 index 単位の空欄補完をすると、
       //   ある曜日を「無し」にしても クラウドの旧値(AM/PM)で復活してしまう。 最後の編集(ローカル)を優先する。
@@ -1407,6 +1413,9 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData, opts
     ARRAY_KEYS.forEach(k => { _rawTomb[k] = { ...(cloudTomb[k] || {}), ...(localTomb[k] || {}) }; });
     // ★ 利用者本体の墓石も local+cloud で統合 (削除した利用者を別端末の push で復活させない)。
     _rawTomb.patients = { ...(cloudTomb.patients || {}), ...(localTomb.patients || {}) };
+    // ★ 2026-11-27 1128a/trial657: 職員名簿の墓石も合わせる。1119e で名簿の合成(mergeStoreMembers)を入れたとき、ここに足していなかった
+    //   → 下の合成に渡る墓石がいつも空になり、消した職員がクラウドの名簿から戻って書かれ、墓石もクラウドへ届かなかった(消した端末では消えたまま・ほかの端末では残る)
+    _rawTomb.storeMembers = { ...(cloudTomb.storeMembers || {}), ...(localTomb.storeMembers || {}) };
     // ★ 墓石アムネスティ: 南水元に混入した他店の墓石(カットオフ前)を無効化してから、
     //   以降の除外フィルタ・push 内容の両方に使う(定義は scrubAmnestyTombstones 参照)
     const mergedTomb = scrubAmnestyTombstones(storeId, _rawTomb);

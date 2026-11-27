@@ -14,6 +14,7 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { getSecret } from './_secrets.js';
 import { sendMailAny, mailConfig } from './_mail.js';
+import { casUpdateStoreData } from './_statecas.js';
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
@@ -56,10 +57,11 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
     const code = String(Math.floor(100000 + Math.random() * 900000)); // 6桁
-    const newData = { ...data, systemSettings: { ...ss, adminAuth: { ...auth, resetCodeHash: sha256(code), resetCodeExp: Date.now() + 15 * 60 * 1000 } } };
+    // ★ 2026-11-27 1128a: 版を見て書く(読んでから書くまでのあいだの端末の保存を、古い内容で上書きしない)。書く直前の最新の内容に足す
+    const _exp = Date.now() + 15 * 60 * 1000;
     try {
-      const u = await supa.from('app_state').update({ data: newData }).eq('key', String(storeId));
-      if (u.error) throw u.error;
+      const u = await casUpdateStoreData(supa, storeId, (d) => { const s2 = d.systemSettings || {}; return { ...d, systemSettings: { ...s2, adminAuth: { ...(s2.adminAuth || {}), resetCodeHash: sha256(code), resetCodeExp: _exp } } }; });
+      if (!u.ok) throw new Error(u.reason || 'conflict');
     } catch (e) {
       return res.status(500).json({ error: 'リセット情報の保存に失敗しました', detail: String(e.message||e) });
     }
@@ -94,12 +96,11 @@ export default async function handler(req, res) {
     if (!auth.resetCodeHash || !auth.resetCodeExp) return res.status(400).json({ error: 'リセットがリクエストされていません。最初からやり直してください。' });
     if (Date.now() > Number(auth.resetCodeExp)) return res.status(400).json({ error: 'コードの有効期限が切れています。最初からやり直してください。' });
     if (sha256(code) !== auth.resetCodeHash) return res.status(400).json({ error: '確認コードが違います。' });
-    const newAuth = { ...auth, passwordHash: newPasswordHash, setAt: Date.now() };
-    delete newAuth.resetCodeHash; delete newAuth.resetCodeExp;
-    const newData = { ...data, systemSettings: { ...ss, adminAuth: newAuth } };
+    // ★ 2026-11-27 1128a: 版を見て書く(上と同じ)。コードの照合は上で済み・書く直前の最新の内容のパスワードだけを替える
+    const _setAt = Date.now();
     try {
-      const u = await supa.from('app_state').update({ data: newData }).eq('key', String(storeId));
-      if (u.error) throw u.error;
+      const u = await casUpdateStoreData(supa, storeId, (d) => { const s2 = d.systemSettings || {}; const newAuth = { ...(s2.adminAuth || {}), passwordHash: newPasswordHash, setAt: _setAt }; delete newAuth.resetCodeHash; delete newAuth.resetCodeExp; return { ...d, systemSettings: { ...s2, adminAuth: newAuth } }; });
+      if (!u.ok) throw new Error(u.reason || 'conflict');
     } catch (e) {
       return res.status(500).json({ error: 'パスワードの保存に失敗しました', detail: String(e.message||e) });
     }

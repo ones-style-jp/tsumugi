@@ -11,6 +11,54 @@
 //   ここ(ご家族・ケアマネの保存)でも、直した項目に時刻を刻む(刻まないと事業所の端末の古い時刻に負けて、ご家族の直しが戻る)
 export const PATIENT_TEXT_FL = ['phone','phoneMobile','email','zipCode','address','prefecture','city','addressLine','building','kiou','ryui','doctor','medicalInstitution','medicalContact','hihokenNum','kana','kanaLast','kanaFirst','gender','birthDate'];
 
+// ★ 2026-11-27 1128a/trial657(ユーザー「保険証の認定有効期間を保存したら、同じものが 2 個 変更履歴に入った」): 介護度・負担割合の変更履歴の部品
+//   【App.jsx(事業所の保存)・ここ(ケアマネの保存)・supabase.js(端末どうしの付き合わせ)で共通】
+//   履歴 1 件の見分けは「値 + 開始日」。同じ値・同じ開始日の行は 1 件にまとめる(終了日・メモは入っている方、記入者は先の方)。
+//   これまでは ① 足すときに「いちばん後ろの 1 件」としか比べない ② 付き合わせが「1 文字でも違えば別の行」で、同じ行が 2 つ残っていた
+export const histKeyOf = (h) => { const v = String((h && h.value) || ''), f = String((h && h.from) || ''); return f ? `${v}|${f}` : `${v}||${String((h && h.to) || '')}`; };
+export function histDedup(list) {
+  if (!Array.isArray(list)) return list;
+  const pos = new Map(); const out = []; let changed = false;
+  for (const h of list) {
+    if (!h || typeof h !== 'object') { changed = true; continue; } // 形の崩れた行は捨てる
+    const k = histKeyOf(h);
+    if (!pos.has(k)) { pos.set(k, out.length); out.push(h); continue; }
+    changed = true;
+    const i = pos.get(k), a = out[i];
+    const m = { ...a, to: h.to || a.to || null, note: h.note || a.note || '' };
+    if (a.by || h.by) m.by = a.by || h.by;
+    out[i] = m;
+  }
+  return changed ? out : list; // 変わらなければ同じ一覧を返す(「変わった」と数えさせない)
+}
+// 履歴へ足す。oldValue/prevFrom=いまの値と開始日、newValue/from/to=新しい値と期間。opt = { today:'YYYY-MM-DD'(開始日が空のとき), by:記入者 }
+//   ・同じ「値 + 開始日」がすでに履歴のどこかにあれば足さない(終了日だけ合わせる)
+//   ・prevFrom を渡すと、値が同じでも開始日が変わったら「認定更新」として 1 件残す
+export function appendValueHist(existingHist, oldValue, newValue, from, to, prevFrom, opt) {
+  const o = opt || {};
+  const hist = [...(histDedup(Array.isArray(existingHist) ? existingHist : []))];
+  const nv = newValue == null ? '' : String(newValue);
+  if (!nv) return hist; // 空は履歴を作らない
+  const f = from || o.today || null;
+  const valChanged = String(oldValue || '') !== nv;
+  const periodChanged = prevFrom !== undefined && String(prevFrom || '') !== String(from || '');
+  const at = hist.findIndex(h => String(h.value || '') === nv && String(h.from || '') === String(f || ''));
+  if (at >= 0) {
+    if (to && String(hist[at].to || '') !== String(to)) hist[at] = { ...hist[at], to };
+    return hist;
+  }
+  if (!valChanged && !periodChanged) return hist; // 変更なし
+  const last = hist.length ? hist[hist.length - 1] : null;
+  if (oldValue) {
+    if (last && !last.to) hist[hist.length - 1] = { ...last, to: f };
+    else if (!hist.length) hist.push({ value: oldValue, from: prevFrom || null, to: f, note: '' });
+  }
+  const e = { value: nv, from: f, to: to || null, note: valChanged ? '' : '認定更新' };
+  if (o.by) e.by = o.by;
+  hist.push(e);
+  return hist;
+}
+
 // ★ 2026-11-16 1116d: 緊急連絡先(emergencyContacts)の端末間の付き合わせ【store の push(supabase.js)・pull(App.jsx)で共通】
 //   ご家族の登録で増えた連絡先が、まだ取り込んでいない店舗の端末の保存(=手元の一覧が丸ごと勝つ)で消えていた(ある店舗の利用者の長女の件)。
 //   ① 項目時刻 _fieldTs.emergencyContacts の新しい方の一覧を土台にする(どちらにも無ければ aIsBase の側)
@@ -210,6 +258,7 @@ export function portalMergeFaceSheetFromCM(cloud, patientId, faceSheet, meta, _n
       return { ...currentData, patients };
 }
 
+const INS_STAMP_KEYS = ['careLevel', 'careLevelFrom', 'careLevelTo', 'costBurden', 'careLevelHistory', 'costBurdenHistory'];
 export function portalMergePatientDocsFromCM(cloud, patientId, patch, byName, now, _duId) {
   patch = patch || {};
     const currentData = cloud;
@@ -234,26 +283,10 @@ export function portalMergePatientDocsFromCM(cloud, patientId, patch, byName, no
       const nowDay = now.split('T')[0];
       // ★ App.jsx の appendValueHistory と同じ規則: 値の変更に加え、値が同じでも認定有効期間の
       //   開始日が変わったら「認定更新」として1件残す(prevFrom を渡した時のみ判定)。
-      const appendHist = (histKey, oldVal, newVal, from, to, prevFrom) => {
-        const hist = Array.isArray(np[histKey]) ? [...np[histKey]] : [];
-        const nv = newVal == null ? '' : String(newVal);
-        if (!nv) return hist;
-        const f = from || nowDay;
-        const last = hist.length ? hist[hist.length - 1] : null;
-        const valChanged = String(oldVal || '') !== nv;
-        const periodChanged = prevFrom !== undefined && String(prevFrom || '') !== String(from || '');
-        if (last && String(last.value || '') === nv && String(last.from || '') === String(f)) {
-          if (to && String(last.to || '') !== String(to)) hist[hist.length - 1] = { ...last, to };
-          return hist;
-        }
-        if (!valChanged && !periodChanged) return hist;
-        if (oldVal) {
-          if (last && !last.to) hist[hist.length - 1] = { ...last, to: f };
-          else if (!hist.length) hist.push({ value: oldVal, from: prevFrom || null, to: f, note: '' });
-        }
-        hist.push({ value: nv, from: f, to: to || null, note: valChanged ? '' : '認定更新' });
-        return hist;
-      };
+      // ★ 2026-11-27 1128a/trial657: 事業所の保存と同じ部品(appendValueHist)にした。同じ「値 + 開始日」が履歴のどこかにあれば足さない
+      const appendHist = (histKey, oldVal, newVal, from, to, prevFrom) => appendValueHist(np[histKey], oldVal, newVal, from, to, prevFrom, { today: nowDay });
+      // ★ 同上: ここで直した介護度・認定有効期間・負担割合・変更履歴にも項目の時刻を刻む(刻まないと、事業所の端末の前の値に負けて戻ることがある)
+      const _insBefore = INS_STAMP_KEYS.map(k => JSON.stringify(p[k] ?? null));
       // 介護度: 値が変わった時、または 値は同じでも認定開始日が変わった時に履歴を残す
       const _mCl = (m.careLevel != null && m.careLevel !== '') ? String(m.careLevel) : String(np.careLevel || '');
       const _mClFrom = (m.careLevelFrom != null && m.careLevelFrom !== '') ? String(m.careLevelFrom) : (np.careLevelFrom || '');
@@ -267,6 +300,9 @@ export function portalMergePatientDocsFromCM(cloud, patientId, patch, byName, no
         np.costBurdenHistory = appendHist('costBurdenHistory', np.costBurden, m.costBurden, null, null);
         np.costBurden = String(m.costBurden); changed.push('負担割合');
       }
+      { const _tnow = Date.now(); let _ts = null;
+        INS_STAMP_KEYS.forEach((k, i) => { if (JSON.stringify(np[k] ?? null) !== _insBefore[i]) { _ts = _ts || { ...(p._fieldTs || {}) }; _ts[k] = _tnow; } });
+        if (_ts) np._fieldTs = _ts; }
       const hasAsmtText = patch.assessmentText != null && String(patch.assessmentText) !== ((np.personalFile || {}).assessment || {}).text;
       const hasAsmtFiles = Array.isArray(patch.assessmentFiles) && patch.assessmentFiles.length;
       if (hasAsmtText || hasAsmtFiles) {

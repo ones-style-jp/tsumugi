@@ -642,3 +642,43 @@ describe('1125d 運動の○×の合成(mergeObjKeys / pickObjNewer)', () => {
     expect(mergeObjKeys({ k1: '○', k2: '×' }, { k3: '○' }, true)).toEqual({ k1: '○', k2: '×', k3: '○' });
   });
 });
+
+import { applyDueInsurance } from './logic.js';
+describe('applyDueInsurance(開始日が来た予定を利用者マスタへ移す・1128a)', () => {
+  const T = '2026-11-27';
+  it('値が変わる予定は、開始日が来たら移す。まだ先の予定は移さない', () => {
+    const p1 = { id: 1, careLevel: '要介護1', careLevelFrom: '2025-11-01', careLevelTo: '2026-10-31', careLevelHistory: [{ value: '要介護1', from: '2025-11-01', to: '2026-11-01' }, { value: '要介護2', from: '2026-11-01', to: '2027-10-31' }] };
+    const p2 = { id: 2, careLevel: '要介護1', careLevelFrom: '2025-12-01', careLevelTo: '2026-11-30', careLevelHistory: [{ value: '要介護3', from: '2026-12-01', to: '2027-11-30' }] };
+    const r = applyDueInsurance([p1, p2], T);
+    expect(r.changed).toBe(true); expect(r.n).toBe(1);
+    expect(r.patients[0]).toMatchObject({ careLevel: '要介護2', careLevelFrom: '2026-11-01', careLevelTo: '2027-10-31' });
+    expect(r.patients[1]).toBe(p2); // 変わらない人は同じ参照
+    expect(applyDueInsurance(r.patients, T).changed).toBe(false); // 2 回目は何もしない
+  });
+  it('値が同じ認定更新: 利用者マスタの期間が終わっていて、開始日が 90 日以内なら移す(前の期間に戻っていた方)', () => {
+    const p = { id: 1, careLevel: '要介護1', careLevelFrom: '2025-10-22', careLevelTo: '2026-10-31', careLevelHistory: [{ value: '要介護1', from: '2025-10-22', to: '2026-11-01' }, { value: '要介護1', from: '2026-11-01', to: '2027-10-31', note: '認定更新' }] };
+    const r = applyDueInsurance([p], T);
+    expect(r.patients[0]).toMatchObject({ careLevel: '要介護1', careLevelFrom: '2026-11-01', careLevelTo: '2027-10-31' });
+  });
+  it('値が同じ認定更新: 利用者マスタの期間がまだ続いている(後から期間を直した)方には触らない', () => {
+    const p = { id: 1, careLevel: '要介護1', careLevelFrom: '2026-10-01', careLevelTo: '2027-09-30', careLevelHistory: [{ value: '要介護1', from: '2026-11-01', to: '2027-10-31', note: '認定更新' }, { value: '要介護1', from: '2026-10-01', to: '2027-09-30', note: '認定更新' }] };
+    expect(applyDueInsurance([p], T).changed).toBe(false);
+  });
+  it('値が同じ認定更新: 開始日が 90 日より前の古い履歴・終了日が空・日付の形が崩れている方には触らない', () => {
+    const old = { id: 1, careLevel: '要介護1', careLevelFrom: '2025-04-01', careLevelTo: '2026-03-31', careLevelHistory: [{ value: '要介護1', from: '2026-04-01', to: '2027-03-31' }] };
+    const noTo = { id: 2, careLevel: '要介護1', careLevelFrom: '2025-10-22', careLevelTo: '', careLevelHistory: [{ value: '要介護1', from: '2026-11-01', to: '2027-10-31' }] };
+    const bad = { id: 3, careLevel: '要介護1', careLevelFrom: 'R7.10.22', careLevelTo: '2026-10-31', careLevelHistory: [{ value: '要介護2', from: '2026-11-01', to: '2027-10-31' }] };
+    const badH = { id: 4, careLevel: '要介護1', careLevelFrom: '2025-10-22', careLevelTo: '2026-10-31', careLevelHistory: [{ value: '要介護2', from: '令和8年11月1日' }, null, { value: '', from: '2026-11-01' }] };
+    expect(applyDueInsurance([old, noTo, bad, badH], T).changed).toBe(false);
+  });
+  it('負担割合も同じ決まり。担当ケアマネの予定はこれまでどおり', () => {
+    const p = { id: 1, costBurden: '90%', costBurdenFrom: '2025-08-01', costBurdenTo: '2026-07-31', costBurdenHistory: [{ value: '80%', from: '2026-11-01', to: null }],
+      cmOffice: 'A事業所', cmName: '担当A', cmHistory: [{ office: 'A事業所', name: '担当A', from: '2025-04-01' }, { office: 'B事業所', name: '担当B', from: '2026-11-20', to: '2099-01-01' }] };
+    const r = applyDueInsurance([p], T);
+    expect(r.patients[0]).toMatchObject({ costBurden: '80%', costBurdenFrom: '2026-11-01', costBurdenTo: '2026-07-31', cmOffice: 'B事業所', cmName: '担当B' });
+  });
+  it('一覧でない・今日の形が違うときは何もしない', () => {
+    expect(applyDueInsurance(null, T)).toEqual({ patients: [], changed: false, n: 0 });
+    const ps = [{ id: 1 }]; expect(applyDueInsurance(ps, '2026/11/27').patients).toBe(ps);
+  });
+});
