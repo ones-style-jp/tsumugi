@@ -61,7 +61,7 @@ const pv = await call({ action: 'preview', token: hq, store_id: 's1', now: Date.
 r.cronGuard = (await call({}, 'GET', { 'user-agent': 'curl/8' })).code === 401;
 // 1分おき: 10:12 の予定は 9:41 にはまだ、9:42 に「あと30分」
 { const p41 = await call({ action: 'preview', token: hq, store_id: 's1', now: Date.UTC(2026, 9, 28, 9 - 9, 41) }); const p42 = await call({ action: 'preview', token: hq, store_id: 's1', now: Date.UTC(2026, 9, 28, 9 - 9, 42) });
-  r.exact30 = !p41.j.items.some(x => x.key.includes('|b|e2|')) && p42.j.items.some(x => x.key.includes('|b|e2|') && x.title === 'あと30分で予定があります'); }
+  r.exact30 = !p41.j.items.some(x => x.key.includes('|b|e2|')) && p42.j.items.some(x => x.key.includes('|b|e2|') && x.title === '予定30分前'); }
 // 止める: s1 の分だけ消え、s2 にはまだ残る(remaining=1)
 const un = await call({ action: 'unsubscribe', token: st1, endpoint: a.endpoint }); r.unsubStoreOnly = un.j.remaining === 1 && (await call({ action: 'status', token: st2, endpoint: a.endpoint })).j.registered === true;
 sbSrv.close(); pushSrv.close();

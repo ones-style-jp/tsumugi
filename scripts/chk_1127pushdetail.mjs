@@ -20,7 +20,7 @@ const plan = (ms, cfg, extra) => planStore({ ...base, ...(extra || {}), cfg: { .
 const R = []; const ok = (n, c, d) => { R.push([n, !!c]); console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== undefined ? ' ' + JSON.stringify(d) : '')); };
 const now = at(today, 9, 45);
 const b1 = plan(now).find(x => x.key.includes('|e1|'));
-ok('1 中身つきと伏せた文', b1 && b1.body === '10:00 担当者会議' && b1.full && b1.full.body === '10:00 担当者会議：ご自宅で（山田 太郎様）' && b1.full.title === 'あと15分で予定があります', b1);
+ok('1 中身つきと伏せた文', b1 && b1.body === '10:00 担当者会議' && b1.full && b1.full.body === '10:00 担当者会議：ご自宅で（山田 太郎様）' && b1.full.title === '予定15分前', b1);
 ok('2 題名に名字があれば名前を重ねない', evText(events[1], [], names) === '山田様 契約', evText(events[1], [], names));
 const subAt = (ago) => ({ seen: new Date(now - ago).toISOString() });
 ok('3a 7日以内に開いた端末は中身つき', payloadFor(b1, subAt(1 * D), now).body === b1.full.body);

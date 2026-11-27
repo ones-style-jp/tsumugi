@@ -27,13 +27,13 @@ const ok = (n, c, d) => { r[n] = !!c; console.log((c ? 'PASS ' : 'FAIL ') + n + 
 const pn = () => page.evaluate(() => { try { return (JSON.parse(localStorage.getItem('daycareAppData_v3')).systemSettings || {}).pushNotify || {}; } catch { return {}; } });
 ok('1 中身を出すが既定でオン', await page.getByTestId('push-cfg-detail').isChecked());
 ok('2 既定は7日', (await page.getByTestId('push-cfg-detail-days').inputValue()) === '7');
-ok('3 例の文に題名と利用者名', /担当者会議：ご自宅で（○○様）/.test(await page.getByTestId('push-cfg-detail-example').innerText()));
+ok('3 例の文に題名と利用者名', /予定30分前　10:00 担当者会議：ご自宅で（○○様）/.test(await page.getByTestId('push-cfg-detail-example').innerText()));
 await page.getByTestId('push-enable').click(); await page.waitForTimeout(2500);
 ok('4 届く端末にロック中の案内', /ロック中は中身を隠すには/.test(await page.getByTestId('push-lock-help').innerText().catch(() => '')));
 await page.getByTestId('push-cfg-detail-days').selectOption('14'); await page.waitForTimeout(800);
 ok('5 日数を14日にすると保存される', (await pn()).detailDays === 14, await pn());
 await page.getByTestId('push-cfg-detail').uncheck(); await page.waitForTimeout(800);
-ok('6 オフにすると保存され、例はラベルと時刻だけ', (await pn()).detail === false && /「10:00 担当者会議」/.test(await page.getByTestId('push-cfg-detail-example').innerText()), await pn());
+ok('6 オフにすると保存され、例はラベルと時刻だけ', (await pn()).detail === false && /「予定30分前　10:00 担当者会議」/.test(await page.getByTestId('push-cfg-detail-example').innerText()), await pn());
 ok('7 オフのとき日数は選べない', await page.getByTestId('push-cfg-detail-days').evaluate(el => getComputedStyle(el.parentElement).pointerEvents === 'none'));
 await page.getByTestId('push-cfg-detail').check(); await page.waitForTimeout(600);
 await page.getByTestId('push-cfg-detail-box').scrollIntoViewIfNeeded(); await page.screenshot({ path: process.env.SHOT || '/dev/null' }).catch(() => {});

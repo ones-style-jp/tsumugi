@@ -49277,7 +49277,7 @@ function TsuPushStoreCard({ appData, saveSS }) {
           <div className={`flex items-center gap-2 flex-wrap text-sm ${cfg.detail === false ? 'opacity-50 pointer-events-none' : ''}`}><span>つむぎを</span>
             <select data-testid="push-cfg-detail-days" value={String(cfg.detailDays || 7)} onChange={e => set({ detailDays: Number(e.target.value) })} className={sel}>{[3, 7, 14, 30].map(d => <option key={d} value={d}>{d}日</option>)}</select>
             <span>開いていない端末には、中身を伏せる（ラベルと時刻だけ）</span></div>
-          <div data-testid="push-cfg-detail-example" className="text-xs text-slate-600">通知の例: {cfg.detail !== false ? '「10:00 担当者会議：ご自宅で（○○様）」' : '「10:00 担当者会議」'}</div>
+          <div data-testid="push-cfg-detail-example" className="text-xs text-slate-600">通知の例: {cfg.detail !== false ? '「予定30分前　10:00 担当者会議：ご自宅で（○○様）」' : '「予定30分前　10:00 担当者会議」'}</div>
           <div className="tsu-hint-row"><TsuHint>ロック中は中身を隠し、ロックを解除すると見えるようにするには、各端末の設定を変えてください。<br/>iPhone・iPad: 「設定」→「通知」→「つむぎ」→「プレビューを表示」を「ロックされていないとき」に。<br/>Android: 「設定」→「通知」→「ロック画面の通知」で「内容を隠す」（機種によっては「ロック画面」→「通知」）。<br/>各端末の「この端末の通知」にも、その端末での手順が出ます。</TsuHint></div>
         </div>
         <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-daybefore" checked={cfg.dayBefore !== false} onChange={e => set({ dayBefore: e.target.checked })} className="w-5 h-5"/>前日にお知らせ</label>
@@ -49286,7 +49286,7 @@ function TsuPushStoreCard({ appData, saveSS }) {
           <select data-testid="push-cfg-before-min" value={String(cfg.beforeMin || 30)} onChange={e => set({ beforeMin: Number(e.target.value) })} className={sel}>{[15, 30, 60].map(m => <option key={m} value={m}>{m}分前</option>)}</select><span className="text-xs text-slate-500">時間の入った予定・タスクだけ</span></div>
         {/* ★ 2026-11-02(ユーザー要望): 開始の時刻ちょうどにも1通 */}
         <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-atstart" checked={cfg.atStart !== false} onChange={e => set({ atStart: e.target.checked })} className="w-5 h-5"/>はじまる時刻にもお知らせ</label>
-          <span className="text-xs text-slate-500">「予定の時刻です」「タスクの時刻です」を開始の時刻に1回</span></div>
+          <span className="text-xs text-slate-500">「予定の時刻」「タスクの時刻」を開始の時刻に1回</span></div>
         {/* ★ 2026-10-30: タスクの朝のお知らせ(今日のタスクと期限切れの数を1回・題名は出さない) */}
         <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-taskmorning" checked={cfg.taskMorning !== false} onChange={e => set({ taskMorning: e.target.checked })} className="w-5 h-5"/>タスクを朝にお知らせ</label>
           <select data-testid="push-cfg-taskmorning-at" value={cfg.taskMorningAt || '09:00'} onChange={e => set({ taskMorningAt: e.target.value })} className={sel}>{['07:30','08:00','08:30','09:00','09:30','10:00'].map(t => <option key={t} value={t}>{t}</option>)}</select><span className="text-xs text-slate-500">今日のタスクと期限切れの数を1回</span></div>
