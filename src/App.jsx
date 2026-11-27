@@ -2317,6 +2317,14 @@ const isPlannedRec = (r) => !!r && (r.status==='出席'||r.status==='振替'||r.
 //     出席は 基本利用日か、記録に実データがあるか、月間スケジュールに振替/臨時の印があるときだけ(自動でできた空の記録は数えない)。今月は先の日の空の記録を数えない
 //   ・absRecs: 欠席(基本利用日・振替元「へ振替」は除く)と休止の記録(AI に渡す休みの理由)
 //   戻り値 { planned, attended, shukseki, furikae, rinji, absent, kyushi, rate(null=予定なし), absRecs }
+// ★ 2026-11-27 trial653(ユーザー「術後に痛みがあったが血圧は安定、と読めるが、その血圧は手術前のもの。時系列をしっかり反映して」):
+//   AI への時系列の決まり(モニタリング表の下書き・要約の両方)。月の平均は「月全体」の数字で、出来事の後の様子と1文でつなげさせない
+const TSU_MON_TIME_RULE = `・「日ごとの記録（日付順）」が当月に起きた順。特記・体調の理由も日付を見て、文は起きた順（月の初め→月の終わり）に書く。時期が分かる言葉（「月の前半は」「○日以降は」「手術の前は」「手術の後は」等）を添える。
+・手術・入院・退院・転倒・体調を崩した等の出来事が当月にあるときは、【出来事の前】と【出来事の後】を分けて書く。出来事の前の日の数値や様子を、出来事の後のことのように書かない（逆も同じ）。
+・血圧・脈拍・体温の「平均」は月全体の平均で、出来事の後の状態を表す数字ではない。出来事の後の様子（痛み・不調など）と月の平均値を1文でつなげない（悪い例:「術後の痛みが残り体調は万全ではありませんでしたが、血圧は平均116/70と安定していました」）。平均に触れるときは「月を通しての平均は」と書くか、出来事の前の通所の数値であれば、そう分かるように書く（良い例:「手術前の通所では血圧は110台で落ち着いていました。○日の手術の後は痛みが残り、体調は万全ではない様子でした」）。
+・出来事の後の数値に触れるときは、「日ごとの記録」のその日以降の値だけを使う。出来事の後の通所の記録が無いときは、出来事の後の数値には触れない。
+・出来事の日付は、休んだ日の理由や特記に書かれた日をそのまま使う。出来事の後に通所した日を、出来事があった日のように書かない（「△日の手術後は」ではなく「○日の手術の後、△日の通所では」）。
+・特記に「術後」「退院後」等とあっても、手術・入院が当月より前のことなら、前と後に分けなくてよい（記録の文と日付から判断する）。`;
 const tsuMonthAttendance = (appData, patient, y, m) => {
   const out = { planned: 0, attended: 0, shukseki: 0, furikae: 0, rinji: 0, absent: 0, kyushi: 0, rate: null, absRecs: [] };
   try {
@@ -59729,7 +59737,10 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       const m = r.date?.match(/(\d+)月/);
       return r.patientId === patient.id && m && parseInt(m[1]) === tM && (r.year == null || String(r.year) === '' || Number(r.year) === tY); // ★ 1126b: 年も見る(別の年の同じ月を混ぜない)
     });
-    const attended = recs.filter(r => r.status==='出席'||r.status==='振替'||r.status==='臨時'); // バイタル・特記などの材料(通所した日の記録)
+    // ★ 2026-11-27 trial653(ユーザー「術後の痛みの話と手術前の血圧の平均が1文につながり、時系列が逆。要約に時系列を反映して」):
+    //   記録は入力した順に並んでいて日付順ではなかった → 日付順に。日ごとの数値と休んだ日を1本の時系列(dayLines)で AI に渡す
+    const _dayNo = (r) => { const m = String((r && r.date) || '').match(/(\d+)月\s*(\d+)日/); return m ? Number(m[2]) : 99; };
+    const attended = recs.filter(r => r.status==='出席'||r.status==='振替'||r.status==='臨時').sort((a, b) => _dayNo(a) - _dayNo(b)); // バイタル・特記などの材料(通所した日の記録)
     const _att = tsuMonthAttendance(appData, patient, tY, tM); // ★ 1126b: 回数は利用者実績と同じ数え方
     const rate = _att.rate;
 
@@ -59791,7 +59802,16 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       });
       return parts.length ? `${r.date}: ${parts.join('／')}` : null;
     }).filter(Boolean);
+    // ★ trial653: 日ごとの記録(日付順)。通所した日は数値と体調、休んだ日は理由。数値も理由も無い日は出さない
+    const _ml = (k) => MOOD_LABEL[k] || '';
+    const dayLines = [
+      ...attended.map(r => { const v = [r.bpUpSt ? `血圧${r.bpUpSt}${r.bpDnSt ? '/' + r.bpDnSt : ''}` : '', r.plSt ? `脈拍${r.plSt}` : '', r.temp ? `体温${r.temp}℃` : '',
+        (_ml(r.kibunArrival) || _ml(r.kibunDeparture)) ? `体調 ${[_ml(r.kibunArrival) && `通所時 ${_ml(r.kibunArrival)}`, _ml(r.kibunDeparture) && `帰宅時 ${_ml(r.kibunDeparture)}`].filter(Boolean).join('→')}` : ''].filter(Boolean).join('、');
+        return { n: _dayNo(r), t: `${r.date} ${r.status}: ${v || '数値の記録なし'}` }; }),
+      ...((_att.absRecs || []).map(r => ({ n: _dayNo(r), t: `${r.date} ${r.status === '休止' ? '休止' : '欠席'}${String(r.tokki || '').trim() ? `（${String(r.tokki).trim()}）` : ''}` }))),
+    ].filter(Boolean).sort((a, b) => a.n - b.n).map(x => x.t);
     return {
+      dayLines,
       name: patient.name,
       careLevel: patient.careLevel,
       month: `${tY}年${tM}月`,
@@ -59839,12 +59859,14 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 体調：平均${d.avgMoodLabel||'不明'}${d.moodDistText?`（内訳${d.moodDistText}）`:''}
 体調の理由（本人の様子・日付つき）：${d.kibunDetail&&d.kibunDetail.length?d.kibunDetail.join(' / '):'記録なし'}
 ${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項（日付つき全件）：${d.tokkiDetail&&d.tokkiDetail.length?d.tokkiDetail.join(' / '):'特になし'}
+日ごとの記録（日付順・通所した日の数値と、休んだ日）：${d.dayLines&&d.dayLines.length?d.dayLines.join(' / '):'記録なし'}
 
 出力ルール：
 ・報告文の本文2文のみ出力。前置き・補足・文字数・説明は一切不要
 ・1文目：「今月は〜でした。」で始める（バイタル・体調・特記を中心に）
 ・2文目：「前回と比べて〜」または「引き続き〜」で変化や継続状態を記述
 ・専門的かつ丁寧な文体、具体的な数値を使用
+${TSU_MON_TIME_RULE}
 ・上に書かれているデータだけを材料にする。書かれていないもの（体力測定・計画書・目標など）には一切触れず、「〜は行っていない」「〜が未作成」などの断り書きは書かない`;
 
       const data = await tsumugiCallAi(apiKey, {
@@ -60410,19 +60432,24 @@ ${fitnessText ? `体力測定（直近）：${fitnessText}\n` : ''}特記事項�
 　- 私用・通院など一時的な休み → 日程調整や、通所機会を増やす働きかけの方向。
 　（いずれも医学的判断はせず、機能訓練・生活支援・見守りの観点で記載）
 
+■ 時系列（重要）
+${TSU_MON_TIME_RULE}
+
 利用者: ${d.name}（${d.careLevel||''}）
 対象月: ${d.month}
 通所実績: 予定${d.planned}回（基本利用日の数・休業日を除く）のうち${d.attended}回ご利用（出席${d.shukseki||0}回・振替${d.furikae||0}回・臨時${d.rinji||0}回）${d.attended===0?'　※当月は一度も通所なし':''}（文中で回数に触れるときはこの数字をそのまま使う。出席率は書かない）
 欠席・休みの状況: 当月 欠席/休み ${_absCount}回。 理由: ${_absReasons}
 取り組んだ運動メニュー: ${exerciseNowText}
 運動メニューの変化: ${exerciseChangeText}
-バイタル(参考): 血圧(開始)平均${d.avgBp||'不明'}/${d.avgBpDn||'?'}mmHg（範囲${d.minBp||'?'}〜${d.maxBp||'?'}、前月平均${d.prevAvgBp||'不明'}）${d.highBpDays?`、血圧が高め(収縮期140/拡張期90以上)の日 ${d.highBpDays}回`:''}${d.avgBp2!=null?`、${secondBpLabel(appData)}時 収縮期平均${d.avgBp2}`:''}
+バイタル(参考・月全体の平均): 血圧(開始)平均${d.avgBp||'不明'}/${d.avgBpDn||'?'}mmHg（範囲${d.minBp||'?'}〜${d.maxBp||'?'}、前月平均${d.prevAvgBp||'不明'}）${d.highBpDays?`、血圧が高め(収縮期140/拡張期90以上)の日 ${d.highBpDays}回`:''}${d.avgBp2!=null?`、${secondBpLabel(appData)}時 収縮期平均${d.avgBp2}`:''}
 脈拍: 平均${d.avgPulse||'不明'}回/分　体温: 平均${d.avgTemp||'不明'}℃（最高${d.maxTemp||'不明'}℃）
 通所時の体調: 平均${d.avgMoodLabel||'不明'}${d.moodDistText?`（内訳: ${d.moodDistText}）`:''}
 体調の理由（本人の様子・日付つき。同日の通所時→帰宅時の変化にも注目し、③満足度・④心身の変化・⑤今後の方向性に反映すること）:
 ${d.kibunDetail && d.kibunDetail.length ? '・'+d.kibunDetail.join('\n・') : 'なし'}
 ${_hasFit ? `体力測定: ${fitnessText}\n` : ''}特記（当月の記録・日付つき全件。体調・出来事・ご家族/職員の気づき等。③満足度・④心身の変化・⑤今後の方向性に反映すること）:
 ${d.tokkiDetail && d.tokkiDetail.length ? '・'+d.tokkiDetail.join('\n・') : 'なし'}
+日ごとの記録（日付順・通所した日の数値と、休んだ日。当月に起きた順）:
+${d.dayLines && d.dayLines.length ? '・'+d.dayLines.join('\n・') : 'なし'}
 ${_goalText ? `計画の目標（通所介護計画・個別機能訓練計画）:\n${_goalText}\n（②目標の達成・進捗は、これらの目標に対する取り組み状況・達成度を書いてください）` : '（②目標の達成・進捗は、通所実績・運動・体調・特記だけを材料に、生活機能の維持・向上の観点で自然な所見として書く。「計画」「目標」という言葉は使わない）'}
 
 各項目で、必ず下記の選択肢から最も適切なものを1つ"sel"に選び、"text"に2〜3文の所見を上記の文体・観点で書いてください。当月に通所が無い場合は①を必ず「実施できなかった」にしてください。
