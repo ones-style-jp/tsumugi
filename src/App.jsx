@@ -59682,6 +59682,11 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const _monPaused = (p) => getPatientDisplayStatus(p) === '休止'; // ★ 2026-10-14: 休止予定(開始日が未来)は含めない
   // ★ 2026-10-28(ユーザー「月の途中で退所してもモニタリングは送る」): 選んだ月の途中で退所した方も、その月に通所していれば対象に残す
   const allActive = (appData.patients||[]).filter(p => tsuMonListable(p, tY, tM) && isPatientStartedByToday(p) && ((isPatientListable(p) && !tsuNotStarted(p, appData)) ? (p.status === '利用中' || _monPaused(p) || hasAttendance(p)) : hasAttendance(p)));
+  // ★ 2026-11-27 1127e(ユーザー報告「確定しているのに上の 確定 がずっと0名」): 確定・入力済みは、保存された記録(その月のモニタリング)で数える。
+  //   画面の一時の状態(results)は、1人ずつ「確定」を押すと確定の印が落ちて 0名 になっていた(行の「確定済」は記録を見ていたので食い違い)
+  const _monRecMap = new Map((appData.monitoringRecords||[]).filter(r => r && r.period === `${tY}年${tM}月`).map(r => [r.patientId, r]));
+  const _monConfOf = (pid) => !!(_monRecMap.get(pid) && _monRecMap.get(pid).confirmed);
+  const _monTextOf = (pid) => !!((results[pid] && results[pid].text) || (_monRecMap.get(pid) && _monRecMap.get(pid).summary));
   const careLevelOrd = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const dowStr = ['日','月','火','水','木','金','土'];
   // ★ 利用曜日は月曜起点で統一(表示・並び替えとも月→日の順)
@@ -59701,8 +59706,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const filterBySearch = (p) => tsuSearchHit(searchQuery, p.name, p.kana);
   const filterByDow = (p) => monitorDowFilter.length===0 || monitorDowFilter.some(i => (p.scheduleAmPm||[])[i]);
   const filterByStatus = (p) => monitorStatusFilter==='all' ? true
-    : monitorStatusFilter==='unentered' ? !results[p.id]?.text
-    : !results[p.id]?.confirmed;
+    : monitorStatusFilter==='unentered' ? !_monTextOf(p.id)
+    : !_monConfOf(p.id);
   const _monFilter = (p) => filterBySearch(p) && filterByDow(p) && filterByStatus(p);
   const attendedPats = sortPats(allActive.filter(p => hasAttendance(p) && _monFilter(p)));
   const absentPats   = sortPats(allActive.filter(p => !hasAttendance(p) && _monFilter(p)));
@@ -59713,8 +59718,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   });
   const checkAll = () => setCheckedIds(new Set([...attendedPats, ...absentPats].map(p=>p.id)));
   const uncheckAll = () => setCheckedIds(new Set());
-  const checkUnentered = () => setCheckedIds(new Set(attendedPats.filter(p=>!results[p.id]?.text).map(p=>p.id)));
-  const checkUnconfirmed = () => setCheckedIds(new Set(attendedPats.filter(p=>!results[p.id]?.confirmed).map(p=>p.id)));
+  const checkUnentered = () => setCheckedIds(new Set(attendedPats.filter(p=>!_monTextOf(p.id)).map(p=>p.id)));
+  const checkUnconfirmed = () => setCheckedIds(new Set(attendedPats.filter(p=>!_monConfOf(p.id)).map(p=>p.id)));
   const checkAbsent = () => setCheckedIds(new Set(absentPats.map(p=>p.id)));
   const allChecked = attendedPats.length > 0 && attendedPats.every(p => checkedIds.has(p.id));
 
@@ -60696,13 +60701,13 @@ ${optionsDesc}
       {/* ★ 確定サマリ＋締切＋AI残数を1行に統合(2026-08-30 店舗要望)。 上限到達時は「上限に達しました。」まで表示 */}
       {(() => {
         const _lastDay = new Date(tY, tM, 0).getDate();
-        const _confN = attendedPats.filter(p => results[p.id]?.confirmed).length;
+        const _confN = attendedPats.filter(p => _monConfOf(p.id)).length; // ★ 1127e: 記録の確定で数える
         const _todoN = attendedPats.length - _confN;
         return (
           <div className="no-print" style={{flexShrink:0,background:'#f8fafc',borderBottom:'1px solid #e2e8f0',padding:'7px 16px',fontSize:12,fontWeight:'bold',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
             {attendedPats.length > 0 && (<>
-              <span style={{color:'#059669'}}>✓ 確定 {_confN}名</span>
-              <span style={{color:_todoN>0?'#d97706':'#94a3b8'}}>● 未確定 {_todoN}名</span>
+              <span data-testid="mon-conf-n" style={{color:'#059669'}}>✓ 確定 {_confN}名</span>
+              <span data-testid="mon-todo-n" style={{color:_todoN>0?'#d97706':'#94a3b8'}}>● 未確定 {_todoN}名</span>
               <span style={{color:'#475569',fontWeight:'normal'}}>締切: {tM}月{_lastDay}日 18:00（過ぎると記入済みは自動で確定）</span>
               <span style={{borderLeft:'1px solid #e2e8f0',height:16}}/>
             </>)}
