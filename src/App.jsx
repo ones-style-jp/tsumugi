@@ -22418,10 +22418,26 @@ function StaffLoginGate({ onLogin }) {
 //   従来は端末側に控えが無く、再読み込みでその変更(月間スケジュールの振替・欠席など app_state 側)が失われていた。
 const _pendIdb = {
   open: () => new Promise((res, rej) => { try { const r = indexedDB.open('tsumugi-pending', 1); r.onupgradeneeded = () => { try { r.result.createObjectStore('push'); } catch {} }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); } catch (e) { rej(e); } }),
-  put: async (storeId, data) => { try { const db = await _pendIdb.open(); await new Promise((res, rej) => { const tx = db.transaction('push', 'readwrite'); tx.objectStore('push').put({ storeId, data, at: Date.now() }, String(storeId)); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); db.close(); return true; } catch { return false; } },
+  put: async (storeId, data, kind) => { try { const db = await _pendIdb.open(); await new Promise((res, rej) => { const tx = db.transaction('push', 'readwrite'); tx.objectStore('push').put({ storeId, data, at: Date.now(), kind: kind || 'failed' }, String(storeId)); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); db.close(); return true; } catch { return false; } },
   get: async (storeId) => { try { const db = await _pendIdb.open(); const v = await new Promise((res, rej) => { const tx = db.transaction('push', 'readonly'); const q = tx.objectStore('push').get(String(storeId)); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); db.close(); return v; } catch { return null; } },
   del: async (storeId) => { try { const db = await _pendIdb.open(); await new Promise((res, rej) => { const tx = db.transaction('push', 'readwrite'); tx.objectStore('push').delete(String(storeId)); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); db.close(); } catch {} },
 };
+// ★ 2026-11-27 trial651(ユーザー「削除してすぐ再読み込みすると戻る。削除中・更新中と出るように」):
+//   送信の途中の控え(kind:'inflight')は、まる1日を過ぎたら送らずに捨てる(古い画面の内容を後から混ぜない)。送信に失敗した控え(kind:'failed')は今までどおり期限なし
+const TSU_PEND_INFLIGHT_MAX_MS = 24 * 3600000;
+// 送信中の印(右上の小さな「保存中…」→「保存済み」)。画面全体を描き直さないよう、印だけが自分で合図を聞く
+const tsuPushPillEmit = (st) => { try { window.dispatchEvent(new CustomEvent('tsumugi-push-pill', { detail: { st } })); } catch {} };
+function TsuPushPill({ hidden }) {
+  const [st, setSt] = React.useState('idle');
+  React.useEffect(() => { let t = null;
+    const on = (e) => { const v = (e && e.detail && e.detail.st) || 'idle'; clearTimeout(t); setSt(v); if (v === 'done') t = setTimeout(() => setSt('idle'), 1500); };
+    window.addEventListener('tsumugi-push-pill', on); return () => { clearTimeout(t); window.removeEventListener('tsumugi-push-pill', on); }; }, []);
+  if (st === 'idle' || hidden) return null;
+  return ReactDOM.createPortal(
+    <div data-testid="push-pill" data-st={st} role="status" style={{position:'fixed',top:8,right:12,zIndex:99990,pointerEvents:'none',display:'flex',alignItems:'center',gap:6,padding:'4px 10px',borderRadius:999,background:'#fff',border:'1px solid #7daa3d',color:'#3f6212',fontSize:12,fontWeight:700,boxShadow:'0 1px 4px rgba(0,0,0,.12)'}}>
+      {st === 'busy' ? <><BusySpin/>保存中…</> : <><CheckCircle2 size={14}/>保存済み</>}
+    </div>, document.body);
+}
 export default function App() {
   // 家族用閲覧モード判定: ?family が含まれていれば家族用ログイン画面に遷移
   const _staffInviteCode = React.useMemo(() => { try { const q = new URLSearchParams(window.location.search); const c = String(q.get('staffinvite') || '').replace(/[^0-9]/g, ''); return c.length === 8 ? c.slice(0, 4) + '-' + c.slice(4) : null; } catch { return null; } }, []); // ★ 2026-10-19 段階4
@@ -22783,26 +22799,63 @@ export default function App() {
   const _pushWaitersRef = React.useRef([]);   // ★ 2026-10-02: 保存結果を待つ約束(「保存しました」の判定)
   const _saveToastSeqRef = React.useRef(0); const _saveToastTimerRef = React.useRef(null);
   const _saveStageRef = React.useRef(null); // ★ trial561: 手で保存したときの段階の表示(最新の確かめ→送信・経過秒)
+  // ★ 2026-11-27 trial651: 保存の送信を始める前に、その内容を端末に控える(_pendKeep)。送信の途中で再読み込み・アプリ終了しても、次に開いたときに送る。
+  //   送れたら控えを消す。控えは店舗ごと(別店舗の控えは送らない)・全店リセットより前の控えは送らない・送信の途中の控えはまる1日で捨てる
+  const _pendKeptRef = React.useRef(null); const _pendKeepPRef = React.useRef(null); const _pendSeqRef = React.useRef(0); const _pendLaterRef = React.useRef(null); const _pendResendBusyRef = React.useRef(false); const _pendFailedRef = React.useRef(false); // _pendFailedRef: 送信に失敗した控えがある間は、差し替えても「失敗した控え」(期限なし)のまま
+  const _pendKeep = (sid, data) => {
+    if (!sid || !data) return Promise.resolve(false);
+    if (_pendKeptRef.current === data && _pendKeepPRef.current) return _pendKeepPRef.current;
+    _pendKeptRef.current = data; _pendSeqRef.current++;
+    const pr = _pendIdb.put(sid, data, _pendFailedRef.current ? 'failed' : 'inflight').then(k => { if (k) _pendPushRef.current = true; return k; }).catch(() => false);
+    _pendKeepPRef.current = pr; return pr;
+  };
+  // 送信中に次の保存が来たとき: 0.6秒 入力が止まったら、いちばん新しい内容に控えを差し替える(1文字ごとに数MBを書かない)
+  const _pendKeepLater = (sid) => { clearTimeout(_pendLaterRef.current); _pendLaterRef.current = setTimeout(() => { const d = _pushNextRef.current; if (d) _pendKeep(sid, d); }, 600); };
+  const _pendResend = async (sid, tag, resetAt) => {
+    if (_pendResendBusyRef.current || _pushBusyRef.current) return 'skip';
+    _pendResendBusyRef.current = true;
+    try {
+      const seq0 = _pendSeqRef.current;
+      const p = await _pendIdb.get(sid); if (!p || !p.data) { if (_pendSeqRef.current === seq0) _pendPushRef.current = false; return 'none'; }
+      if (p.data._sbStoreId && p.data._sbStoreId !== sid) { await _pendIdb.del(sid); return 'none'; } // 別店舗の控えは捨てる(店舗ゲート)
+      if (p.kind !== 'inflight') _pendFailedRef.current = true;
+      const age = Date.now() - (p.at || Date.now());
+      if (p.kind === 'inflight' && age > TSU_PEND_INFLIGHT_MAX_MS) { await _pendIdb.del(sid); syncLog('pend-drop-old', { ageH: Math.round(age / 3600000) }); return 'none'; }
+      if (resetAt != null && String(p.data.__resetAt || '') !== String(resetAt || '')) { await _pendIdb.del(sid); syncLog('pend-drop-reset', {}); return 'none'; } // 全店リセットより前の控え
+      if (_pushBusyRef.current || _pendSeqRef.current !== seq0) return 'skip'; // 読んでいる間にふつうの保存が始まった(そちらが新しい内容を送る)
+      syncLog('pend-resend', { age: Math.round(age / 1000), tag, kind: p.kind || 'failed' });
+      if (tag !== 'boot') await _pullIfStale('resend'); // ★ trial545: 通信が戻った直後の再送も、まず最新を取り込んでから
+      let r = false; try { r = await Promise.race([supabaseMergeAndSyncStateForStore(sid, p.data), new Promise(res => setTimeout(() => res('__timeout__'), tag === 'boot' ? 20000 : 80000))]); } catch {}
+      if (r === '__timeout__') { _pendPushRef.current = true; syncLog('pend-resend-timeout', { tag }); return 'fail'; }
+      if (r === 'blocked') { if (_pendSeqRef.current === seq0) await _pendIdb.del(sid); _pendPushRef.current = false; syncLog('pend-resend-blocked', {}); return 'blocked'; } // ★ 2026-11-02: 読み込み前/利用者0の控えは危険なので送らずに捨てる
+      if (r === false) { _pendPushRef.current = true; syncLog('pend-resend-fail', {}); return 'fail'; }
+      const noop = !!(tsuLastPushInfo && tsuLastPushInfo.key === sid && tsuLastPushInfo.noop);
+      if (_pendSeqRef.current === seq0) { await _pendIdb.del(sid); _pendPushRef.current = false; _pendFailedRef.current = false; } // 送っている間に新しい保存が控えを差し替えていたら消さない
+      syncLog('pend-resend-ok', { tag, noop: noop ? 1 : 0 });
+      return noop ? 'noop' : (p.kind === 'inflight' ? 'sent-inflight' : 'sent');
+    } catch { return 'fail'; } finally { _pendResendBusyRef.current = false; }
+  };
+  const _pendToast = (r) => {
+    if (r !== 'sent' && r !== 'sent-inflight') return;
+    setToastMsg(r === 'sent-inflight' ? '前回、保存の途中で閉じた変更をクラウドへ送りました' : '前回保存できなかった変更をクラウドへ送信しました（数秒後に画面に反映されます）'); setShowToast(true); setTimeout(() => setShowToast(false), 5000);
+  };
   React.useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId) return;
-    const sid = staffSession.storeId; let stopped = false, busy = false;
-    const tryResend = async () => {
-      if (stopped || busy) return; busy = true;
-      try {
-        const p = await _pendIdb.get(sid); if (!p || !p.data || stopped) return;
-        if (p.data._sbStoreId && p.data._sbStoreId !== sid) { await _pendIdb.del(sid); return; } // 別店舗の控えは捨てる(店舗ゲート)
-        syncLog('pend-resend', { age: Math.round((Date.now() - (p.at || Date.now())) / 1000) });
-        await _pullIfStale('resend'); // ★ trial545: 通信が戻った直後の再送も、まず最新を取り込んでから
-        let ok = false, _blk = false; try { const _r = await supabaseMergeAndSyncStateForStore(sid, p.data); ok = _r !== false; _blk = _r === 'blocked'; if (_r === true) _tsuAdoptOwnPush(); } catch {} // ★ trial624
-        if (_blk) { await _pendIdb.del(sid); _pendPushRef.current = false; syncLog('pend-resend-blocked', {}); return; } // ★ 2026-11-02: 読み込み前/利用者0の控えは危険なので送らずに捨てる
-        if (ok) { await _pendIdb.del(sid); _pendPushRef.current = false; syncLog('pend-resend-ok', {}); setToastMsg('前回保存できなかった変更をクラウドへ送信しました（数秒後に画面に反映されます）'); setShowToast(true); setTimeout(() => setShowToast(false), 5000); }
-        else syncLog('pend-resend-fail', {});
-      } finally { busy = false; }
+    const sid = staffSession.storeId; let stopped = false; let t = null;
+    const tryResend = async (tag) => {
+      if (stopped) return;
+      // 起動の最初の取り込みが終わるまでは、取り込みの側(_checkAndPullInner)が先に送る
+      if (dataLoadedForStoreRef.current !== sid) { clearTimeout(t); t = setTimeout(() => tryResend(tag), 3000); return; }
+      const cur = appDataRef.current; const r = await _pendResend(sid, tag, (cur && cur._sbStoreId === sid) ? (cur.__resetAt || '') : null);
+      if (stopped) return;
+      // ★ trial651: 再送した内容は、この端末の画面にはまだ無いことがある(再読み込みのあと)。版を進めた印(_tsuAdoptOwnPush)は付けず、必ず取り直す
+      if (r === 'sent' || r === 'sent-inflight') { _pendToast(r); try { _pullNowRef.current && _pullNowRef.current(); } catch {} }
     };
-    const t = setTimeout(tryResend, 5000);
-    const onOnline = () => setTimeout(tryResend, 1500);
+    t = setTimeout(() => tryResend('timer'), 5000);
+    const iv = setInterval(() => { try { if (_pendPushRef.current && !_pushBusyRef.current && navigator.onLine !== false) tryResend('retry'); } catch {} }, 60000); // 送信に失敗した控えは、1分ごとに送り直す
+    const onOnline = () => setTimeout(() => tryResend('online'), 1500);
     window.addEventListener('online', onOnline);
-    return () => { stopped = true; clearTimeout(t); window.removeEventListener('online', onOnline); };
+    return () => { stopped = true; clearTimeout(t); clearInterval(iv); window.removeEventListener('online', onOnline); };
   }, [staffSession?.storeId]);
   // ★ 軽量保存でも「直近45日の提供記録」は残す(2026-09-01 扇橋の再読み込み空欄対策)。
   //   従来はticketRecordsを丸ごと除外していたため、容量超過店舗では boot-merge prev:0 =
@@ -23291,6 +23344,7 @@ export default function App() {
     try { localStorage.setItem(lastStoreKey, newStoreId); } catch {}
 
     let _pullSkipCount = 0;
+    let _bootPendDone = false; // ★ trial651
     const _checkAndPullInner = async (opts) => {
       try {
         // ★ メモリ肥大対策(2026-08-30): まず updated_at だけの軽量チェック。 前回反映と同じで、
@@ -23351,6 +23405,14 @@ export default function App() {
           sessionStorage.removeItem('tsumugiActiveRecorder');
           window.location.reload();
           return;
+        }
+        // ★ 2026-11-27 trial651(ユーザー「削除してすぐ再読み込みすると戻る」): 前回、送信の途中で再読み込み・終了した保存が端末に控えてあれば、
+        //   最初の取り込みを画面へ入れる前にクラウドへ送り(いつもの合成の保存・関所もそのまま)、送れたら取り直す。こうすると「いったん戻ってから消える」にならない。
+        //   クラウドの行が読めて、全店リセットの確認が済んだあとでだけ行う。1回の起動で1度だけ
+        if (dataLoadedForStoreRef.current !== newStoreId && !_bootPendDone) {
+          _bootPendDone = true;
+          let _pr = 'none'; try { _pr = await _pendResend(newStoreId, 'boot', row.data.__resetAt || ''); } catch {}
+          if (_pr === 'sent' || _pr === 'sent-inflight') { _pendToast(_pr); return _checkAndPullInner(opts); }
         }
         // ★ 店舗切替直後の強制 pull (5秒スキップを無視)
         const forcePull = pendingPullForStoreRef.current === newStoreId;
@@ -25521,21 +25583,24 @@ export default function App() {
         //   後から来た保存はそれまでの内容を含むので、その結果で待っている全員に答える。
         const _pumpPush = (dataToPush) => new Promise((resolve) => { _pushWaitersRef.current.push(resolve); _pumpPushInner(dataToPush); });
         const _pumpPushInner = async (dataToPush) => {
-          if (_pushBusyRef.current) { _pushNextRef.current = dataToPush; return; }
-          _pushBusyRef.current = true;
+          if (_pushBusyRef.current) { _pushNextRef.current = dataToPush; _pendKeepLater(staffSession.storeId); return; } // ★ trial651
+          _pushBusyRef.current = true; let _lastOk = null;
           try {
             let cur = dataToPush;
             while (cur) {
+              // ★ 2026-11-27 trial651: 送り始める前に端末へ控える(送信の途中で再読み込み・終了しても、次に開いたとき自動で送る)。送信中は右上に「保存中…」
+              const _keepP = _pendKeep(staffSession.storeId, cur); tsuPushPillEmit('busy');
               // ★ trial561(ユーザー「保存に40秒かかるときと、すぐのときがある」): どの段階に時間がかかっているかを表示と診断ログに残す
               const _t0 = Date.now(); const _stale = (Date.now() - Math.max(lastAppliedAtRef.current || 0, lastPullCheckOkAtRef.current || 0)) >= 60000;
               try { if (_stale && _saveStageRef.current) _saveStageRef.current('pull'); } catch {}
               const _pulled = await _pullIfStale('save'); // ★ trial545: 眠っていた端末はまず取り込む
               const _t1 = Date.now(); try { if (_saveStageRef.current) _saveStageRef.current('push'); } catch {}
-              const ok = await _retryPush(cur);
+              const ok = await _retryPush(cur); _lastOk = ok;
               try { syncLog('push-time', { pullMs: _pulled ? _t1 - _t0 : 0, pushMs: Date.now() - _t1, ok: ok === true ? 1 : String(ok) }); } catch {}
               if (ok === true) _tsuAdoptOwnPush(); // ★ trial624: 間に他の端末が書いていなければ、クラウドは自分の書いた版=取り直さない
               { const ws = _pushWaitersRef.current.splice(0); ws.forEach(r => { try { r(ok === true); } catch {} }); }
               if (ok === 'blocked') { // ★ 2026-11-02 水元店の事故: 関所で止めた保存は再送に積まない(その状態をクラウドへ送ると全店のデータが消える)。端末はまもなく最新を取り直す
+                try { await _keepP; } catch {} _pendKeptRef.current = null; _pendSeqRef.current++; _pendPushRef.current = false; _pendIdb.del(staffSession.storeId); // ★ trial651: 送る前の控えも消す
                 // ★ trial545: 「減る」保存を止めたとき(blocked-shrink)は案内を変え、すぐ最新を取り込む
                 if (String(syncHealth.lastError || '') === 'blocked-shrink') { try { _pullNowRef.current && _pullNowRef.current(); } catch {} setToastMsg('⚠ この保存を送ると、他の端末で登録された利用者や記録が消えるため、クラウドへの保存を見送りました。最新を取り込みますので、内容を確かめてからもう一度保存してください（クラウドのデータは無事です）'); }
                 else setToastMsg('⚠ この端末はまだ店舗のデータを読み込めていないため、クラウドへの保存を見送りました。数秒待ってから、もう一度保存してください（他の端末のデータは無事です）');
@@ -25543,24 +25608,31 @@ export default function App() {
               } else if (!ok) {
                 syncLog('push-give-up', {});
                 // ★ 失敗した内容を IndexedDB に控える → 再読み込み後・オンライン復帰後に自動再送(2026-09-21)
-                const _kept = await _pendIdb.put(staffSession.storeId, cur); _pendPushRef.current = !!_kept;
+                try { await _keepP; } catch {} _pendSeqRef.current++; _pendFailedRef.current = true;
+                const _kept = await _pendIdb.put(staffSession.storeId, cur, 'failed'); _pendPushRef.current = !!_kept;
                 setToastMsg(_kept ? '⚠ 同期に失敗しました。変更は端末に控え、通信が戻ると自動で送ります（再読み込みしても消えません）' : '⚠ 同期に失敗しました。入力は端末に残っています。通信を確認して、もう一度保存してください');
                 setShowToast(true); setTimeout(()=>setShowToast(false),8000);
-              } else if (_pendPushRef.current) { _pendPushRef.current = false; _pendIdb.del(staffSession.storeId); }
+              } else { // ★ trial651: 送れた → 控えを消す(次の保存が待っているときは消さない=次の回が控えを差し替える)
+                try { await _keepP; } catch {}
+                _pendFailedRef.current = false;
+                if (!_pushNextRef.current) { _pendKeptRef.current = null; _pendSeqRef.current++; _pendPushRef.current = false; _pendIdb.del(staffSession.storeId); }
+              }
               cur = _pushNextRef.current; _pushNextRef.current = null;
             }
-          } finally { _pushBusyRef.current = false; }
+          } finally { _pushBusyRef.current = false; clearTimeout(_pendLaterRef.current); tsuPushPillEmit(_lastOk === true ? 'done' : 'idle'); }
         };
         // ★ 2026-10-02(店舗報告: 電波を切った状態で保存→「保存しました」→アプリを入れ直すと保存されていない):
         //   「保存しました」はクラウド(店舗データとテーブル)に書けたときだけ出す。それまでは「保存しています…」、
         //   失敗したら「保存できませんでした」(入力は端末に控えて通信が戻れば自動で送る)。通信が無いときは最初から失敗の案内。
         // ★ trial561: 段階(最新の確かめ／送信)と経過秒を出す(保存が長いときに、どこで待っているか分かるように)
+        // ★ 2026-11-27 trial651(ユーザー「削除中ですと出した方がよい」): 削除の保存は、送信中の文を「削除しています…」に
+        const _busyBase = options.busyMessage || (/削除しました|ゴミ箱に移動/.test(String(options.message || '')) ? '削除しています…' : 'クラウドに保存しています…');
         const _tid = options.manual ? ++_saveToastSeqRef.current : null;
         const _show = (msg, ms) => { if (_tid == null || _saveToastSeqRef.current !== _tid) return; setToastMsg(msg); setShowToast(true); clearTimeout(_saveToastTimerRef.current); _saveToastTimerRef.current = setTimeout(() => { if (_saveToastSeqRef.current === _tid) setShowToast(false); }, ms); };
         let _stageTimer = null; const _stageStop = () => { if (_stageTimer) { clearInterval(_stageTimer); _stageTimer = null; } _saveStageRef.current = null; };
         if (options.manual && !(typeof navigator !== 'undefined' && navigator.onLine === false)) {
           const _t0 = Date.now(); let _stage = 'push';
-          const _label = () => { const sec = Math.round((Date.now() - _t0) / 1000); const base = _stage === 'pull' ? '最新の内容を確かめています…（他の端末の変更を先に取り込みます）' : 'クラウドに保存しています…'; return sec >= 5 ? `${base}（${sec}秒）` : base; };
+          const _label = () => { const sec = Math.round((Date.now() - _t0) / 1000); const base = _stage === 'pull' ? '最新の内容を確かめています…（他の端末の変更を先に取り込みます）' : _busyBase; return sec >= 5 ? `${base}（${sec}秒）` : base; };
           _saveStageRef.current = (st) => { _stage = st; _show(_label(), 60000); if (!_stageTimer) _stageTimer = setInterval(() => { if (_saveToastSeqRef.current !== _tid) { _stageStop(); return; } _show(_label(), 60000); }, 1000); };
         }
         const _pushDone = _pumpPush(newData);
@@ -25568,7 +25640,7 @@ export default function App() {
           if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             _show('⚠ 通信がないため保存できませんでした。入力は端末に控え、通信が戻ると自動で送ります（画面を閉じないでください）', 8000);
           } else {
-            _show('クラウドに保存しています…', 60000);
+            _show(_busyBase, 60000);
             Promise.all([_pushDone, _rowsPromise || Promise.resolve({ ok: true })]).then(([okPush, rowsRes]) => {
               _stageStop();
               const ok = okPush && !(rowsRes && rowsRes.ok === false);
@@ -26449,8 +26521,9 @@ export default function App() {
             <div style={{fontSize:10.5,opacity:.8,marginTop:2}}>出典: 気象庁（地震情報・津波警報・気象警報）。テレビ・スマホの緊急地震速報より遅れて表示されます。</div>
           </div>
         </div>, document.body)}
+      <TsuPushPill hidden={showToast}/>{/* ★ trial651: 保存の送信中の印 */}
       {showToast && ReactDOM.createPortal(
-        <div style={{position:'fixed',top:24,right:32,zIndex:99999}} className={`bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center max-w-[min(92vw,560px)]`}>{/* ★ 2026-11-23 1122f(ユーザー「秒数が出ているときポップアップが上下に揺れてチラチラする。基本ポップアップは揺れないように」): 揺れ(animate-bounce)をやめた。保存の経過秒は「…（8秒）」で末尾が…でなくなり、揺れが始まっていた */}
+        <div data-testid="save-toast" style={{position:'fixed',top:24,right:32,zIndex:99999}} className={`bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center max-w-[min(92vw,560px)]`}>{/* ★ 2026-11-23 1122f(ユーザー「秒数が出ているときポップアップが上下に揺れてチラチラする。基本ポップアップは揺れないように」): 揺れ(animate-bounce)をやめた。保存の経過秒は「…（8秒）」で末尾が…でなくなり、揺れが始まっていた */}
           {/* ★ 2026-10-02: 保存中は回る輪・失敗(⚠)は赤、成功だけ緑のチェック */}
           {/^⚠/.test(String(toastMsg||'')) ? <span className="text-red-400 mr-2 font-bold">!</span> : /…$/.test(String(toastMsg||'')) ? <BusySpin style={{marginRight:10,color:'#a7f3d0'}}/> : <CheckCircle2 className="text-emerald-400 mr-2" />}{String(toastMsg||'').replace(/^⚠\s*/, '')}
         </div>,
@@ -63496,7 +63569,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     updatePatient({
       files: (personalFile.files || []).filter(f => f.id !== fileId),
       trash: [...(personalFile.trash || []), { ...target, _deletedAt: new Date().toISOString(), _kind: 'file' }],
-    });
+    }, { manual: true, message: '✓ 削除しました（ゴミ箱に7日間残ります）' }); // ★ trial651
   };
   // ゴミ箱から復元 / 完全削除
   const restoreFromTrash = (trashId) => {
@@ -63511,9 +63584,9 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
       onSave({ ...appData, patients: (appData.patients||[]).map(p => p.id===patient.id ? { ...p, [_field]: [...(p[_field]||[]), _restored], personalFile: { ...personalFile, trash: newTrash } } : p) }, { manual: true, message: '✓ 復元しました' });
     } else if (_kind === 'fs' && _field) {
       const fsObj = personalFile.faceSheet || {};
-      updatePatient({ faceSheet: { ...fsObj, [_field]: [...(fsObj[_field]||[]), file] }, trash: newTrash });
+      updatePatient({ faceSheet: { ...fsObj, [_field]: [...(fsObj[_field]||[]), file] }, trash: newTrash }, { manual: true, message: '✓ 復元しました' });
     } else {
-      updatePatient({ files: [...(personalFile.files || []), file], trash: newTrash });
+      updatePatient({ files: [...(personalFile.files || []), file], trash: newTrash }, { manual: true, message: '✓ 復元しました' });
     }
   };
   const purgeFromTrash = (trashId) => {
@@ -63522,7 +63595,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     if (!t) return;
     if (!window.confirm('このファイルを完全に削除します。元に戻せません。よろしいですか?')) return;
     if (t.storagePath && !tsuStoragePathInUse(tsuStorageRefText(appData), t.storagePath)) { supabaseDeleteFile(t.storagePath).catch(()=>{}); } // ★ 2026-11-05: まだ使われている写真は消さない
-    updatePatient({ trash: (personalFile.trash || []).filter(x => x.id !== trashId) });
+    updatePatient({ trash: (personalFile.trash || []).filter(x => x.id !== trashId) }, { manual: true, message: '✓ 完全に削除しました' });
   };
   // ★ ファイルのタイトル/日付を編集
   const updateFile = (fileId, patch) => {
@@ -63556,7 +63629,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     updatePatient({
       categories: customCategories.filter(c => c.id !== catId),
       files: (personalFile.files || []).filter(f => f.categoryId !== catId),
-    });
+    }, { manual: true, message: '✓ カテゴリを削除しました' });
     setActiveCat(DEFAULT_PF_CATEGORIES[0].id);
   };
 
@@ -64388,7 +64461,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                       </div>
                       <div className="flex gap-1">
                         <button onClick={()=>setPdfPreviewMonthly(s)} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[11px] font-bold">ダウンロード</button>
-                        <button onClick={(e)=>{ if (!tsuPfGate(() => { try { e.target.click(); } catch {} }, '月のスナップショットの削除')) return; if(window.confirm('この月のスナップショットを削除しますか?')) updatePatient({ monthlyServiceRecords: monthlyServiceRecords.filter(x => x.id !== s.id) }); }}
+                        <button onClick={(e)=>{ if (!tsuPfGate(() => { try { e.target.click(); } catch {} }, '月のスナップショットの削除')) return; if(window.confirm('この月のスナップショットを削除しますか?')) updatePatient({ monthlyServiceRecords: monthlyServiceRecords.filter(x => x.id !== s.id) }, { manual: true, message: '✓ 削除しました' }); }}
                           className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[11px] font-bold">削除</button>
                       </div>
                     </div>
@@ -64477,7 +64550,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                           className="px-2 py-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded text-[11px] font-bold">小窓</button>
                         <button onClick={()=>tsuMeetingDownload(patient, m, appData)} data-testid={`meeting-dl-${m.id}`} title="サービス担当者会議録(A4 1枚)をPDFでダウンロードします" className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[11px] font-bold">ダウンロード</button>
                         <button data-testid={`meet-edit-${m.id}`} onClick={()=>tsuOpenMeeting(patient.id, m, { full: true })} className="whitespace-nowrap px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[11px] font-bold">編集</button>
-                        <button onClick={(e)=>{ if (!tsuPfGate(() => { try { e.target.click(); } catch {} }, '会議記録の削除')) return; if(window.confirm('この会議記録を削除しますか?')) updatePatient({ meetings: meetings.filter(x => x.id !== m.id) }); }}
+                        <button onClick={(e)=>{ if (!tsuPfGate(() => { try { e.target.click(); } catch {} }, '会議記録の削除')) return; if(window.confirm('この会議記録を削除しますか?')) updatePatient({ meetings: meetings.filter(x => x.id !== m.id) }, { manual: true, message: '✓ 削除しました' }); }}
                           className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[11px] font-bold">削除</button>
                       </div>
                     </div>
