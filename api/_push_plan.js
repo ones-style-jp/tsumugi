@@ -6,8 +6,11 @@
 //   ・2026-10-30 タスク(kind:'task'): 朝のお知らせ(既定 9:00・今日のタスクと期限切れの数を1回)・時刻の入ったタスクは開始前に「タスクの時刻」。済んだ回は送らない。前日のお知らせ(あすの予定)には数えない
 //   ・2026-11-02 開始の時刻ちょうど(atStart・既定 on): 時間の入った予定・タスクに「予定の時刻です」「タスクの時刻です」を1通(開始〜10分の点検窓・控え s|<id>|<日>)
 //     繰り返しの判定は画面(App.jsx tsuOccursOn)と同じ: 毎月（最終営業日）・タスクの毎日は営業日だけ(定休日 closedDays・1日の休業日 holidays)
+//   ・2026-11-27 trial645(ユーザー「予定があります、だけでは開かないと分からない」): 予定の中身(ラベル・題名・利用者名・タスクの題名)を出す文 full も作る。
+//     どちらを送るかは端末ごと(payloadFor): 店舗の設定 detail(既定 on)で、つむぎを detailDays 日(既定 7)以内に開いた端末だけ中身つき。ほかは今までどおりラベルと時刻だけ。
+//     ロック中に隠すのは端末の設定(iPhone=プレビューを表示「ロックされていないとき」・Android=ロック画面の通知「内容を隠す」)
 export const JST_OFF = 9 * 60 * 60 * 1000;
-export const PUSH_DEFAULTS = { on: true, dayBefore: true, dayBeforeAt: '17:00', before: true, beforeMin: 30, offColors: [], taskMorning: true, taskMorningAt: '09:00', atStart: true }; // ★ 2026-11-02: atStart=開始の時刻ちょうどにも1通
+export const PUSH_DEFAULTS = { on: true, dayBefore: true, dayBeforeAt: '17:00', before: true, beforeMin: 30, offColors: [], taskMorning: true, taskMorningAt: '09:00', atStart: true, detail: true, detailDays: 7 }; // ★ 2026-11-02: atStart=開始の時刻ちょうどにも1通 ★ 2026-11-27 trial645: detail=中身を出す・detailDays=何日開いていない端末は伏せるか
 // 画面(カレンダー)の既定のラベル。店舗が変えていれば systemSettings.scheduleColorLabels を使う
 const DEFAULT_LABELS = [
   { color: '#3b82f6', label: '担当者会議' }, { color: '#ef4444', label: '契約' }, { color: '#10b981', label: '見学' },
@@ -55,22 +58,38 @@ export function labelOf(e, colorLabels) {
   const def = DEFAULT_LABELS.find(x => x.color === c);
   return String((own && own.label) || (def && def.label) || '予定').slice(0, 20);
 }
+// ★ trial645: 中身つきの文。「担当者会議：ご自宅で（山田 太郎様）」。題名にラベル・名字が入っていれば重ねない。names = { 利用者番号: 氏名 }
+export function evText(e, colorLabels, names) {
+  const t = String((e && e.title) || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  if (isTask(e)) return t ? `タスク：${t}` : 'タスク';
+  const lb = labelOf(e, colorLabels);
+  const nm = (e && e.patientId != null && names) ? String(names[String(e.patientId)] || '').replace(/\s+/g, ' ').trim() : '';
+  const sur = nm.split(' ')[0];
+  const head = !t ? lb : (t === lb || t.includes(lb) ? t : `${lb}：${t}`);
+  return head + (nm && !(sur && t.includes(sur)) ? `（${nm}様）` : '');
+}
+// ★ trial645: 端末ごとにどちらの文を送るか。中身つき(full)は、店舗の設定が on で、その端末がつむぎを detailDays 日以内に開いた(seen)ときだけ
+export function payloadFor(it, sub, nowMs) {
+  const seen = Date.parse((sub && sub.seen) || '') || 0;
+  const fresh = !!it.full && seen > 0 && (nowMs - seen) <= Math.max(1, Number(it.detailDays) || 7) * 86400000;
+  return fresh ? { title: it.full.title, body: it.full.body, detail: true } : { title: it.title, body: it.body, detail: false };
+}
 const minOf = (s) => { const m = String(s || '').match(/^(\d{1,2}):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : null; };
 const isoAdd = (dstr, n) => { const [y, m, d] = dstr.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, d + n)); return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}-${pad2(t.getUTCDate())}`; };
 // 済んでいないタスクの数(画面のホームと同じ: 繰り返しは31日前まで・繰り返しなしはずっと)。today=今日の回、over=期限切れ
 export function openTaskCounts(events, today, ctx) {
-  let nToday = 0, nOver = 0; const from = isoAdd(today, -31);
+  let nToday = 0, nOver = 0; const from = isoAdd(today, -31); const todayTasks = []; // ★ trial645: 今日の回(中身つきの文に題名を出す)
   (Array.isArray(events) ? events : []).filter(isTask).forEach(t => {
     if (!t.date || t.date > today) return;
-    if (!t.repeat || t.repeat === 'none') { if (!taskDoneOn(t, t.date)) { if (t.date === today) nToday++; else nOver++; } return; }
+    if (!t.repeat || t.repeat === 'none') { if (!taskDoneOn(t, t.date)) { if (t.date === today) { nToday++; todayTasks.push(t); } else nOver++; } return; }
     let d = t.date > from ? t.date : from; let g = 0;
-    while (d <= today && g++ < 400) { if (occursOn(t, d, ctx) && !taskDoneOn(t, d)) { if (d === today) nToday++; else nOver++; } d = isoAdd(d, 1); }
+    while (d <= today && g++ < 400) { if (occursOn(t, d, ctx) && !taskDoneOn(t, d)) { if (d === today) { nToday++; todayTasks.push(t); } else nOver++; } d = isoAdd(d, 1); }
   });
-  return { nToday, nOver };
+  return { nToday, nOver, todayTasks };
 }
 
 // 1店舗ぶんの「いま送るもの」を返す。sent = 送った鍵の控え(重ねて送らない)
-export function planStore({ storeId, events, colorLabels, cfg, closedDays, holidays }, nowMs, sent) {
+export function planStore({ storeId, events, colorLabels, cfg, closedDays, holidays, names }, nowMs, sent) {
   const c = { ...PUSH_DEFAULTS, ...((cfg && typeof cfg === 'object') ? cfg : {}) };
   if (c.on === false) return [];
   const j = new Date(nowMs + JST_OFF); const hm = j.getUTCHours() * 60 + j.getUTCMinutes();
@@ -84,6 +103,10 @@ export function planStore({ storeId, events, colorLabels, cfg, closedDays, holid
   const tasks = all.filter(isTask);
   const byStart = (a, b) => String(a.start || '99').localeCompare(String(b.start || '99'));
   const out = []; const S = sent || {};
+  // ★ trial645: 中身つきの文(full)。detail:false の店舗は作らない。利用者名は names(runCron が要るときだけ読む)
+  const det = c.detail !== false; const dDays = Math.max(1, Math.min(60, Number(c.detailDays) || 7));
+  const tx = (e) => evText(e, colorLabels, names);
+  const withFull = (item, full, evs) => (det ? { ...item, full, detailDays: dDays, needNames: (evs || []).some(e => e && e.patientId != null && e.patientId !== '') } : item);
   if (c.before !== false) {
     const bm = Math.max(5, Math.min(180, Number(c.beforeMin) || 30));
     [...list, ...tasks.filter(t => !taskDoneOn(t, today))].filter(e => occursOn(e, today, ctx)).sort(byStart).forEach(e => {
@@ -91,8 +114,9 @@ export function planStore({ storeId, events, colorLabels, cfg, closedDays, holid
       if (hm >= st - bm && hm < st) {
         const key = `${storeId}|b|${e.id}|${today}`; if (S[key]) return;
         const rem = st - hm;
-        if (isTask(e)) { out.push({ key, kind: 'beforeTask', title: `あと${rem}分でタスクの時刻です`, body: `${String(e.start).slice(0, 5)} タスク`, tag: `tsumugi-b-${e.id}-${today}`, path: '/?tsugo=dashboard' }); return; }
-        out.push({ key, kind: 'before', title: `あと${rem}分で予定があります`, body: `${String(e.start).slice(0, 5)} ${labelOf(e, colorLabels)}`, tag: `tsumugi-b-${e.id}-${today}`, path: '/?tsugo=schedule' });
+        const hh = String(e.start).slice(0, 5);
+        if (isTask(e)) { out.push(withFull({ key, kind: 'beforeTask', title: `あと${rem}分でタスクの時刻です`, body: `${hh} タスク`, tag: `tsumugi-b-${e.id}-${today}`, path: '/?tsugo=dashboard' }, { title: `あと${rem}分でタスクの時刻です`, body: `${hh} ${tx(e)}` }, [e])); return; }
+        out.push(withFull({ key, kind: 'before', title: `あと${rem}分で予定があります`, body: `${hh} ${labelOf(e, colorLabels)}`, tag: `tsumugi-b-${e.id}-${today}`, path: '/?tsugo=schedule' }, { title: `あと${rem}分で予定があります`, body: `${hh} ${tx(e)}` }, [e]));
       }
     });
   }
@@ -102,8 +126,9 @@ export function planStore({ storeId, events, colorLabels, cfg, closedDays, holid
       const st = minOf(e.start); if (st == null) return;
       if (hm >= st && hm < st + 10) {
         const key = `${storeId}|s|${e.id}|${today}`; if (S[key]) return;
-        if (isTask(e)) { out.push({ key, kind: 'startTask', title: 'タスクの時刻です', body: `${String(e.start).slice(0, 5)} タスク`, tag: `tsumugi-s-${e.id}-${today}`, path: '/?tsugo=dashboard' }); return; }
-        out.push({ key, kind: 'start', title: '予定の時刻です', body: `${String(e.start).slice(0, 5)} ${labelOf(e, colorLabels)}`, tag: `tsumugi-s-${e.id}-${today}`, path: '/?tsugo=schedule' });
+        const hh = String(e.start).slice(0, 5);
+        if (isTask(e)) { out.push(withFull({ key, kind: 'startTask', title: 'タスクの時刻です', body: `${hh} タスク`, tag: `tsumugi-s-${e.id}-${today}`, path: '/?tsugo=dashboard' }, { title: 'タスクの時刻です', body: `${hh} ${tx(e)}` }, [e])); return; }
+        out.push(withFull({ key, kind: 'start', title: '予定の時刻です', body: `${hh} ${labelOf(e, colorLabels)}`, tag: `tsumugi-s-${e.id}-${today}`, path: '/?tsugo=schedule' }, { title: '予定の時刻です', body: `${hh} ${tx(e)}` }, [e]));
       }
     });
   }
@@ -113,8 +138,12 @@ export function planStore({ storeId, events, colorLabels, cfg, closedDays, holid
     if (hm >= at && !S[key]) {
       const L = list.filter(e => occursOn(e, tomorrow, ctx)).sort(byStart);
       if (L.length) {
-        const head = L.slice(0, 4).map(e => `${e.start ? String(e.start).slice(0, 5) : '終日'} ${labelOf(e, colorLabels)}`).join('・');
-        out.push({ key, kind: 'dayBefore', title: `あすの予定 ${L.length}件（${tmr.getUTCMonth() + 1}/${tmr.getUTCDate()} ${DOW[tmr.getUTCDay()]}）`, body: head + (L.length > 4 ? ` ほか${L.length - 4}件` : ''), tag: `tsumugi-d-${tomorrow}`, path: '/?tsugo=schedule' });
+        const tm = (e) => (e.start ? String(e.start).slice(0, 5) : '終日');
+        const head = L.slice(0, 4).map(e => `${tm(e)} ${labelOf(e, colorLabels)}`).join('・');
+        const more = L.length > 4 ? ` ほか${L.length - 4}件` : '';
+        const ttl = `あすの予定 ${L.length}件（${tmr.getUTCMonth() + 1}/${tmr.getUTCDate()} ${DOW[tmr.getUTCDay()]}）`;
+        // ★ trial645: 中身つきは1件ずつ改行(通知を広げると全部読める)
+        out.push(withFull({ key, kind: 'dayBefore', title: ttl, body: head + more, tag: `tsumugi-d-${tomorrow}`, path: '/?tsugo=schedule' }, { title: ttl, body: L.slice(0, 4).map(e => `${tm(e)} ${tx(e)}`).join('\n') + more }, L.slice(0, 4)));
       } else out.push({ key, kind: 'none', skip: true }); // 予定が無い日も控え(何度も数えない)
     }
   }
@@ -122,8 +151,10 @@ export function planStore({ storeId, events, colorLabels, cfg, closedDays, holid
   if (c.taskMorning !== false && tasks.length) {
     const at = minOf(c.taskMorningAt) ?? 9 * 60; const key = `${storeId}|tm|${today}`;
     if (hm >= at && !S[key]) {
-      const { nToday, nOver } = openTaskCounts(tasks, today, ctx);
-      if (nToday + nOver) out.push({ key, kind: 'taskMorning', title: `今日のタスク ${nToday}件${nOver ? `・期限切れ ${nOver}件` : ''}`, body: '押すとホームの本日の業務を開きます', tag: `tsumugi-tm-${today}`, path: '/?tsugo=dashboard' });
+      const { nToday, nOver, todayTasks } = openTaskCounts(tasks, today, ctx);
+      const ttl = `今日のタスク ${nToday}件${nOver ? `・期限切れ ${nOver}件` : ''}`;
+      const tl = (todayTasks || []).slice(0, 3).map(t => String(t.title || '').replace(/\s+/g, ' ').trim().slice(0, 30)).filter(Boolean);
+      if (nToday + nOver) out.push(withFull({ key, kind: 'taskMorning', title: ttl, body: '押すとホームの本日の業務を開きます', tag: `tsumugi-tm-${today}`, path: '/?tsugo=dashboard' }, { title: ttl, body: tl.length ? tl.join('・') + (nToday > tl.length ? ` ほか${nToday - tl.length}件` : '') : '押すとホームの本日の業務を開きます' }, []));
       else out.push({ key, kind: 'none', skip: true });
     }
   }

@@ -10,10 +10,11 @@
 // GET  /api/push (Vercel Cron・1分おき)     → 送る時刻になった予定の通知を送る(api/_push_plan.js)
 //
 // 本部の作業は要らない: 鍵・通知先・送信済みの控えは、すべて既存の app_secrets(サーバーだけが読める表)に保存する。
-// 通知の文には利用者名・予定の題名を出さない(ロック画面に出るため)。押すとつむぎ(ログインを通る)のカレンダーが開く。
+// 通知の文: 2026-11-27 trial645 から、店舗の設定(既定 on)で予定の中身(ラベル・題名・利用者名)を出す。つむぎを N 日(既定 7)開いていない端末には
+//   今までどおりラベルと時刻だけ(_push_plan.js payloadFor)。ロック中に隠すのは端末の設定。押すとつむぎ(ログインを通る)のカレンダーが開く。
 import crypto from 'crypto';
 import webpush from 'web-push';
-import { planStore, JST_OFF } from './_push_plan.js';
+import { planStore, payloadFor, JST_OFF } from './_push_plan.js';
 
 const SUPA_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -84,6 +85,12 @@ async function storeData(storeId) {
   const r = (Array.isArray(rows) && rows[0]) || {};
   return { events: Array.isArray(r.ev) ? r.ev : [], cfg: r.pn || null, colorLabels: Array.isArray(r.cl) ? r.cl : [], closedDays: Array.isArray(r.cd) ? r.cd : [0], holidays: Array.isArray(r.hol) ? r.hol : [] };
 }
+// ★ 2026-11-27 trial645: 利用者名(中身つきの通知に出す)。利用者の一覧は大きいので、送る通知に利用者つきの予定があるときだけ読む
+async function storeNames(storeId) {
+  const rows = await sb(`app_state?key=eq.${encodeURIComponent(storeId)}&select=pt:data->patients&limit=1`);
+  const pt = (Array.isArray(rows) && rows[0] && Array.isArray(rows[0].pt)) ? rows[0].pt : [];
+  const m = {}; pt.forEach(p => { if (p && p.id != null && p.name) m[String(p.id)] = String(p.name); }); return m;
+}
 
 async function runCron(nowMs, dryStore) {
   // ★ 2026-10-28(ユーザー「30分前にはちゃんと通知が来るように1分おきに」): 定時は5分おき→1分おき(vercel.json)。
@@ -98,7 +105,8 @@ async function runCron(nowMs, dryStore) {
   const todo = []; const preview = [];
   for (const storeId of stores) {
     let d; try { d = await storeData(storeId); } catch { continue; }
-    const items = planStore({ storeId, ...d }, nowMs, sent);
+    let items = planStore({ storeId, ...d }, nowMs, sent);
+    if (items.some(it => !it.skip && it.needNames)) { try { const names = await storeNames(storeId); items = planStore({ storeId, ...d, names }, nowMs, sent); } catch {} } // ★ trial645
     if (dryStore) { preview.push(...items); continue; }
     for (const it of items) { sent[it.key] = nowMs; changed = true; if (!it.skip) todo.push([storeId, it]); }
   }
@@ -110,7 +118,8 @@ async function runCron(nowMs, dryStore) {
   let n = 0; const gone = new Set();
   for (const [storeId, it] of todo) {
     for (const [id, s] of (byStore[storeId] || [])) {
-      const r = await sendTo(s, { title: it.title, body: it.body, tag: it.tag, url: (okOrigin(s.origin) ? s.origin : PROD) + it.path }, v);
+      const pl = payloadFor(it, s, nowMs); // ★ trial645: 中身つきか伏せた文かは端末ごと
+      const r = await sendTo(s, { title: pl.title, body: pl.body, tag: it.tag, url: (okOrigin(s.origin) ? s.origin : PROD) + it.path }, v);
       if (r.ok) n++; else if (r.gone) gone.add(id);
     }
   }
@@ -160,7 +169,7 @@ export default async function handler(req, res) {
     if (action === 'test') {
       const id = subId(body.endpoint, storeId); const sv = subs[id]; if (!sv) return res.status(404).json({ error: 'この店舗では、この端末はまだ通知先になっていません。「この端末に通知を届ける」を押してください', notRegistered: true });
       // 2026-10-27: 印(tag)は毎回ちがうものにする(同じ印だと前のテストの通知に上書きされ、音も表示も出ない端末がある)
-      const r = await sendTo(sv, { title: 'つむぎ 通知のテスト', body: 'この端末に予定のお知らせが届きます。', tag: `tsumugi-test-${Date.now()}`, url: (okOrigin(sv.origin) ? sv.origin : PROD) + '/' }, await vapid());
+      const r = await sendTo(sv, { title: 'つむぎ 通知のテスト', body: 'この端末に予定のお知らせが届きます。例: 10:00 担当者会議：ご自宅で（○○様）', tag: `tsumugi-test-${Date.now()}`, url: (okOrigin(sv.origin) ? sv.origin : PROD) + '/' }, await vapid());
       if (r.gone) await delSub(id);
       return r.ok ? res.status(200).json({ ok: true }) : res.status(502).json({ error: `通知を送れませんでした(${r.status || '通信'})。もう一度「この端末に通知を届ける」を押してください` });
     }
